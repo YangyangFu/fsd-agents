@@ -74,14 +74,16 @@ class NaiveDETR(BaseModule):
                       [bs, embed_dims, h, w].
         """
         
-        ## encoder forward
-        bs, dim, h, w = src.shape
+        ## encoder forward 
+        # [bs, num_query, dim]
+        bs, hw, dim = src.shape
         # use `view` instead of `flatten` for dynamically exporting to ONNX
-        src = src.view(bs, dim, -1).permute(0, 2, 1)  # [bs, dim, h, w] -> [bs, h*w, dim]
-        key_pos_embed = key_pos_embed.view(bs, dim, -1).permute(0, 2, 1)
+        # src = src.view(bs, dim, -1).permute(0, 2, 1)  # [bs, dim, h, w] -> [bs, h*w, dim]
+        #key_pos_embed = key_pos_embed.view(bs, dim, -1).permute(0, 2, 1)
         query_pos_embed = query_pos_embed.unsqueeze(0).repeat(
             bs, 1, 1)  # [num_query, dim] -> [bs, num_query, dim]
-        key_padding_mask = key_padding_mask.view(bs, -1)  # [bs, h, w] -> [bs, h*w]
+        #key_padding_mask = key_padding_mask.view(bs, -1)  # [bs, h, w] -> [bs, h*w]
+        # [bs, num_keys, dim]
         memory = self.encoder(
             query=src,
             query_pos=key_pos_embed,
@@ -98,10 +100,7 @@ class NaiveDETR(BaseModule):
             query_pos=query_pos_embed,
             key_pos=key_pos_embed,
             key_padding_mask=key_padding_mask)
-        
-        # [bs, num_keys, dim] -> [bs, dim, num_keys] -> [bs, dim, h, w]
-        memory = memory.permute(1, 2, 0).reshape(bs, dim, h, w)
-        
+
         return out_dec, memory
         
 
@@ -155,12 +154,12 @@ if __name__ == "__main__":
     detr = NaiveDETR(encoder_cfg, decoder_cfg)
 
     # test forward
-    src = torch.randn(1, 256, 16, 16)
+    src = torch.randn(1, 256, 200)
     query_pos_embed = torch.randn(100, 256)
-    key_pos_embed = torch.randn(16, 16, 256)
-    key_padding_mask = torch.randn(1, 16, 16)
+    key_pos_embed = torch.randn(200, 256)
+    key_padding_mask = torch.randn(1, 200)
     out_dec, memory = detr(src, query_pos_embed, key_pos_embed, key_padding_mask)
-    # expect: out_dec: [8, 1, 100, 256], memory: [1, 256, 16, 16]
+    # expect: out_dec: [8, 1, 100, 256], memory: [1, 200, 256]
     print(out_dec.shape, memory.shape) 
     
     
