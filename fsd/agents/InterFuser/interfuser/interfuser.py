@@ -1,5 +1,5 @@
 # Wrapper for naive transformer model
-from typing import List, Dict, Tuple, Union, Sequence
+from typing import List, Dict, Tuple, Union, Sequence, AnyStr, TypedDict
 import torch
 import torch.nn as nn
 
@@ -10,21 +10,18 @@ from mmdet3d.registry import MODELS as MMDET3D_MODELS
 from mmdet3d.structures import Det3DDataSample
 from mmdet3d.models import Base3DDetector
 
-from mmdet.models import SinePositionalEncoding, LearnedPositionalEncoding
+from mmdet.models import (DetrTransformerDecoder, \
+                            DetrTransformerEncoder, \
+                                SinePositionalEncoding, \
+                                    LearnedPositionalEncoding)
 
-@MMDET_MODELS.register_module()
-class InterfuserNect(BaseModule):
-    """Interfuser feature neck.
+from fsd.registry import MODELS as FSD_MODELS
+from fsd.registry import AGENTS as FSD_AGENTS
 
-        A simple 1x1 convolutional layer to project the input features to a given dimension.
-    """
-    def __init__(self, in_channels: int, out_channels: int, init_cfg: OptConfigType = None):
-        super(InterfuserNect, self).__init__(init_cfg=init_cfg)
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0)
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.conv(x)
+# define tying
+INPUT_DATA_TYPE = Dict[AnyStr, torch.Tensor]
 
+@FSD_AGENTS.register_module()
 class InterFuser(Base3DDetector):
     def __init__(self,
                  num_queries: int,
@@ -32,13 +29,12 @@ class InterFuser(Base3DDetector):
                  img_backbone: OptConfigType = None,
                  pts_backbone: OptConfigType = None,
                  img_neck: OptConfigType = None, # simple projection to a given dimension
-                 pts_nect: OptConfigType = None, # simple projection to a given dimension
+                 pts_neck: OptConfigType = None, # simple projection to a given dimension
                  encoder: ConfigType = None,
                  decoder: ConfigType = None,
                  planner_head: ConfigType = None,
                  positional_encoding: ConfigType = None,
                  multi_view_encoding: ConfigType = None,
-                 query_embedding: ConfigType = None,
                  train_cfg: ConfigType = None,
                  test_cfg: ConfigType = None,
                  init_cfg: OptConfigType = None,
@@ -59,9 +55,9 @@ class InterFuser(Base3DDetector):
         
         ## neck applied to features extracted from img backbone abd pts backbone
         if img_neck:
-            self.img_neck = MMDET_MODELS.build(img_neck)
-        if pts_nect:
-            self.pts_neck = MMDET_MODELS.build(pts_nect)
+            self.img_neck = FSD_MODELS.build(img_neck)
+        if pts_neck:
+            self.pts_neck = FSD_MODELS.build(pts_neck)
         
         ## embeddings
         # fixed positional encoding for encoder
@@ -80,7 +76,7 @@ class InterFuser(Base3DDetector):
                     
         # query position embedding
         # NOTE: the original paper applies learnable positional encoding for only parts of the query.
-        # if the query position seems only being applied to waypoint queries and traffic info queries
+        # the query position seems only being applied to waypoint queries and traffic info queries
         self.num_queries_waypoints = 10
         self.num_queries_traffic_info = 1
         self.query_positional_encoding = nn.Embedding(
@@ -89,9 +85,9 @@ class InterFuser(Base3DDetector):
         
         ## detr transformer
         if encoder:
-            self.encoder = MMDET3D_MODELS.build(encoder)
+            self.encoder = DetrTransformerEncoder(**encoder)
         if decoder:
-            self.decoder = MMDET3D_MODELS.build(decoder)
+            self.decoder = DetrTransformerDecoder(**decoder)
         
         # train/test config
         self.train_cfg = train_cfg
@@ -124,6 +120,14 @@ class InterFuser(Base3DDetector):
     def with_img_neck(self):
         return hasattr(self, 'img_neck') and self.img_neck is not None
     
+    @property
+    def with_pts_neck(self):
+        return hasattr(self, 'pts_neck') and self.pts_neck is not None
+    
+    @property
+    def with_multi_view_encoding(self):
+        return hasattr(self, 'multi_view_encoding') and self.multi_view_encoding is not None
+    
     def init_weights(self):
         super().init_weights()
         # init weights for embeddings using uniform
@@ -144,26 +148,23 @@ class InterFuser(Base3DDetector):
             input_metas (List[dict]): The meta information of multiple samples
             
         """
+        
         if self.with_img_backbone and img is not None:
-            input_shape = img.shape[-2:]
-            
+            dim = img.dim()            
             # update real input shape of each single img
             #for img_meta in input_metas:
             #    img_meta.update(input_shape=input_shape)
-
-            if img.dim() == 5:
+            if dim == 5:
                 B, N, C, H, W = img.size()
                 img = img.view(B * N, C, H, W)
-                
-            img_feats = self.img_backbone(img)
-        else:
-            return None
-        if self.with_img_neck:
-            img_feats = self.img_neck(img_feats)
-        
-        if img.dim() == 5:
-            _, Cf, Hf, Wf = img_feats.size()
-            img_feats = img_feats.view(B, N, Cf, Hf, Wf)
+            
+            # choose the last from the tuple after backbone as feats
+            img_feats = self.img_backbone(img)[-1]
+
+            # reshape back to the original shape
+            if dim == 5:
+                _, Cf, Hf, Wf = img_feats.size()
+                img_feats = img_feats.view(B, N, Cf, Hf, Wf)
             
         return img_feats
 
@@ -179,13 +180,22 @@ class InterFuser(Base3DDetector):
             input_metas (List[dict]): The meta information of multiple samples.
         """
         if self.with_pts_backbone and pts_bev is not None:
-            pts_feats = self.pts_backbone(pts_bev)
-        else:
-            return None
+            dim = pts_bev.dim()
+            # 
+            if dim == 5:
+                B, N, C, H, W = pts_bev.size()
+                pts_bev = pts_bev.view(B * N, C, H, W)
+            # extrack features from backbone
+            pts_feats = self.pts_backbone(pts_bev)[-1]
+            # point features
+            if dim == 5:
+                _, Cf, Hf, Wf = pts_feats.size()
+                pts_feats = pts_feats.view(B, N, Cf, Hf, Wf)
+            
         return pts_feats
     
-    def extract_backbone_feats(self, 
-                     batch_inputs_dict: dict) -> Dict[str: torch.Tensor]:
+    def extract_feat(self, 
+                     batch_inputs_dict: INPUT_DATA_TYPE) -> INPUT_DATA_TYPE:
         """Extract features of images and points.
         
         Args:
@@ -205,10 +215,6 @@ class InterFuser(Base3DDetector):
         
         return dict(imgs=img_feats, pts=pts_feats)
     
-    def _apply_embed(self):
-        """Apply embedding for features.
-        """
-        
     def _apply_neck(self, feats):
         """Apply neck for features.
         """
@@ -225,14 +231,22 @@ class InterFuser(Base3DDetector):
         
         # apply on point cloud features -> BEV features      
         if self.with_pts_neck:
+            dim_pts = feats['pts'].dim()
+            if dim_pts == 5:
+                B, N, C, H, W = feats['pts'].size()
+                feats['pts'] = feats['pts'].view(B * N, C, H, W)
+                
             feats['pts'] = self.pts_neck(feats['pts'])
-            
+            if dim_pts == 5:
+                _, Cf, Hf, Wf = feats['pts'].size()
+                feats['pts'] = feats['pts'].view(B, N, Cf, Hf, Wf)
+        
         return feats
     
     def _forward(self, batch_inputs_dict, data_samples):
         """Forward function in tensor mode
         """
-        feats = self.extract_backbone_feats(batch_inputs_dict)
+        feats = self.extract_feat(batch_inputs_dict)
         feats = self._apply_neck(feats)
         img_feats = feats['imgs']
         pts_feats = feats['pts']
@@ -252,26 +266,35 @@ class InterFuser(Base3DDetector):
         ## concatenate and apply positional encoding and multi-view encoding
         # (B, N, dim, H, W) -> (B, NHW, dim)
         key_embed = torch.cat([img_feats, pts_feats], dim=1).permute(0, 1, 3, 4, 2).reshape(B, -1, e)
-        # (N, dim)
-        sensor_pos_encodings = self.multi_view_encoding(torch.arange(N_img + N_pts))
-        # (B, dim, H, W) -> (B, N, dim, H, W) -> (B, NHW, dim)
+        
+
+        # (B, H, W) -> (B, N, dim, H, W) -> (B, NHW, dim)
         mask = torch.zeros(B, H, W)
+        # (B, dim, H, W)
         key_pos_encodings = self.positional_encoding(mask=mask)
-        key_pos_encodings = key_pos_encodings.unsqueeze(0).repeat(1, N_img + N_pts, 1, 1, 1) + \
-                sensor_pos_encodings[None, :, :, None, None].repeat(B, 1, 1, H, W)
+        # (B, N, dim, H, W)
+        key_pos_encodings = key_pos_encodings.unsqueeze(1).repeat(1, N_img + N_pts, 1, 1, 1)
+            
+        if self.with_multi_view_encoding:
+            # (N, dim)
+            sensor_pos_encodings = self.multi_view_encoding(torch.arange(N_img + N_pts))
+            # (B, N, dim, H, W)
+            sensor_pos_encodings = sensor_pos_encodings[None, :, :, None, None].repeat(B, 1, 1, H, W)
+            key_pos_encodings += sensor_pos_encodings
+        # (B, N, dim, H, W) -> (B, N, H, W, dim) -> (B, NHW, dim)    
         key_pos_encodings = key_pos_encodings.permute(0, 1, 3, 4, 2).reshape(B, -1, e)
         
         # query embedding
-        # (num_queries, dim) [num_waypoints, num_objects_map, num_traffic_info]
+        # (N, dim) [num_waypoints, num_objects_map, num_traffic_info]
         query_embed = self.query_embedding(torch.arange(self.num_queries))
-        # (num_query_pos, dim,) -> (B, num_queries, dim)
+        # (N_pos, dim,) -> (N, dim) -> (B, N, dim)
         query_pos_embed = self.query_positional_encoding(torch.arange(self.query_positional_encoding.num_embeddings))
         query_pos_embed = torch.cat([query_pos_embed[:self.num_queries_waypoints, :], 
                                      torch.zeros(self.num_queries - self.num_queries_waypoints - self.num_queries_traffic_info, self.embed_dims),
                                      query_pos_embed[-self.num_queries_traffic_info:, :]], 
                                     dim=0)
         query_pos_embed = query_pos_embed.unsqueeze(0).repeat(B, 1, 1)
-        # (B, num_queries, dim) 
+        # (B, N, dim) 
         query_embed = query_embed.unsqueeze(0).repeat(B, 1, 1)
           
         ## encoder
@@ -296,3 +319,9 @@ class InterFuser(Base3DDetector):
         
         results = output_dec
         return results
+
+    def loss(self, results, data_samples, **kwargs):
+        pass
+    
+    def predict(self, results, data_samples, **kwargs):
+        pass
