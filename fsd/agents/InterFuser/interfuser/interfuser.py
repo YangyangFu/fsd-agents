@@ -3,8 +3,6 @@ from typing import List, Dict, Tuple, Union, Sequence, AnyStr, TypedDict
 import torch
 import torch.nn as nn
 
-from mmengine.model import BaseModule
-from mmdet.registry import MODELS as MMDET_MODELS
 from mmdet3d.utils import ConfigType, OptConfigType
 from mmdet3d.registry import MODELS as MMDET3D_MODELS
 from mmdet3d.structures import Det3DDataSample
