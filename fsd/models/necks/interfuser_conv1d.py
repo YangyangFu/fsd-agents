@@ -3,11 +3,10 @@ import torch
 import torch.nn as nn
 
 from mmengine.model import BaseModule
-from mmdet3d.utils import ConfigType, OptConfigType
-from mmdet3d.registry import MODELS as MMDET3D_MODELS
-from fsd.registry import MODELS
+from mmdet3d.utils import OptConfigType
+from fsd.registry import NECKS
 
-@MODELS.register_module()
+@NECKS.register_module()
 class InterFuserNeck(BaseModule):
     """Interfuser feature neck.
 

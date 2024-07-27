@@ -1,6 +1,6 @@
 
 import torch 
-from fsd.registry import MODELS as FSD_MODELS
+from fsd.registry import NECKS
 
 # image backbone features (3, 224, 224)
 feats = torch.randn(2, 2048, 7, 7)
@@ -14,7 +14,7 @@ cfg = dict(
 )
 
 # build model
-model = FSD_MODELS.build(cfg=cfg)
+model = NECKS.build(cfg=cfg)
 
 # run forward
 outputs = model(feats)

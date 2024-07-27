@@ -15,8 +15,9 @@ from mmdet.models import (DetrTransformerDecoder, \
                                 SinePositionalEncoding, \
                                     LearnedPositionalEncoding)
 
-from fsd.registry import MODELS as FSD_MODELS
+from fsd.registry import NECKS as FSD_NECKS
 from fsd.registry import AGENTS as FSD_AGENTS
+from fsd.registry import BACKBONES as FSD_BACKBONES
 
 # define tying
 INPUT_DATA_TYPE = Dict[AnyStr, torch.Tensor]
@@ -49,15 +50,15 @@ class InterFuser(Base3DDetector):
 
         ## img backbone
         if img_backbone:
-            self.img_backbone = MMDET_MODELS.build(img_backbone)
+            self.img_backbone = FSD_BACKBONES.build(img_backbone)
         if pts_backbone:
-            self.pts_backbone = MMDET_MODELS.build(pts_backbone)
+            self.pts_backbone = FSD_BACKBONES.build(pts_backbone)
         
         ## neck applied to features extracted from img backbone abd pts backbone
         if img_neck:
-            self.img_neck = FSD_MODELS.build(img_neck)
+            self.img_neck = FSD_NECKS.build(img_neck)
         if pts_neck:
-            self.pts_neck = FSD_MODELS.build(pts_neck)
+            self.pts_neck = FSD_NECKS.build(pts_neck)
         
         ## embeddings
         # fixed positional encoding for encoder
