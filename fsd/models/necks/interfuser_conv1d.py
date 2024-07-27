@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 from mmengine.model import BaseModule
-from mmdet3d.utils import OptConfigType
+from fsd.utils import OptConfigType
 from fsd.registry import NECKS
 
 @NECKS.register_module()

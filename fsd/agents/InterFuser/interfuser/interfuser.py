@@ -3,16 +3,12 @@ from typing import List, Dict, Tuple, Union, Sequence, AnyStr, TypedDict
 import torch
 import torch.nn as nn
 
-from mmdet3d.utils import ConfigType, OptConfigType
-from mmdet3d.registry import MODELS as MMDET3D_MODELS
-from mmdet3d.structures import Det3DDataSample
 from mmdet3d.models import Base3DDetector
-
 from mmdet.models import (DetrTransformerDecoder, \
                             DetrTransformerEncoder, \
                                 SinePositionalEncoding, \
                                     LearnedPositionalEncoding)
-
+from fsd.utils import ConfigType, OptConfigType
 from fsd.registry import NECKS as FSD_NECKS
 from fsd.registry import AGENTS as FSD_AGENTS
 from fsd.registry import BACKBONES as FSD_BACKBONES
