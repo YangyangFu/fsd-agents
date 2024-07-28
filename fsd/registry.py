@@ -29,11 +29,10 @@ from mmengine.registry import \
     WEIGHT_INITIALIZERS as MMENGINE_WEIGHT_INITIALIZERS
 from mmengine.registry import Registry
 
-from mmdet3d.registry import MODELS as MMDET3D_MODELS
 # manging all kinds of modules inheriting from 'nn.Module'
 MODELS = Registry('model', parent=MMENGINE_MODELS, locations=['fsd.models'])
 NECKS = MODELS 
 BACKBONES = MODELS
 HEADS = MODELS
 
-AGENTS = Registry('agent', parent=MMDET3D_MODELS, locations=['fsd.agents'])
+AGENTS = Registry('agent', locations=['fsd.agents'])
