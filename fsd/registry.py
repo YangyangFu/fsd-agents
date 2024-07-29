@@ -34,5 +34,6 @@ MODELS = Registry('model', parent=MMENGINE_MODELS, locations=['fsd.models'])
 NECKS = MODELS 
 BACKBONES = MODELS
 HEADS = MODELS
+TRANSFORMERS = MODELS
 
 AGENTS = Registry('agent', locations=['fsd.agents'])

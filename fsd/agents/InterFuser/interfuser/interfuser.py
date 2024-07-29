@@ -12,6 +12,7 @@ from fsd.utils import ConfigType, OptConfigType
 from fsd.registry import NECKS as FSD_NECKS
 from fsd.registry import AGENTS as FSD_AGENTS
 from fsd.registry import BACKBONES as FSD_BACKBONES
+from fsd.registry import TRANSFORMERS as FSD_TRANSFORMERS
 
 # define tying
 INPUT_DATA_TYPE = Dict[AnyStr, torch.Tensor]
@@ -80,9 +81,9 @@ class InterFuser(Base3DDetector):
         
         ## detr transformer
         if encoder:
-            self.encoder = DetrTransformerEncoder(**encoder)
+            self.encoder = FSD_TRANSFORMERS.build(encoder)
         if decoder:
-            self.decoder = DetrTransformerDecoder(**decoder)
+            self.decoder = FSD_TRANSFORMERS.build(decoder)
         
         # train/test config
         self.train_cfg = train_cfg
@@ -296,7 +297,12 @@ class InterFuser(Base3DDetector):
         # [bs, NHW, dim]
         memory = self.encoder(
             query = key_embed,
+            key = key_embed,
+            value = key_embed,
             query_pos = key_pos_encodings,
+            key_pos = None,
+            attn_masks = None,
+            query_key_padding_mask = None,
             key_padding_mask = None
         )
         
@@ -307,6 +313,8 @@ class InterFuser(Base3DDetector):
             value = memory,
             query_pos = query_pos_embed,
             key_pos = key_pos_encodings,
+            attn_masks = None,
+            query_key_padding_mask = None,
             key_padding_mask = None
         )
         

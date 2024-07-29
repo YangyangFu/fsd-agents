@@ -2,7 +2,7 @@ import torch
 from fsd.registry import AGENTS
 from mmengine.config import Config
 
-cfg = Config.fromfile('interfuser_r50_carla.py')
+cfg = Config.fromfile('/home/yyf/github/FSDagents/fsd/agents/InterFuser/configs/interfuser_r50_carla.py')
 agent = AGENTS.build(cfg.model)
 
 ## generate some fake inputs

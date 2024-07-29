@@ -6,6 +6,8 @@ from torch.nn.modules.activation import ReLU
 #]
 
 EMBED_DIMS = 256
+BATCH_FIRST = True
+
 model = dict(
     type='InterFuser',
     num_queries=411,
@@ -41,46 +43,54 @@ model = dict(
         out_channels=EMBED_DIMS
     ),
     encoder = dict( # DetrTransformerEncoder
+        type='DETRLayerSequence',
         num_layers=6,
-        layer_cfg=dict(  # DetrTransformerEncoderLayer
-            self_attn_cfg=dict(  # MultiheadAttention
+        transformerlayers=dict(
+            type='fsd.DETRLayer',
+            attn_cfgs=dict( # MultiheadAttention
+                type='MultiheadAttention',
                 embed_dims=EMBED_DIMS,
                 num_heads=8,
-                dropout=0.1,
-                batch_first=True),
-            ffn_cfg=dict(
+                attn_drop=0.,
+                proj_drop=0.,
+                batch_first = BATCH_FIRST
+            ),
+            ffn_cfgs=dict(
+                type='FFN',
                 embed_dims=EMBED_DIMS,
                 feedforward_channels=2048,
                 num_fcs=2,
                 ffn_drop=0.1,
                 act_cfg=dict(type='ReLU', inplace=True)
-            )
+            ),
+            operation_order=['self_attn', 'norm', 'ffn', 'norm'],
+            batch_first=BATCH_FIRST
         )
     ),       
     decoder = dict(  # DetrTransformerDecoder
+        type='DETRLayerSequence',
         num_layers=6,
-        layer_cfg=dict(  # DetrTransformerDecoderLayer
-            self_attn_cfg=dict(  # MultiheadAttention
+        transformerlayers=dict(
+            type='fsd.DETRLayer',
+            attn_cfgs=dict( # MultiheadAttention
+                type='MultiheadAttention',
                 embed_dims=EMBED_DIMS,
                 num_heads=8,
-                dropout=0.1,
-                batch_first=True
+                attn_drop=0.,
+                proj_drop=0.,
+                batch_first = BATCH_FIRST
             ),
-            cross_attn_cfg=dict(  # MultiheadAttention
-                embed_dims=EMBED_DIMS,
-                num_heads=8,
-                dropout=0.1,
-                batch_first=True
-            ),
-            ffn_cfg=dict(
+            ffn_cfgs=dict(
+                type='FFN',
                 embed_dims=EMBED_DIMS,
                 feedforward_channels=2048,
                 num_fcs=2,
                 ffn_drop=0.1,
                 act_cfg=dict(type='ReLU', inplace=True)
-            )
-        ),
-        return_intermediate=False
+            ),
+            operation_order=['self_attn', 'norm', 'cross_attn', 'norm', 'ffn', 'norm'],
+            batch_first=BATCH_FIRST
+        )
     ),
     
     positional_encoding=dict(
