@@ -1,4 +1,5 @@
-from fsd.registry import TRANSFORMERS
+import torch
+from fsd.registry import TRANSFORMERS, MODELS
 
 
 embed_dims = 256
@@ -10,7 +11,6 @@ attn_cfgs = dict(
     attn_drop=0.,
     proj_drop=0.,
     dropout_layer=dict(type='Dropout', drop_prob=0.),
-    batch_first=batch_first
 )
 
 ffn_cfgs = dict(
@@ -35,5 +35,11 @@ cfg = dict(
 
 model = TRANSFORMERS.build(cfg)
 print(model)
+query = torch.randn(2, 45, 256)
+model_output = model(query, query, query)
+print(model_output.shape)
 
 
+ffn = MODELS.build(ffn_cfgs)
+print(ffn)
+print(ffn(torch.randn(2, 256)).shape)
