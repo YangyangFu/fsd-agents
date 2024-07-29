@@ -303,7 +303,8 @@ class InterFuser(Base3DDetector):
             key_pos = None,
             attn_masks = None,
             query_key_padding_mask = None,
-            key_padding_mask = None
+            key_padding_mask = None,
+            return_intermediate = False
         )
         
         ## decoder
@@ -315,7 +316,8 @@ class InterFuser(Base3DDetector):
             key_pos = key_pos_encodings,
             attn_masks = None,
             query_key_padding_mask = None,
-            key_padding_mask = None
+            key_padding_mask = None,
+            return_intermediate = True
         )
         
         # planner head

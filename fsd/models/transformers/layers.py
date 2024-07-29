@@ -159,7 +159,7 @@ class BaseTransformerLayer(BaseModule):
             Default: None.
         batch_first (bool): Key, Query and Value are shape
             of (batch, n, embed_dim)
-            or (n, batch, embed_dim). Default to False.
+            or (n, batch, embed_dim). Default to True.
     """
 
     def __init__(self,
@@ -292,7 +292,7 @@ class BaseTransformerLayer(BaseModule):
                 shape [bs, num_keys]. Default: None.
 
         Returns:
-            Tensor: forwarded results with shape [num_queries, bs, embed_dims].
+            Tensor: forwarded results with shape [bs, num_queries, embed_dims] if batch_first is True.
         """
 
         norm_index = 0
@@ -402,32 +402,36 @@ class TransformerLayerSequence(BaseModule):
                 attn_masks=None,
                 query_padding_mask=None,
                 key_padding_mask=None,
+                return_intermediate=False,
                 **kwargs):
         """Forward function for `TransformerCoder`.
 
         Args:
             query (Tensor): Input query with shape
-                `(num_queries, bs, embed_dims)`.
+                `(bs, num_queries, embed_dims)` if batch_first else `(num_queries, bs, embed_dims)`.
             key (Tensor): The key tensor with shape
-                `(num_keys, bs, embed_dims)`.
+                `(bs, num_keys, embed_dims)` if batch_first.
             value (Tensor): The value tensor with shape
-                `(num_keys, bs, embed_dims)`.
-            query_pos (Tensor): The positional encoding for `query`.
+                `(bs, num_keys, embed_dims)` if batch_first.
+            query_pos (Tensor): The positional encoding for `query` with shape `(bs, num_queries, embed_dims).
                 Default: None.
-            key_pos (Tensor): The positional encoding for `key`.
+            key_pos (Tensor): The positional encoding for `key` with shape `(bs, num_keys, embed_dims)`.
                 Default: None.
             attn_masks (List[Tensor], optional): Each element is 2D Tensor
                 which is used in calculation of corresponding attention in
-                operation_order. Default: None.
+                operation_order with shape (bs, num_queries, num_keys). Default: None.
             query_padding_mask (Tensor): ByteTensor for `query`, with
                 shape [bs, num_queries]. Only used in self-attention
                 Default: None.
             key_padding_mask (Tensor): ByteTensor for `key`, with
                 shape [bs, num_keys]. Default: None.
-
+            return_intermediate (bool): Whether return intermediate results.
         Returns:
-            Tensor:  results with shape [num_queries, bs, embed_dims].
+            Tensor:  The forwarded results will have shape
+            (num_decoder_layers, bs, num_queries, dim) if
+            `return_intermediate` is `True` else (1, bs, num_queries, dim).
         """
+        intermediate = []
         for layer in self.layers:
             query = layer(
                 query,
@@ -439,6 +443,12 @@ class TransformerLayerSequence(BaseModule):
                 query_padding_mask=query_padding_mask,
                 key_padding_mask=key_padding_mask,
                 **kwargs)
+            if return_intermediate:
+                intermediate.append(query)
+        
+        if return_intermediate:
+            return torch.stack(intermediate)
+                
         return query
 
 
