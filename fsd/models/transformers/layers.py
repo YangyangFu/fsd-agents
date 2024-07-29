@@ -373,16 +373,12 @@ class TransformerLayerSequence(BaseModule):
         num_layers (int): The number of `TransformerLayer`. Default: None.
         init_cfg (obj:`mmcv.ConfigDict`): The Config for initialization.
             Default: None.
-        return_intermediate (bool): Whether return intermediate results. Mainly used for debugging
     """
 
     def __init__(self, layer_cfgs: LayerConfigType, 
                  num_layers: int=6, 
-                 init_cfg: OptConfigType=None,
-                 return_intermediate: bool=False):
+                 init_cfg: OptConfigType=None):
         super().__init__(init_cfg)
-        
-        self.return_intermediate = return_intermediate
         
         if isinstance(layer_cfgs, dict):
             layer_cfgs = [
@@ -431,8 +427,7 @@ class TransformerLayerSequence(BaseModule):
                 shape [bs, num_keys]. Default: None.
         Returns:
             Tensor:  The forwarded results will have shape
-            (num_decoder_layers, bs, num_queries, dim) if
-            `return_intermediate` is `True` else (1, bs, num_queries, dim).
+            (bs, num_queries, dim) if batch_first is True.
         """
         
         for layer in self.layers:
