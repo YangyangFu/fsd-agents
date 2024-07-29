@@ -10,10 +10,18 @@ agent = AGENTS.build(cfg.model)
 imgs = torch.randn(2, 4, 3, 224, 224)
 # 1 lidar bev image
 pts = torch.randn(2, 3, 224, 224)
-inputs = dict(imgs=imgs, pts=pts)
+# goal points
+goal_points = torch.randn(2, 2)
+inputs = dict(imgs=imgs, pts=pts, goal_points=goal_points)
 
 ## forward pass
-outputs = agent(inputs)
-
+output_dec, density_map, stop_sign, is_junction, traffic_light, waypoints = agent(inputs)
+print(stop_sign.shape, is_junction.shape, traffic_light.shape, waypoints.shape)
 # check the output shapes
-print(outputs.shape)
+assert output_dec.shape == (2, 411, 256)
+assert density_map.shape == (2, 400, 7)
+assert stop_sign.shape == (2, 1, 2)
+assert is_junction.shape == (2, 1, 2)
+assert traffic_light.shape == (2, 1, 2)
+assert waypoints.shape == (2, 10, 2)
+

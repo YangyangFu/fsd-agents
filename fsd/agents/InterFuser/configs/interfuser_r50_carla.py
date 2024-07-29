@@ -90,7 +90,25 @@ model = dict(
             batch_first=BATCH_FIRST
         )
     ),
-    
+    waypoints_head=dict(
+        type='interfuser_gru_waypoint',
+        input_size=EMBED_DIMS,
+        hidden_size=64,
+        num_layers=1,
+        batch_first=BATCH_FIRST
+    ),
+    object_density_head=dict(
+        type='interfuser_density_map',
+        input_size=EMBED_DIMS,
+        hidden_size=64,
+        output_size=7
+    ),
+    traffic_info_head=dict(
+        type='interfuser_traffic_rule',
+        input_size=EMBED_DIMS,
+        output_size=2
+    ),
+        
     positional_encoding=dict(
         num_feats=EMBED_DIMS//2,
         normalize=True

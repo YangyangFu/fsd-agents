@@ -4,15 +4,14 @@ import torch
 import torch.nn as nn
 
 from mmdet3d.models import Base3DDetector
-from mmdet.models import (DetrTransformerDecoder, \
-                            DetrTransformerEncoder, \
-                                SinePositionalEncoding, \
-                                    LearnedPositionalEncoding)
+from mmdet.models import (SinePositionalEncoding, \
+                            LearnedPositionalEncoding)
 from fsd.utils import ConfigType, OptConfigType
 from fsd.registry import NECKS as FSD_NECKS
 from fsd.registry import AGENTS as FSD_AGENTS
 from fsd.registry import BACKBONES as FSD_BACKBONES
 from fsd.registry import TRANSFORMERS as FSD_TRANSFORMERS
+from fsd.registry import HEADS as FSD_HEADS
 
 # define tying
 INPUT_DATA_TYPE = Dict[AnyStr, torch.Tensor]
@@ -28,14 +27,15 @@ class InterFuser(Base3DDetector):
                  pts_neck: OptConfigType = None, # simple projection to a given dimension
                  encoder: ConfigType = None,
                  decoder: ConfigType = None,
-                 planner_head: ConfigType = None,
+                 waypoints_head: ConfigType = None,
+                 object_density_head: ConfigType = None,
+                 traffic_info_head: ConfigType = None,
                  positional_encoding: ConfigType = None,
                  multi_view_encoding: ConfigType = None,
                  train_cfg: ConfigType = None,
                  test_cfg: ConfigType = None,
                  init_cfg: OptConfigType = None,
                  data_preprocessor: ConfigType = None,
-                 return_intermediate: bool = False,
                  **kwargs):
         
         """InterFuser model for multi-modality fusion.
@@ -56,7 +56,6 @@ class InterFuser(Base3DDetector):
             test_cfg (ConfigType): The config of testing.
             init_cfg (OptConfigType): The config of initialization.
             data_preprocessor (ConfigType): The config of data preprocessor.
-            return_intermediate (bool): Whether return intermediate results from decoder
         
         """
         
@@ -66,7 +65,6 @@ class InterFuser(Base3DDetector):
                                          **kwargs)
         self.num_queries = num_queries
         self.embed_dims = embed_dims
-        self.return_intermediate = return_intermediate
         
         ## img backbone
         if img_backbone:
@@ -101,7 +99,7 @@ class InterFuser(Base3DDetector):
         self.num_queries_waypoints = 10
         self.num_queries_traffic_info = 1
         self.query_positional_encoding = nn.Embedding(
-            self.num_queries_waypoints + self.num_queries_traffic_info, \
+            self.num_queries_traffic_info + self.num_queries_waypoints, \
             self.embed_dims)
         
         ## detr transformer
@@ -114,10 +112,18 @@ class InterFuser(Base3DDetector):
         self.train_cfg = train_cfg
         self.test_cfg = test_cfg
         
-        # TODO: need more definitions: waypoint prediction, traffic info head, object density head etc
+        # TODO: need better definitions: waypoint prediction, traffic info head, object density head etc
         # planner head
         #self.planner_head = MODELS.build(planner_head)
-        
+        if waypoints_head:
+            self.waypoints_head = FSD_HEADS.build(waypoints_head)
+        if object_density_head:
+            self.object_density_head = FSD_HEADS.build(object_density_head)
+        if traffic_info_head:
+            self.stop_sign_head = FSD_HEADS.build(traffic_info_head)
+            self.is_junction_head = FSD_HEADS.build(traffic_info_head)
+            self.traffic_light_head = FSD_HEADS.build(traffic_info_head)
+            
         # init weights
         self.init_weights()
         
@@ -271,6 +277,7 @@ class InterFuser(Base3DDetector):
         feats = self._apply_neck(feats)
         img_feats = feats['imgs']
         pts_feats = feats['pts']
+        goal_points = batch_inputs_dict.get('goal_points', None)
         del feats
         
         
@@ -306,13 +313,13 @@ class InterFuser(Base3DDetector):
         key_pos_encodings = key_pos_encodings.permute(0, 1, 3, 4, 2).reshape(B, -1, e)
         
         # query embedding
-        # (N, dim) [num_waypoints, num_objects_map, num_traffic_info]
+        # (N, dim) [num_objects_map, num_traffic_info, num_waypoints]
         query_embed = self.query_embedding(torch.arange(self.num_queries))
         # (N_pos, dim,) -> (N, dim) -> (B, N, dim)
         query_pos_embed = self.query_positional_encoding(torch.arange(self.query_positional_encoding.num_embeddings))
-        query_pos_embed = torch.cat([query_pos_embed[:self.num_queries_waypoints, :], 
-                                     torch.zeros(self.num_queries - self.num_queries_waypoints - self.num_queries_traffic_info, self.embed_dims),
-                                     query_pos_embed[-self.num_queries_traffic_info:, :]], 
+        query_pos_embed = torch.cat([torch.zeros(self.num_queries - self.num_queries_waypoints - self.num_queries_traffic_info, self.embed_dims),
+                                     query_pos_embed[:self.num_queries_traffic_info, :], 
+                                     query_pos_embed[-self.num_queries_waypoints:, :]], 
                                     dim=0)
         query_pos_embed = query_pos_embed.unsqueeze(0).repeat(B, 1, 1)
         # (B, N, dim) 
@@ -331,7 +338,7 @@ class InterFuser(Base3DDetector):
             key_padding_mask = None,
         )
         
-        ## decoder
+        ## decoder (bs, num_queries, dim)
         output_dec = self.decoder(
             query = query_embed,
             key = memory,
@@ -344,9 +351,27 @@ class InterFuser(Base3DDetector):
         )
         
         # planner head
+        # object density map prediction
+        if not self.decoder.layers[0].batch_first:
+            output_dec = output_dec.transpose(0, 1)
+        num_grids = self.num_queries - self.num_queries_traffic_info - self.num_queries_waypoints
+        density_map = self.object_density_head(output_dec[:, :num_grids, :])
+        # shared features for traffic info prediction
+        stop_sign = self.stop_sign_head(output_dec[:, num_grids: num_grids + self.num_queries_traffic_info:, :])
+        is_junction = self.is_junction_head(output_dec[:, num_grids: num_grids + self.num_queries_traffic_info:, :]) 
+        traffic_light = self.traffic_light_head(output_dec[:, num_grids: num_grids + self.num_queries_traffic_info:, :])
+        # waypoints prediction
+        waypoints = self.waypoints_head(output_dec[:, -self.num_queries_waypoints:, :], goal_points)
         
-        results = output_dec
-        return results
+        if not self.decoder.layers[0].batch_first:
+            output_dec = output_dec.transpose(0, 1)
+            density_map = density_map.transpose(0, 1)
+            stop_sign = stop_sign.transpose(0, 1)
+            is_junction = is_junction.transpose(0, 1)
+            traffic_light = traffic_light.transpose(0, 1)
+            waypoints = waypoints.transpose(0, 1)
+        
+        return output_dec, density_map, stop_sign, is_junction, traffic_light, waypoints
 
     def loss(self, results, data_samples, **kwargs):
         pass
