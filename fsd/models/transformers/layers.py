@@ -373,12 +373,17 @@ class TransformerLayerSequence(BaseModule):
         num_layers (int): The number of `TransformerLayer`. Default: None.
         init_cfg (obj:`mmcv.ConfigDict`): The Config for initialization.
             Default: None.
+        return_intermediate (bool): Whether return intermediate results. Mainly used for debugging
     """
 
     def __init__(self, layer_cfgs: LayerConfigType, 
                  num_layers: int=6, 
-                 init_cfg: OptConfigType=None):
+                 init_cfg: OptConfigType=None,
+                 return_intermediate: bool=False):
         super().__init__(init_cfg)
+        
+        self.return_intermediate = return_intermediate
+        
         if isinstance(layer_cfgs, dict):
             layer_cfgs = [
                 copy.deepcopy(layer_cfgs) for _ in range(num_layers)
@@ -402,7 +407,6 @@ class TransformerLayerSequence(BaseModule):
                 attn_masks=None,
                 query_padding_mask=None,
                 key_padding_mask=None,
-                return_intermediate=False,
                 **kwargs):
         """Forward function for `TransformerCoder`.
 
@@ -443,10 +447,10 @@ class TransformerLayerSequence(BaseModule):
                 query_padding_mask=query_padding_mask,
                 key_padding_mask=key_padding_mask,
                 **kwargs)
-            if return_intermediate:
+            if self.return_intermediate:
                 intermediate.append(query)
         
-        if return_intermediate:
+        if self.return_intermediate:
             return torch.stack(intermediate)
                 
         return query

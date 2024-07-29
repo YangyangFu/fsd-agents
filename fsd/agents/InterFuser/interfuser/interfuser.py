@@ -35,14 +35,39 @@ class InterFuser(Base3DDetector):
                  test_cfg: ConfigType = None,
                  init_cfg: OptConfigType = None,
                  data_preprocessor: ConfigType = None,
+                 return_intermediate: bool = False,
                  **kwargs):
+        
+        """InterFuser model for multi-modality fusion.
+        
+        Args:
+            num_queries (int): The number of queries.
+            embed_dims (int): The dimension of embeddings.
+            img_backbone (OptConfigType): The config of image backbone.
+            pts_backbone (OptConfigType): The config of point cloud backbone.
+            img_neck (OptCOnfigType): The config of image neck.
+            pts_neck (OptConfigType): The config of point cloud neck.
+            encoder (ConfigType): The config of encoder.
+            decoder (ConfigType): The config of decoder.
+            planner_head (ConfigType): The config of planner head.
+            positional_encoding (ConfigType): The config of positional encoding.
+            multi_view_encoding (ConfigType): The config of multi-view encoding.
+            train_cfg (ConfigType): The config of training.
+            test_cfg (ConfigType): The config of testing.
+            init_cfg (OptConfigType): The config of initialization.
+            data_preprocessor (ConfigType): The config of data preprocessor.
+            return_intermediate (bool): Whether return intermediate results from decoder
+        
+        """
+        
         
         super(InterFuser, self).__init__(init_cfg=init_cfg,
                                          data_preprocessor=data_preprocessor,
                                          **kwargs)
         self.num_queries = num_queries
         self.embed_dims = embed_dims
-
+        self.return_intermediate = return_intermediate
+        
         ## img backbone
         if img_backbone:
             self.img_backbone = FSD_BACKBONES.build(img_backbone)
@@ -304,7 +329,6 @@ class InterFuser(Base3DDetector):
             attn_masks = None,
             query_key_padding_mask = None,
             key_padding_mask = None,
-            return_intermediate = False
         )
         
         ## decoder
@@ -317,7 +341,6 @@ class InterFuser(Base3DDetector):
             attn_masks = None,
             query_key_padding_mask = None,
             key_padding_mask = None,
-            return_intermediate = True
         )
         
         # planner head
