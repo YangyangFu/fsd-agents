@@ -429,13 +429,12 @@ class TransformerLayerSequence(BaseModule):
                 Default: None.
             key_padding_mask (Tensor): ByteTensor for `key`, with
                 shape [bs, num_keys]. Default: None.
-            return_intermediate (bool): Whether return intermediate results.
         Returns:
             Tensor:  The forwarded results will have shape
             (num_decoder_layers, bs, num_queries, dim) if
             `return_intermediate` is `True` else (1, bs, num_queries, dim).
         """
-        intermediate = []
+        
         for layer in self.layers:
             query = layer(
                 query,
@@ -447,11 +446,6 @@ class TransformerLayerSequence(BaseModule):
                 query_padding_mask=query_padding_mask,
                 key_padding_mask=key_padding_mask,
                 **kwargs)
-            if self.return_intermediate:
-                intermediate.append(query)
-        
-        if self.return_intermediate:
-            return torch.stack(intermediate)
                 
         return query
 
