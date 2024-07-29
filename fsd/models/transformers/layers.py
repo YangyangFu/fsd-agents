@@ -375,21 +375,21 @@ class TransformerLayerSequence(BaseModule):
             Default: None.
     """
 
-    def __init__(self, transformerlayers: LayerConfigType, 
+    def __init__(self, layer_cfgs: LayerConfigType, 
                  num_layers: int=6, 
                  init_cfg: OptConfigType=None):
         super().__init__(init_cfg)
-        if isinstance(transformerlayers, dict):
-            transformerlayers = [
-                copy.deepcopy(transformerlayers) for _ in range(num_layers)
+        if isinstance(layer_cfgs, dict):
+            layer_cfgs = [
+                copy.deepcopy(layer_cfgs) for _ in range(num_layers)
             ]
         else:
-            assert isinstance(transformerlayers, list) and \
-                   len(transformerlayers) == num_layers
+            assert isinstance(layer_cfgs, list) and \
+                   len(layer_cfgs) == num_layers
         self.num_layers = num_layers
         self.layers = ModuleList()
         for i in range(num_layers):
-            self.layers.append(TRANSFORMERS.build(transformerlayers[i]))
+            self.layers.append(TRANSFORMERS.build(layer_cfgs[i]))
         self.embed_dims = self.layers[0].embed_dims
         self.pre_norm = self.layers[0].pre_norm
 
