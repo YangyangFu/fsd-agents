@@ -90,25 +90,87 @@ model = dict(
             batch_first=BATCH_FIRST
         )
     ),
-    waypoints_head=dict(
-        type='interfuser_gru_waypoint',
-        input_size=EMBED_DIMS,
-        hidden_size=64,
-        num_layers=1,
-        batch_first=BATCH_FIRST
-    ),
-    object_density_head=dict(
-        type='interfuser_density_map',
-        input_size=EMBED_DIMS,
-        hidden_size=64,
-        output_size=7
-    ),
-    traffic_info_head=dict(
-        type='interfuser_traffic_rule',
-        input_size=EMBED_DIMS,
-        output_size=2
-    ),
-        
+    heads=dict(
+        type='interfuser_heads',
+        num_waypoints_queries=10,
+        num_traffic_rule_queries=1,
+        num_object_density_queries=400,
+        waypoints_head=dict(
+            type='interfuser_gru_waypoint',
+            num_waypoints=10,
+            input_size=EMBED_DIMS,
+            hidden_size=64,
+            num_layers=1,
+            dropout=0.,
+            #batch_first=True,
+            loss_cfg=dict(
+                type='SmoothL1Loss',
+                _scope_='mmdet',
+                beta=1.0,
+                reduction='mean',
+                loss_weight=1.0
+            ),
+            waypoints_weights=[
+                0.1407441030399059,
+                0.13352157985305926,
+                0.12588535273178575,
+                0.11775496498388233,
+                0.10901991343009122,
+                0.09952110967153563,
+                0.08901438656870617,
+                0.07708872007078788,
+                0.06294267636589287,
+                0.04450719328435308,
+            ]),
+        object_density_head=dict(
+            type='interfuser_object_density',
+            input_size=EMBED_DIMS,
+            hidden_size=64,
+            output_size=7,
+            loss_cfg=dict(
+                type='L1Loss',
+                _scope_='mmdet',
+                reduction='mean',
+                loss_weight=1.0
+            )
+        ),
+        junction_head=dict(
+            type='interfuser_traffic_rule',
+            input_size=EMBED_DIMS,
+            output_size=2,
+            loss_cfg=dict(
+                type='CrossEntropyLoss',
+                _scope_='mmdet',
+                use_sigmoid=True, # binary classification
+                reduction='mean',
+                loss_weight=1.0
+            )
+        ),
+        stop_sign_head=dict(
+            type='interfuser_traffic_rule',
+            input_size=EMBED_DIMS,
+            output_size=2,
+            loss_cfg=dict(
+                type='CrossEntropyLoss',
+                _scope_='mmdet',
+                use_sigmoid=True, # binary classification
+                reduction='mean',
+                loss_weight=1.0
+            )
+        ),
+        traffic_light_head=dict(
+            type='interfuser_traffic_rule',
+            input_size=EMBED_DIMS,
+            output_size=2,
+            loss_cfg=dict(
+                type='CrossEntropyLoss',
+                _scope_='mmdet',
+                use_sigmoid=True, # binary classification
+                reduction='mean',
+                loss_weight=1.0
+            )
+        )
+    ),        
     positional_encoding=dict(
         num_feats=EMBED_DIMS//2,
         normalize=True

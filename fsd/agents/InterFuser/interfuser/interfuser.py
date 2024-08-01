@@ -27,9 +27,7 @@ class InterFuser(Base3DDetector):
                  pts_neck: OptConfigType = None, # simple projection to a given dimension
                  encoder: ConfigType = None,
                  decoder: ConfigType = None,
-                 waypoints_head: ConfigType = None,
-                 object_density_head: ConfigType = None,
-                 traffic_info_head: ConfigType = None,
+                 heads: ConfigType = None,
                  positional_encoding: ConfigType = None,
                  multi_view_encoding: ConfigType = None,
                  train_cfg: ConfigType = None,
@@ -115,14 +113,8 @@ class InterFuser(Base3DDetector):
         # TODO: need better definitions: waypoint prediction, traffic info head, object density head etc
         # planner head
         #self.planner_head = MODELS.build(planner_head)
-        if waypoints_head:
-            self.waypoints_head = FSD_HEADS.build(waypoints_head)
-        if object_density_head:
-            self.object_density_head = FSD_HEADS.build(object_density_head)
-        if traffic_info_head:
-            self.stop_sign_head = FSD_HEADS.build(traffic_info_head)
-            self.is_junction_head = FSD_HEADS.build(traffic_info_head)
-            self.traffic_light_head = FSD_HEADS.build(traffic_info_head)
+        if heads:
+            self.heads = FSD_HEADS.build(heads)
             
         # init weights
         self.init_weights()
@@ -270,8 +262,20 @@ class InterFuser(Base3DDetector):
         
         return feats
     
-    def _forward(self, batch_inputs_dict, data_samples):
+    def _forward_transformer(self, batch_inputs_dict, data_samples):
         """Forward function in tensor mode
+        
+        Args:
+            batch_inputs_dict (dict): The model input dict which include
+                'img' and 'pts' keys.
+                
+                - img (torch.Tensor): Image of each sample.
+                - pts (torch.Tensor): Point cloud BEV of each sample.
+                
+            data_samples (dict): The data samples dict.
+        
+        Returns:
+            torch.Tensor: The output tensor that represents the model output without any post-processing.
         """
         feats = self.extract_feat(batch_inputs_dict)
         feats = self._apply_neck(feats)
@@ -349,32 +353,38 @@ class InterFuser(Base3DDetector):
             query_key_padding_mask = None,
             key_padding_mask = None,
         )
+                
+        return output_dec
+    
+    def _forward_heads(self, output_decoder, goal_points):
+        """Forward function for heads in tensor mode
         
-        # planner head
-        # object density map prediction
-        if not self.decoder.layers[0].batch_first:
-            output_dec = output_dec.transpose(0, 1)
-        num_grids = self.num_queries - self.num_queries_traffic_info - self.num_queries_waypoints
-        density_map = self.object_density_head(output_dec[:, :num_grids, :])
-        # shared features for traffic info prediction
-        stop_sign = self.stop_sign_head(output_dec[:, num_grids: num_grids + self.num_queries_traffic_info:, :])
-        is_junction = self.is_junction_head(output_dec[:, num_grids: num_grids + self.num_queries_traffic_info:, :]) 
-        traffic_light = self.traffic_light_head(output_dec[:, num_grids: num_grids + self.num_queries_traffic_info:, :])
-        # waypoints prediction
-        waypoints = self.waypoints_head(output_dec[:, -self.num_queries_waypoints:, :], goal_points)
+        Args:
+            output_decoder (torch.Tensor): The output tensor of decoder.
+            data_samples (dict): The data samples dict.
         
-        if not self.decoder.layers[0].batch_first:
-            output_dec = output_dec.transpose(0, 1)
-            density_map = density_map.transpose(0, 1)
-            stop_sign = stop_sign.transpose(0, 1)
-            is_junction = is_junction.transpose(0, 1)
-            traffic_light = traffic_light.transpose(0, 1)
-            waypoints = waypoints.transpose(0, 1)
-        
-        return output_dec, density_map, stop_sign, is_junction, traffic_light, waypoints
+        Returns:
+            torch.Tensor: The output tensor that represents the model output without any post-processing.
+        """
 
-    def loss(self, results, data_samples, **kwargs):
-        pass
+        output = self.heads(output_decoder, goal_points)
+        
+        return output
+    
+    def _forward(self, batch_inputs_dict, data_samples) -> Dict[AnyStr, torch.Tensor]:
+        
+        goal_points = batch_inputs_dict.get('goal_points', None)
+        output_dec = self._forward_transformer(batch_inputs_dict, data_samples)
+        output = self._forward_heads(output_dec, goal_points)
+        
+        return output
+    
+    def loss(self, batch_inputs_dict, data_samples, targets, **kwargs):
+        goal_points = batch_inputs_dict.get('goal_points', None)
+        output_dec = self._forward_transformer(batch_inputs_dict, data_samples)
+        losses = self.heads.loss(output_dec, goal_points, targets)
+        
+        return losses 
     
     def predict(self, results, data_samples, **kwargs):
         pass
