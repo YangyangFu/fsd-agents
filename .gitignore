@@ -163,6 +163,7 @@ cython_debug/
 
 # dataset
 data/*
+data-mini/*
 
 #
 .vscode
