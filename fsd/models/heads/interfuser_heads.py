@@ -349,4 +349,20 @@ class InterfuserHead(BaseModule):
         )
         
         return loss
-        
+    
+    def predict(self, hidden_states: torch.Tensor, 
+                goal_point: torch.Tensor) -> dict:
+        """
+        Args:
+            hidden_states (torch.Tensor): with shape (B, L, input_size)
+            goal_point (torch.Tensor): with shape (B, 2)
+
+        Returns:
+            dict: with keys:
+                - object_density (torch.Tensor): with shape (B, L, 7)
+                - junction (torch.Tensor): with shape (B, 2)
+                - stop_sign (torch.Tensor): with shape (B, 2)
+                - traffic_light (torch.Tensor): with shape (B, 2)
+                - waypoints (torch.Tensor): with shape (B, L, 2)
+        """
+        return self(hidden_states, goal_point)

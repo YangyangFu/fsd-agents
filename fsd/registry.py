@@ -37,3 +37,6 @@ HEADS = MODELS
 TRANSFORMERS = MODELS
 
 AGENTS = Registry('agent', locations=['fsd.agents'])
+
+DATASETS = Registry(
+    'dataset', parent=MMENGINE_DATASETS, locations=['fsd.datasets'])

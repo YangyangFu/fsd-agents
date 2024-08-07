@@ -28,7 +28,7 @@ def test_agent(cfg):
     inputs = dict(imgs=imgs, pts=pts, goal_points=goal_points)
 
     ## forward pass
-    outputs = agent(inputs)
+    outputs = agent(inputs, mode='tensor')
     object_density = outputs['object_density']
     junction = outputs['junction']
     stop_sign = outputs['stop_sign']
@@ -42,7 +42,7 @@ def test_agent(cfg):
     assert traffic_light.shape == (2, 1, 2)
     assert waypoints.shape == (2, 10, 2)
 
-
+    print(junction)
     # loss calculation
     targets = {
         'waypoints': torch.randn(2, 10, 2),
@@ -51,10 +51,17 @@ def test_agent(cfg):
         'stop_sign': torch.randint(0, 2, (2, 1, 2)),
         'traffic_light': torch.randint(0, 2, (2, 1, 2)),
     }
-    losses = agent.loss(inputs, data_samples=None, targets = targets)
+    losses = agent(inputs, data_samples=None, mode='loss', targets = targets)
 
     print(losses)
 
-
-
+    predictions = agent(inputs, data_samples=None, mode='predict')
+    print(predictions['junction'])
+    
+    # test train_step
+    
+    # test val_step
+    out = agent.val_step((inputs, None))
+    
+    
 pytest.main(['-s', 'tests/agents/test_interfuser.py'])
