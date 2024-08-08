@@ -17,8 +17,8 @@ from .data_augment_utils import noise_per_object_v3_
 from ..builder import PIPELINES
 from ..builder import OBJECTSAMPLERS
 
-
-from fsd.structures.data_container import DataContainer as DC
+from mmengine.structures import BaseDataElement
+#from fsd.structures.data_container import DataContainer as DC
 
 @PIPELINES.register_module()
 class RandomDropPointsColor(object):
@@ -1696,7 +1696,7 @@ class CustomCollect3D(object):
             if key in results:
                 img_metas[key] = results[key]
 
-        data['img_metas'] = DC(img_metas, cpu_only=True)
+        data['img_metas'] = BaseDataElement(data=img_metas)
         for key in self.keys:
             data[key] = results[key]
         return data

@@ -121,7 +121,7 @@ class B2D_E2E_Dataset(Custom3DDataset):
         l2g_r_mat_list = [to_tensor(each['l2g_r_mat']) for each in queue] # list of rotation matrix from lidar to global
         l2g_t_list = [to_tensor(each['l2g_t']) for each in queue] # list of translation from lidar to global
         timestamp_list = [to_tensor(each['timestamp']) for each in queue] # list of timestamp
-        gt_fut_traj = to_tensor(queue[-1]['gt_fut_traj']) # (12, 2) list of future trajectory
+        gt_fut_traj = to_tensor(queue[-1]['gt_fut_traj']) # (12, 2) list of future trajectory of all instances except ego vehicle
         gt_fut_traj_mask = to_tensor(queue[-1]['gt_fut_traj_mask']) 
         if 'gt_future_boxes' in queue[-1]: # None
             gt_future_boxes_list = queue[-1]['gt_future_boxes']

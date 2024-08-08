@@ -424,7 +424,7 @@ def generate_infos(folder_list,workers,train_or_val,tmp_dir):
 
 if __name__ == "__main__":
 
-    """
+    
     os.makedirs(OUT_DIR,exist_ok=True)
     argparser = argparse.ArgumentParser(description=__doc__)
     argparser.add_argument('--workers',type=int, default= 4, help='num of workers to prepare dataset')
@@ -445,7 +445,7 @@ if __name__ == "__main__":
     process_list = []
     print('processing val data...')
     generate_infos(train_val_split['val'],workers,'val',args.tmp_dir)
-    """
+    
     print('processing map data...')
     gengrate_map_chunk(MAP_ROOT)
     print('finish!')
