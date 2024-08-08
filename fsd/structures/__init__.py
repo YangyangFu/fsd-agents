@@ -6,3 +6,5 @@ from .masks import ROIMasks
 # from .masks import BitMasks, PolygonMasks, polygons_to_bitmask, ROIMasks
 # from .rotated_boxes import RotatedBoxes
 # from .rotated_boxes import pairwise_iou as pairwise_iou_rotated
+
+from .fsd_data import TrajectoryData

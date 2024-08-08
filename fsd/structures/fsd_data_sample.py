@@ -2,11 +2,9 @@ from typing import Dict, List, Optional, Tuple, Union
 from deprecated import deprecated
 
 import torch
-from mmdet.structures import DetDataSample
-from mmdet3d.structures import Det3DDataSample
-from mmengine.structures import InstanceData, PixelData
+from mmengine.structures import BaseDataElement, InstanceData, PixelData
 
-class FSDDataSample(Det3DDataSample):
+class PlanningDataSample(BaseDataElement):
     """A data structure interface between different components in fsd planning.
     
     
