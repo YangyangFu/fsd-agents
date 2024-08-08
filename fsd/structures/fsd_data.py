@@ -26,9 +26,19 @@ IndexType: Union[Any] = Union[str, slice, int, list, LongTypeTensor,
                               BoolTypeTensor, np.ndarray]
 
 #TODO: add rotation info
+#TODO: better support for timestams. considering distinguish between timestamps and timestamps_diff
 
 class TrajectoryData(BaseDataElement):
-    """ 
+    """ Data structure for trajectory annotations or predictions
+    
+    Subclass of :class:`BaseDataElement`. All data items in `data_fields` should have the same length.
+    TrajectoryData also supports slicing, indexing and arithmetic addition and subtraction.
+    
+    Attributes:
+        xy (torch.Tensor): The xy coordinates of the trajectory. Shape (2, N).
+        mask (torch.Tensor): mask with 1 for valid points and 0 for invalid points. Shape (N,).
+        timestamps (torch.Tensor): The timestamps of the trajectory. Shape
+    
     """
     
     def __setattr__(self, name: str, value: Union[torch.Tensor, np.ndarray]):
@@ -232,21 +242,10 @@ class TrajectoryData(BaseDataElement):
             other (TrajectoryData): Another TrajectoryData object
         
         Returns:
-            TrajectoryData: A new TrajectoryData object with the concatenated data.
+            TrajectoryData: A new TrajectoryData object with the added data.
         """
-        pass 
-    
-    def __iadd__(self, other: 'TrajectoryData') -> 'TrajectoryData':
-        """Add two TrajectoryData objects in place
-        
-        Args:
-            other (TrajectoryData): Another TrajectoryData object
-        
-        Returns:
-            TrajectoryData: The current TrajectoryData object with the concatenated data.
-        """
-        pass
-
+        raise NotImplementedError("Addition of TrajectoryData objects is not supported")
+     
     def __sub__(self, other: 'TrajectoryData') -> 'TrajectoryData':
         """Subtract two TrajectoryData objects
         
@@ -256,9 +255,11 @@ class TrajectoryData(BaseDataElement):
         Returns:
             TrajectoryData: A new TrajectoryData object with the subtracted data.
         """
-        # at least one of them has a length of 1
-        assert len(self) == 1 or len(other) == 1, "At least one of the TrajectoryData objects should have a length of 1"
-        
+        # at least one of them has a length of 1 or same length
+        assert len(self) == 1 or len(other) == 1 or (len(self) == len(other)), \
+            "At least one of the TrajectoryData objects should have a length of 1, or \
+                they should have the same length"
+                
         # subtract the data
         xy = self.xy - other.xy 
         timestamps = self.timestamps - other.timestamps
@@ -266,17 +267,6 @@ class TrajectoryData(BaseDataElement):
         mask = self.mask * other.mask
         
         return TrajectoryData(xy=xy, mask=mask, timestamps=timestamps)
-    
-    def __isub__(self, other: 'TrajectoryData') -> 'TrajectoryData':
-        """Subtract two TrajectoryData objects in place
-        
-        Args:
-            other (TrajectoryData): Another TrajectoryData object
-        
-        Returns:
-            TrajectoryData: The current TrajectoryData object with the subtracted data.
-        """
-        pass
     
     ### ----------------------------------------------
     ### Methods
