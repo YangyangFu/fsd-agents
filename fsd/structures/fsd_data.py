@@ -1,43 +1,36 @@
-import torch
-import numpy as np 
 from collections.abc import Sized
 from typing import Any, List, Union
+from fsd.utils.type import Array 
 
-from mmengine.device import get_device
+import torch
+import numpy as np 
+import itertools
+
 from mmengine.structures import BaseDataElement, InstanceData
 
 BoolTypeTensor: Union[Any]
 LongTypeTensor: Union[Any]
 
-if get_device() == 'npu':
-    BoolTypeTensor = Union[torch.BoolTensor, torch.npu.BoolTensor]
-    LongTypeTensor = Union[torch.LongTensor, torch.npu.LongTensor]
-elif get_device() == 'mlu':
-    BoolTypeTensor = Union[torch.BoolTensor, torch.mlu.BoolTensor]
-    LongTypeTensor = Union[torch.LongTensor, torch.mlu.LongTensor]
-elif get_device() == 'musa':
-    BoolTypeTensor = Union[torch.BoolTensor, torch.musa.BoolTensor]
-    LongTypeTensor = Union[torch.LongTensor, torch.musa.LongTensor]
-else:
-    BoolTypeTensor = Union[torch.BoolTensor, torch.cuda.BoolTensor]
-    LongTypeTensor = Union[torch.LongTensor, torch.cuda.LongTensor]
+IndexType: Union[Any] = Union[str, slice, int, list, np.ndarray]
 
-IndexType: Union[Any] = Union[str, slice, int, list, LongTypeTensor,
-                              BoolTypeTensor, np.ndarray]
-
-#TODO: add rotation info
+#TODO: add rotation info/timestamps
 #TODO: better support for timestams. considering distinguish between timestamps and timestamps_diff
 
 class TrajectoryData(BaseDataElement):
     """ Data structure for trajectory annotations or predictions
     
-    Subclass of :class:`BaseDataElement`. All data items in `data_fields` should have the same length.
+    For one frame, the trajectory data can be used to store annotations or predictions for all instances in the frame.
+    This typically lead to a 2D tensor with shape (2, N) for xy coordinates, a 1D tensor with shape (N,) for mask, 
+    and a 1D tensor with shape (N,) for timestamps, where N represents the number of instances in the frame.
+    To encode the temporal information, multiple trajectory can be stacked along the last dimension, leading to 
+    a 3D tensor with shape (N, 2, T) for xy coordinates, a 2D tensor with shape (N, T) for mask, and a 2D tensor with shape (N, T) for timestamps.
+    
+    Subclass of :class:`BaseDataElement`. All data items in `data_fields` should have the same length (use the last dimension here).
     TrajectoryData also supports slicing, indexing and arithmetic addition and subtraction.
     
     Attributes:
         xy (torch.Tensor): The xy coordinates of the trajectory. Shape (2, N).
         mask (torch.Tensor): mask with 1 for valid points and 0 for invalid points. Shape (N,).
-        timestamps (torch.Tensor): The timestamps of the trajectory. Shape
     
     """
     
@@ -75,7 +68,7 @@ class TrajectoryData(BaseDataElement):
         Args:
             item (str, int, list, :obj:`slice`, :obj:`numpy.ndarray`,
                 :obj:`torch.LongTensor`, :obj:`torch.BoolTensor`):
-                Get the corresponding values according to item.
+                Get the corresponding values according to item along the first dimension.
 
         Returns:
             :obj:`PointData`: Corresponding values.
@@ -172,24 +165,52 @@ class TrajectoryData(BaseDataElement):
     
     ### ----------------------------------------------
     ### Properties
+    @property 
+    def num_steps(self) -> int:
+        """The number of steps in the trajectory
+        
+        Returns:
+            int: The number of steps in the trajectory
+        """
+        if len(self) > 0:
+            if self.xy.dim() == 3:
+                return self.xy.shape[2]
+            elif self.xy.dim() == 2:
+                return 1
+        return 0
+        
+    @property
+    def num_instances(self) -> int:
+        """The number of instances in the trajectory
+        
+        Returns:
+            int: The number of instances in the trajectory
+        """
+        return len(self)
     
     @property
-    def xy(self) -> torch.Tensor:
+    def xy(self) -> Array:
         return self._xy
+    
     @xy.setter
-    def xy(self, value: torch.Tensor):
+    def xy(self, value: Array):
         """xy coordinates of the trajectory
         
         Args:
-            value (torch.Tensor): The xy coordinates of the trajectory. Shape (N, 2).
+            value (torch.Tensor): The xy coordinates of the trajectory with a dim of 2 or 3. 
+                Shape (N, 2, ...). if dim == 2, then shape is (N, 2). 
+                if dim == 3, then shape is (N, 2, T).
         """
         if isinstance(value, torch.Tensor) and value.dim() == 1:
             value = value.unsqueeze(0)
             
-        assert isinstance(value, torch.Tensor) and value.dim() == 2 and value.shape[-1] == 2, \
-            "xy coordinates should be a 2D tensor with shape (N, 2)"
-        
+        assert isinstance(value, torch.Tensor) and (value.dim() == 2 or value.dim() == 3) and value.shape[1] == 2, \
+            "xy coordinates should be a 2D or 3D tensor with dim 1 of size 2"
+        if hasattr(self, 'mask'):
+            assert value.dim() - self.mask.dim() == 1, "xy dimension has to be greater than mask dimension"
+            
         self.set_field(value, '_xy', dtype=torch.Tensor)
+        
     @xy.deleter
     def xy(self):
         del self._xy
@@ -204,34 +225,18 @@ class TrajectoryData(BaseDataElement):
         """mask of the trajectory
         
         Args:
-            value (torch.Tensor): The mask of the trajectory. Shape (N,).
+            value (torch.Tensor): The mask of the trajectory with a dim of 1 or 2. 
+                Shape (N, ...). If dim == 1, then shape is (N,). If dim == 2, then shape is (N, T).
         """
-        assert isinstance(value, torch.Tensor) and value.dim() == 1, \
-            "mask should be a 1D tensor"
+        assert isinstance(value, torch.Tensor) and (value.dim() == 1 or value.dim() == 2), \
+            "mask should be a 1D or 2D tensor"
+        if hasattr(self, 'xy'):
+            assert self.xy.dim() - value.dim() == 1, "mask dimension has to be less than xy dimension"
         
         self.set_field(value, '_mask', dtype=torch.Tensor)
     @mask.deleter
     def mask(self):
         del self._mask
-    
-    @property
-    def timestamps(self) -> torch.Tensor:
-        return self._timestamps
-    @timestamps.setter
-    def timestamps(self, value: torch.Tensor):
-        """timestamps of the trajectory
-        
-        Args:
-            value (torch.Tensor): The timestamps of the trajectory. Shape (N,).
-        """
-        assert isinstance(value, torch.Tensor) and value.dim() == 1, \
-            "timestamps should be a 1D tensor"
-        
-        self.set_field(value, '_timestamps', dtype=torch.Tensor)
-    @timestamps.deleter
-    def timestamps(self):
-        del self._timestamps
-        
     
     ### ----------------------------------------------
     ### overloaded operators
@@ -262,12 +267,153 @@ class TrajectoryData(BaseDataElement):
                 
         # subtract the data
         xy = self.xy - other.xy 
-        timestamps = self.timestamps - other.timestamps
         # merge mask
         mask = self.mask * other.mask
         
-        return TrajectoryData(xy=xy, mask=mask, timestamps=timestamps)
+        return TrajectoryData(xy=xy, mask=mask)
     
     ### ----------------------------------------------
-    ### Methods
+    ### Methods   
+    @staticmethod
+    def cat(trajectory_list: List['TrajectoryData']) -> 'TrajectoryData':
+        """Concat the instances of all :obj:`TrajectoryData`.
+
+        Note: To ensure that cat returns as expected, make sure that
+        all elements in the list must have exactly the same keys.
+
+        Args:
+            instances_list (list[:obj:`TrajectoryData`]): A list
+                of :obj:`TrajectoryData`.
+
+        Returns:
+            :obj:`TrajectoryData`
+        """
+        if type(trajectory_list) is not list:
+            raise TypeError('Input must be a list')
+                
+        assert all(
+            isinstance(results, TrajectoryData) for results in trajectory_list)
+        assert len(trajectory_list) > 0
+        
+        if len(trajectory_list) == 1:
+            return trajectory_list[0]
+
+        # metainfo and data_fields must be exactly the
+        # same for each element to avoid exceptions.
+        field_keys_list = [
+            instances.all_keys() for instances in trajectory_list
+        ]
+        assert len({len(field_keys) for field_keys in field_keys_list}) \
+               == 1 and len(set(itertools.chain(*field_keys_list))) \
+               == len(field_keys_list[0]), 'There are different keys in ' \
+                                           '`trajectory_list`, which may ' \
+                                           'cause the cat operation ' \
+                                           'to fail. Please make sure all ' \
+                                           'elements in `trajectory_list` ' \
+                                           'have the exact same key.'
+        # must have the same steps in temporal dimension
+        assert all(trajectory_list[0].num_steps == trajectory.num_steps \
+                for trajectory in trajectory_list), \
+                    "All TrajectoryData objects should have the same number of steps"
+        
+        new_data = trajectory_list[0].__class__(
+            metainfo=trajectory_list[0].metainfo)
+        for k in trajectory_list[0].keys():
+            values = [results[k] for results in trajectory_list]
+            v0 = values[0]
+            if isinstance(v0, torch.Tensor):
+                new_values = torch.cat(values, dim=0)
+            elif isinstance(v0, np.ndarray):
+                new_values = np.concatenate(values, axis=0)
+            elif isinstance(v0, (str, list, tuple)):
+                new_values = v0[:]
+                for v in values[1:]:
+                    new_values += v
+            else:
+                raise ValueError(
+                    f'The type of `{k}` is `{type(v0)}` which has no '
+                    'attribute of `cat`')
+            new_data[k] = new_values
+        return new_data
+
+    @staticmethod
+    def stack(trajectory_list: List['TrajectoryData']) -> 'TrajectoryData':
+        """Concat the instances of all :obj:`TrajectoryData`along temporal dimension.
+        
+
+        Note: To ensure that cat returns as expected, make sure that
+        all elements in the list must have exactly the same keys.
+
+        Args:
+            instances_list (list[:obj:`TrajectoryData`]): A list
+                of :obj:`TrajectoryData`.
+
+        Returns:
+            :obj:`TrajectoryData`
+        """
+        if type(trajectory_list) is not list:
+            raise TypeError('Input must be a list')
+                
+        assert all(
+            isinstance(results, TrajectoryData) for results in trajectory_list)
+        assert len(trajectory_list) > 0
+        
+        if len(trajectory_list) == 1:
+            return trajectory_list[0]
+
+        # metainfo and data_fields must be exactly the
+        # same for each element to avoid exceptions.
+        field_keys_list = [
+            instances.all_keys() for instances in trajectory_list
+        ]
+        assert len({len(field_keys) for field_keys in field_keys_list}) \
+               == 1 and len(set(itertools.chain(*field_keys_list))) \
+               == len(field_keys_list[0]), 'There are different keys in ' \
+                                           '`trajectory_list`, which may ' \
+                                           'cause the cat operation ' \
+                                           'to fail. Please make sure all ' \
+                                           'elements in `trajectory_list` ' \
+                                           'have the exact same key.'
+        # must have the same number of instances
+        assert all(len(trajectory_list[0]) == len(traj) for traj in trajectory_list), \
+            "All TrajectoryData objects should have the same number of instances"
+            
+        new_data = trajectory_list[0].__class__(
+            metainfo=trajectory_list[0].metainfo)
+        for k in trajectory_list[0].keys():
+            values = [results[k] for results in trajectory_list]
+            v0 = values[0]
+            if isinstance(v0, torch.Tensor):
+                if trajectory_list[0].num_steps == 1: # no temporal dimension
+                    new_values = torch.stack(values, dim=-1)
+                else:
+                    new_values = torch.cat(values, dim=-1)
+                    
+            elif isinstance(v0, np.ndarray):
+                if trajectory_list[0].num_steps == 1:
+                    new_values = np.stack(values, axis=-1)
+                else:    
+                    new_values = np.concatenate(values, axis=-1)
+                    
+            elif isinstance(v0, (str, list, tuple)):
+                new_values = v0[:]
+                for v in values[1:]:
+                    new_values += v
+            else:
+                raise ValueError(
+                    f'The type of `{k}` is `{type(v0)}` which has no '
+                    'attribute of `cat`')
+            new_data[k] = new_values
+        return new_data
     
+    @classmethod
+    def interpolate(self, timestamps)-> 'TrajectoryData':
+        """Interpolate the trajectory data to the given timestamps
+        
+        Args:
+            timestamps (torch.Tensor): The timestamps to interpolate the trajectory data to.
+        
+        Returns:
+            TrajectoryData: The interpolated trajectory data.
+        """
+        raise NotImplementedError("Interpolation of TrajectoryData is not supported")
