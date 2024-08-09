@@ -7,10 +7,10 @@ from terminaltables import AsciiTable
 from torch.utils.data import Dataset
 
 from mmengine import print_log
+from mmengine.dataset import Compose
 from mmengine.fileio import load, list_from_file
 from mmdet.evaluation import eval_map, eval_recalls
-from .builder import DATASETS
-from .pipelines import Compose
+from fsd.registry import DATASETS
 
 
 @DATASETS.register_module()

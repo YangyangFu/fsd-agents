@@ -2,8 +2,8 @@ import warnings
 
 from mmengine.utils import is_list_of
 from copy import deepcopy
-from ..builder import PIPELINES
-from .compose import Compose
+from fsd.registry import TRANSFORMS as PIPELINES
+from mmengine.dataset import Compose
 
 
 @PIPELINES.register_module()

@@ -1,4 +1,5 @@
 from fsd.registry import DATASETS 
+from mmengine.registry import init_default_scope
 
 # If point cloud range is changed, the models should also change their point
 # cloud range accordingly
@@ -228,7 +229,7 @@ dataloader = dict(
     nonshuffler_sampler=dict(type="DistributedSampler"),
 )
 
-
+init_default_scope('fsd')
 dataset = DATASETS.build(dataloader['train'])
 
 # test dataset

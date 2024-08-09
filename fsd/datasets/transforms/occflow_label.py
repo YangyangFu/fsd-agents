@@ -4,7 +4,7 @@ import numpy as np
 import cv2
 
 from fsd.models.heads.occ_head_plugin import calculate_birds_eye_view_parameters
-from ..builder import PIPELINES
+from fsd.registry import TRANSFORMS as PIPELINES
 
 @PIPELINES.register_module()
 class GenerateOccFlowLabels(object):

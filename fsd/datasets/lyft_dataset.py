@@ -16,8 +16,8 @@ from mmcv.core import show_result
 from mmcv.core.bbox.structures.box_3d_mode import Box3DMode
 from mmcv.core.bbox.structures.coord_3d_mode import Coord3DMode
 from mmcv.core.bbox.structures.lidar_box3d import LiDARInstance3DBoxes
-from .custom_3d import Custom3DDataset
-from .pipelines import Compose
+from .base_dataset import Custom3DDataset
+from .transforms import Compose
 
 
 @DATASETS.register_module()

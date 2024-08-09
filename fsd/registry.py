@@ -40,3 +40,6 @@ AGENTS = Registry('agent', locations=['fsd.agents'])
 
 DATASETS = Registry(
     'dataset', parent=MMENGINE_DATASETS, locations=['fsd.datasets'])
+
+TRANSFORMS = Registry(
+    'transform', parent=MMENGINE_TRANSFORMS, locations=['fsd.datasets.transforms'])

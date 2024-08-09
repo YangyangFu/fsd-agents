@@ -1,13 +1,13 @@
 import copy
 import numpy as np
-from .builder import DATASETS
+from fsd.registry import DATASETS
 from os import path as osp
 import torch
 from pyquaternion import Quaternion
-from fsd.structures.data_container import DataContainer as DC
+
 import random
-from .custom_3d import Custom3DDataset
-from .pipelines import Compose
+from .base_dataset import Planning3DDataset
+from mmengine.structures import BaseDataElement
 from mmdet3d.structures import LiDARInstance3DBoxes
 from mmengine.fileio import load, dump
 from mmengine.utils import track_iter_progress, mkdir_or_exist
@@ -16,7 +16,7 @@ from .nuscenes_styled_eval_utils import DetectionMetrics, EvalBoxes, DetectionBo
 import json
 
 @DATASETS.register_module()
-class B2D_Dataset(Custom3DDataset):
+class B2D_Dataset(Planning3DDataset):
 
 
     def __init__(self, queue_length=4, bev_size=(200, 200),overlap_test=False,with_velocity=True,sample_interval=5,name_mapping= None,eval_cfg = None ,*args, **kwargs):
@@ -121,8 +121,8 @@ class B2D_Dataset(Custom3DDataset):
                 metas_map[i]['can_bus'][-1] -= prev_angle
                 prev_pos = copy.deepcopy(tmp_pos)
                 prev_angle = copy.deepcopy(tmp_angle)
-        queue[-1]['img'] = DC(torch.stack(imgs_list), cpu_only=False, stack=True)
-        queue[-1]['img_metas'] = DC(metas_map, cpu_only=True)
+        queue[-1]['img'] = BaseDataElement(data=torch.stack(imgs_list))
+        queue[-1]['img_metas'] = BaseDataElement(data=metas_map)
         queue = queue[-1]
         return queue
 

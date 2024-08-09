@@ -10,14 +10,13 @@ from fsd.registry import DATASETS
 
 #from ..core.bbox import get_box_type
 from mmdet3d.structures import get_box_type
-from .pipelines import Compose
 from .utils import extract_result_dict, get_loading_pipeline
-from mmengine.fileio import load, dump
-from mmengine.fileio import list_from_file
+from mmengine.fileio import load, dump, list_from_file
+from mmengine.dataset import Compose
 
 
 @DATASETS.register_module()
-class Custom3DDataset(Dataset):
+class Planning3DDataset(Dataset):
     """Customized 3D dataset.
 
     This is the base dataset of SUNRGB-D, ScanNet, nuScenes, and KITTI

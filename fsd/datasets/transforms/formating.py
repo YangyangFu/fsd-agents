@@ -8,7 +8,7 @@ from fsd.structures.data_container import DataContainer as DC
 #from mmcv.core.points import BasePoints
 from mmdet3d.structures import BaseInstance3DBoxes, BasePoints
 from mmengine.utils import is_str
-from ..builder import PIPELINES
+from fsd.registry import TRANSFORMS
 
 
 def to_tensor(data):
@@ -36,7 +36,7 @@ def to_tensor(data):
         raise TypeError(f'type {type(data)} cannot be converted to tensor.')
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class ToTensor:
     """Convert some results to :obj:`torch.Tensor` by given keys.
 
@@ -65,7 +65,7 @@ class ToTensor:
         return self.__class__.__name__ + f'(keys={self.keys})'
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class ImageToTensor:
     """Convert image to :obj:`torch.Tensor` by given keys.
 
@@ -102,7 +102,7 @@ class ImageToTensor:
         return self.__class__.__name__ + f'(keys={self.keys})'
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class Transpose:
     """Transpose some results by given keys.
 
@@ -134,7 +134,7 @@ class Transpose:
             f'(keys={self.keys}, order={self.order})'
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class ToDataContainer:
     """Convert results to :obj:`mmcv.DataContainer` by given fields.
 
@@ -173,7 +173,7 @@ class ToDataContainer:
         return self.__class__.__name__ + f'(fields={self.fields})'
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class DefaultFormatBundle:
     """Default formatting bundle.
 
@@ -250,7 +250,7 @@ class DefaultFormatBundle:
         return self.__class__.__name__
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class Collect:
     """Collect data from the loader relevant to the specific task.
 
@@ -326,7 +326,7 @@ class Collect:
             f'(keys={self.keys}, meta_keys={self.meta_keys})'
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class WrapFieldsToLists:
     """Wrap fields of the data dictionary into lists for evaluation.
 
@@ -367,9 +367,9 @@ class WrapFieldsToLists:
         return f'{self.__class__.__name__}()'
     
 
-PIPELINES._module_dict.pop('DefaultFormatBundle')
+TRANSFORMS._module_dict.pop('DefaultFormatBundle')
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class DefaultFormatBundle(object):
     """Default formatting bundle.
 
@@ -440,7 +440,7 @@ class DefaultFormatBundle(object):
         return self.__class__.__name__
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class Collect3D(object):
     """Collect data from the loader relevant to the specific task.
 
@@ -530,7 +530,7 @@ class Collect3D(object):
             f'(keys={self.keys}, meta_keys={self.meta_keys})'
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class DefaultFormatBundle3D(DefaultFormatBundle):
     """Default formatting bundle.
 
@@ -625,7 +625,7 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
         repr_str += f'with_gt={self.with_gt}, with_label={self.with_label})'
         return repr_str
     
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class CustomDefaultFormatBundle3D(DefaultFormatBundle3D):
     """Default formatting bundle.
     It simplifies the pipeline of formatting common fields for voxels,
@@ -654,7 +654,7 @@ class CustomDefaultFormatBundle3D(DefaultFormatBundle3D):
 
         return results
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class VADFormatBundle3D(DefaultFormatBundle3D):
     """Default formatting bundle.
     It simplifies the pipeline of formatting common fields for voxels,

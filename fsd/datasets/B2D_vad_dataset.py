@@ -17,8 +17,8 @@ from mmcv.core.bbox.structures.lidar_box3d import LiDARInstance3DBoxes
 from mmcv.fileio.io import load, dump
 from mmcv.utils import track_iter_progress, mkdir_or_exist
 from mmcv.datasets.pipelines import to_tensor
-from .custom_3d import Custom3DDataset
-from .pipelines import Compose
+from .base_dataset import Custom3DDataset
+from .transforms import Compose
 from mmcv.datasets.map_utils.struct import LiDARInstanceLines
 from shapely.geometry import LineString
 from nuscenes.eval.common.utils import quaternion_yaw, Quaternion

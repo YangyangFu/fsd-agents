@@ -15,8 +15,8 @@ from mmcv.core.bbox.structures.lidar_box3d import LiDARInstance3DBoxes
 from mmcv.fileio.io import load, dump
 from mmcv.utils import track_iter_progress, mkdir_or_exist
 from mmcv.datasets.pipelines import to_tensor
-from .custom_3d import Custom3DDataset
-from .pipelines import Compose
+from .base_dataset import Custom3DDataset
+from .transforms import Compose
 from .nuscenes_styled_eval_utils import DetectionMetrics, EvalBoxes, DetectionBox,center_distance,accumulate,DetectionMetricDataList,calc_ap, calc_tp, quaternion_yaw
 from prettytable import PrettyTable
 

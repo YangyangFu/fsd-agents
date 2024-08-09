@@ -11,7 +11,7 @@ from mmcv.image import imfrombytes, imread
 from mmdet.structures.mask import BitmapMasks, PolygonMasks
 from mmdet3d.structures.points import BasePoints, get_points_type
 # from mmcv.datasets.pipelines.loading import LoadAnnotations, LoadImageFromFile
-from ..builder import PIPELINES
+from fsd.registry import TRANSFORMS as PIPELINES
 
 
 @PIPELINES.register_module()

@@ -1,6 +1,5 @@
 import copy
 import numpy as np
-import os
 from os import path as osp
 import torch
 import random
@@ -16,19 +15,18 @@ from mmengine.fileio.io import load, dump
 from mmengine.utils import track_iter_progress, mkdir_or_exist
 from mmdet3d.datasets.transforms.formating import to_tensor
 
-from fsd.structures.data_container import DataContainer as DC
 #from mmcv.core.bbox.structures.lidar_box3d import LiDARInstance3DBoxes
 #from mmcv.fileio.io import load, dump
 #from mmcv.utils import track_iter_progress, mkdir_or_exist
 #from mmcv.datasets.pipelines import to_tensor
-from fsd.datasets.custom_3d import Custom3DDataset
+from fsd.datasets.base_dataset import Planning3DDataset
 from fsd.datasets.nuscenes_styled_eval_utils import DetectionMetrics, EvalBoxes, DetectionBox,center_distance,accumulate,DetectionMetricDataList,calc_ap, calc_tp, quaternion_yaw
 from prettytable import PrettyTable
 
 
 
 @DATASETS.register_module()
-class B2D_E2E_Dataset(Custom3DDataset):
+class B2D_E2E_Dataset(Planning3DDataset):
     def __init__(self, queue_length=4, 
                  bev_size=(200, 200),
                  overlap_test=False,
@@ -536,8 +534,8 @@ class B2D_E2E_Dataset(Custom3DDataset):
             box_dim=gt_bboxes_3d.shape[-1],
             origin=(0.5, 0.5, 0.5)).convert_to(self.box_mode_3d)
   
-        gt_labels_3d = DC(to_tensor(gt_labels_3d))
-        gt_bboxes_3d = DC(gt_bboxes_3d, cpu_only=True)
+        gt_labels_3d = BaseDataElement(data = to_tensor(gt_labels_3d))
+        gt_bboxes_3d = BaseDataElement(data = gt_bboxes_3d)
 
         return gt_bboxes_3d, gt_labels_3d
 

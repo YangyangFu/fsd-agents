@@ -4,21 +4,17 @@ from numpy import random
 import warnings
 from mmengine.utils import is_tuple_of
 from mmengine.registry import build_from_cfg
+from mmengine.structures import BaseDataElement
 
 from mmcv.image import impad, impad_to_multiple, imnormalize, imresize, bgr2hsv, hsv2bgr
 from mmdet3d.models.task_modules import VoxelGenerator
 from mmdet3d.structures import (CameraInstance3DBoxes, DepthInstance3DBoxes,
                                 LiDARInstance3DBoxes)
 from mmdet3d.structures.ops import box_np_ops
-from mmdet3d.structures.points import BasePoints
+from mmdet3d.datasets.transforms.data_augment_utils import noise_per_object_v3_
 
-from fsd.datasets.pipelines.transforms import RandomFlip
-from .data_augment_utils import noise_per_object_v3_
-from ..builder import PIPELINES
-from ..builder import OBJECTSAMPLERS
-
-from mmengine.structures import BaseDataElement
-#from fsd.structures.data_container import DataContainer as DC
+from mmdet.datasets.transforms import RandomFlip
+from fsd.registry import TRANSFORMS as PIPELINES
 
 @PIPELINES.register_module()
 class RandomDropPointsColor(object):
@@ -274,7 +270,7 @@ class ObjectSample(object):
         self.sample_2d = sample_2d
         if 'type' not in db_sampler.keys():
             db_sampler['type'] = 'DataBaseSampler'
-        self.db_sampler = build_from_cfg(db_sampler, OBJECTSAMPLERS)
+        self.db_sampler = build_from_cfg(db_sampler, PIPELINES)
 
     @staticmethod
     def remove_points_in_boxes(points, boxes):

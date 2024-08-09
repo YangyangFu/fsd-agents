@@ -5,17 +5,18 @@ import tempfile
 from nuscenes.utils.data_classes import Box as NuScenesBox
 from os import path as osp
 
-from .builder import DATASETS
+from fsd.registry import DATASETS
 from mmengine.fileio import load, dump
 from mmengine.utils import track_iter_progress, mkdir_or_exist
+from mmengine.dataset import Compose
 #from mmcv.core import show_result
 from mmdet3d.structures import Box3DMode, Coord3DMode, LiDARInstance3DBoxes
-from .custom_3d import Custom3DDataset
-from .pipelines import Compose
+from .base_dataset import Planning3DDataset
+
 
 
 @DATASETS.register_module()
-class NuScenesDataset(Custom3DDataset):
+class NuScenesDataset(Planning3DDataset):
     r"""NuScenes Dataset.
 
     This class serves as the API for experiments on the NuScenes Dataset.
