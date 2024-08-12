@@ -373,7 +373,6 @@ class B2D_Dataset(Planning3DDataset):
 
         return detail
     
-
     def load_gt(self):
         all_annotations = EvalBoxes()
         for i in range(len(self.data_infos)):

@@ -14,6 +14,7 @@ LongTypeTensor: Union[Any]
 IndexType: Union[Any] = Union[str, slice, int, list, np.ndarray]
 
 #TODO: add rotation info/timestamps
+#TODO: add mask update support for data pipeline, e.g., TrajectoryData.merge_mask(mask)
 #TODO: better support for timestams. considering distinguish between timestamps and timestamps_diff
 
 class TrajectoryData(BaseDataElement):
@@ -201,15 +202,15 @@ class TrajectoryData(BaseDataElement):
                 Shape (N, 2, ...). if dim == 2, then shape is (N, 2). 
                 if dim == 3, then shape is (N, 2, T).
         """
-        if isinstance(value, torch.Tensor) and value.dim() == 1:
-            value = value.unsqueeze(0)
+        if isinstance(value, (torch.Tensor, np.ndarray)) and (value.ndim == 1):
+            value = value[None, ...]
             
-        assert isinstance(value, torch.Tensor) and (value.dim() == 2 or value.dim() == 3) and value.shape[1] == 2, \
+        assert isinstance(value, (torch.Tensor, np.ndarray)) and (value.ndim == 2 or value.ndim == 3) and value.shape[1] == 2, \
             "xy coordinates should be a 2D or 3D tensor with dim 1 of size 2"
         if hasattr(self, 'mask'):
-            assert value.dim() - self.mask.dim() == 1, "xy dimension has to be greater than mask dimension"
+            assert value.ndim - self.mask.ndim == 1, "xy dimension has to be greater than mask dimension"
             
-        self.set_field(value, '_xy', dtype=torch.Tensor)
+        self.set_field(value, '_xy', dtype=type(value))
         
     @xy.deleter
     def xy(self):
@@ -228,12 +229,12 @@ class TrajectoryData(BaseDataElement):
             value (torch.Tensor): The mask of the trajectory with a dim of 1 or 2. 
                 Shape (N, ...). If dim == 1, then shape is (N,). If dim == 2, then shape is (N, T).
         """
-        assert isinstance(value, torch.Tensor) and (value.dim() == 1 or value.dim() == 2), \
+        assert isinstance(value, (torch.Tensor, np.ndarray)) and (value.ndim == 1 or value.ndim == 2), \
             "mask should be a 1D or 2D tensor"
         if hasattr(self, 'xy'):
-            assert self.xy.dim() - value.dim() == 1, "mask dimension has to be less than xy dimension"
+            assert self.xy.ndim - value.ndim == 1, "mask dimension has to be less than xy dimension"
         
-        self.set_field(value, '_mask', dtype=torch.Tensor)
+        self.set_field(value, '_mask', dtype=type(value))
     @mask.deleter
     def mask(self):
         del self._mask

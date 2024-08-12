@@ -135,7 +135,7 @@ info_root = "data-mini/carla/infos"
 map_root = "data-mini/carla/maps"
 map_file = "data-mini/carla/infos/b2d_map_infos.pkl"
 file_client_args = dict(backend="disk")
-ann_file_train=info_root + f"/b2d_infos_train.pkl"
+ann_file_train="infos/b2d_infos_train.pkl"
 ann_file_val=info_root + f"/b2d_infos_val.pkl"
 ann_file_test=info_root + f"/b2d_infos_val.pkl"
 

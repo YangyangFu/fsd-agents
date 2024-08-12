@@ -1692,7 +1692,7 @@ class CustomCollect3D(object):
             if key in results:
                 img_metas[key] = results[key]
 
-        data['img_metas'] = BaseDataElement(data=img_metas)
+        data['img_metas'] = img_metas
         for key in self.keys:
             data[key] = results[key]
         return data
@@ -1770,30 +1770,31 @@ class ObjectRangeFilterTrack(object):
         elif isinstance(input_dict['gt_bboxes_3d'], CameraInstance3DBoxes):
             bev_range = self.pcd_range[[0, 2, 3, 5]]
 
-        if 'gt_inds' in input_dict['ann_info'].keys():
-            input_dict['gt_inds'] = input_dict['ann_info']['gt_inds']
-        if 'gt_fut_traj' in input_dict['ann_info'].keys():
-            input_dict['gt_fut_traj'] = input_dict['ann_info']['gt_fut_traj']
-        if 'gt_fut_traj_mask' in input_dict['ann_info'].keys():
-            input_dict['gt_fut_traj_mask'] = input_dict['ann_info']['gt_fut_traj_mask']
-        if 'gt_past_traj' in input_dict['ann_info'].keys():
-            input_dict['gt_past_traj'] = input_dict['ann_info']['gt_past_traj']
-        if 'gt_past_traj_mask' in input_dict['ann_info'].keys():
-            input_dict['gt_past_traj_mask'] = input_dict['ann_info']['gt_past_traj_mask']
-        if 'gt_sdc_bbox' in input_dict['ann_info'].keys():
-            input_dict['gt_sdc_bbox'] = input_dict['ann_info']['gt_sdc_bbox']
-            input_dict['gt_sdc_label'] = input_dict['ann_info']['gt_sdc_label']
-            input_dict['gt_sdc_fut_traj'] = input_dict['ann_info']['gt_sdc_fut_traj']
-            input_dict['gt_sdc_fut_traj_mask'] = input_dict['ann_info']['gt_sdc_fut_traj_mask']
+        if 'gt_instances_ids' in input_dict['anno_info'].keys():
+            input_dict['gt_instances_ids'] = input_dict['anno_info']['gt_instances_ids']
+        if 'gt_instances_future_traj' in input_dict['anno_info'].keys():
+            input_dict['gt_instances_future_traj'] = input_dict['anno_info']['gt_instances_future_traj']
+        #if 'gt_fut_traj_mask' in input_dict['ann_info'].keys():
+        #    input_dict['gt_fut_traj_mask'] = input_dict['ann_info']['gt_fut_traj_mask']
+        #if 'gt_instances_past_future_traj' in input_dict['ann_info'].keys():
+        #    input_dict['gt_past_traj'] = input_dict['ann_info']['gt_past_traj']
+        #if 'gt_past_traj_mask' in input_dict['ann_info'].keys():
+        #    input_dict['gt_past_traj_mask'] = input_dict['ann_info']['gt_past_traj_mask']
+        if 'gt_sdc_bbox' in input_dict['anno_info'].keys():
+            input_dict['gt_sdc_bbox'] = input_dict['anno_info']['gt_sdc_bbox']
+            input_dict['gt_sdc_label'] = input_dict['anno_info']['gt_sdc_label']
+            input_dict['gt_sdc_fut_traj'] = input_dict['anno_info']['gt_sdc_fut_traj']
+            input_dict['gt_sdc_fut_traj_mask'] = input_dict['anno_info']['gt_sdc_fut_traj_mask']
 
         gt_bboxes_3d = input_dict['gt_bboxes_3d']
         gt_labels_3d = input_dict['gt_labels_3d']
-        gt_inds = input_dict['gt_inds']
-        gt_fut_traj = input_dict['gt_fut_traj']
-        gt_fut_traj_mask = input_dict['gt_fut_traj_mask']
-        gt_past_traj = input_dict['gt_past_traj']
-        gt_past_traj_mask = input_dict['gt_past_traj_mask']
+        gt_instances_ids = input_dict['gt_instances_ids']
+        #gt_fut_traj = input_dict['gt_instances_future_traj']
+        #gt_fut_traj_mask = input_dict['gt_fut_traj_mask']
+        #gt_past_traj = input_dict['gt_past_traj']
+        #gt_past_traj_mask = input_dict['gt_past_traj_mask']
 
+        # Filter by range
         mask = gt_bboxes_3d.in_range_bev(bev_range)
         gt_bboxes_3d = gt_bboxes_3d[mask]
         # mask is a torch tensor but gt_labels_3d is still numpy array
@@ -1802,21 +1803,21 @@ class ObjectRangeFilterTrack(object):
         # as gt_labels_3d[1] and cause out of index error
         mask = mask.numpy().astype(np.bool_)
         gt_labels_3d = gt_labels_3d[mask]
-        gt_inds = gt_inds[mask]
-        gt_fut_traj = gt_fut_traj[mask]
-        gt_fut_traj_mask = gt_fut_traj_mask[mask]
-        gt_past_traj = gt_past_traj[mask]
-        gt_past_traj_mask = gt_past_traj_mask[mask]
+        gt_instances_ids = gt_instances_ids[mask]
+        #gt_fut_traj = gt_fut_traj[mask]
+        #gt_fut_traj_mask = gt_fut_traj_mask[mask]
+        #gt_past_traj = gt_past_traj[mask]
+        #gt_past_traj_mask = gt_past_traj_mask[mask]
 
         # limit rad to [-pi, pi]
         gt_bboxes_3d.limit_yaw(offset=0.5, period=2 * np.pi)
         input_dict['gt_bboxes_3d'] = gt_bboxes_3d
         input_dict['gt_labels_3d'] = gt_labels_3d
-        input_dict['gt_inds'] = gt_inds
-        input_dict['gt_fut_traj'] = gt_fut_traj
-        input_dict['gt_fut_traj_mask'] = gt_fut_traj_mask
-        input_dict['gt_past_traj'] = gt_past_traj
-        input_dict['gt_past_traj_mask'] = gt_past_traj_mask
+        input_dict['gt_instances_ids'] = gt_instances_ids
+        #input_dict['gt_fut_traj'] = gt_fut_traj
+        #input_dict['gt_fut_traj_mask'] = gt_fut_traj_mask
+        #input_dict['gt_past_traj'] = gt_past_traj
+        #input_dict['gt_past_traj_mask'] = gt_past_traj_mask
         return input_dict
 
     def __repr__(self):
@@ -1849,11 +1850,11 @@ class ObjectNameFilterTrack(object):
                                   dtype=np.bool_)
         input_dict['gt_bboxes_3d'] = input_dict['gt_bboxes_3d'][gt_bboxes_mask]
         input_dict['gt_labels_3d'] = input_dict['gt_labels_3d'][gt_bboxes_mask]
-        input_dict['gt_inds'] = input_dict['gt_inds'][gt_bboxes_mask]
-        input_dict['gt_fut_traj'] = input_dict['gt_fut_traj'][gt_bboxes_mask]
-        input_dict['gt_fut_traj_mask'] = input_dict['gt_fut_traj_mask'][gt_bboxes_mask]
-        input_dict['gt_past_traj'] = input_dict['gt_past_traj'][gt_bboxes_mask]
-        input_dict['gt_past_traj_mask'] = input_dict['gt_past_traj_mask'][gt_bboxes_mask]
+        input_dict['gt_instances_ids'] = input_dict['gt_instances_ids'][gt_bboxes_mask]
+        #input_dict['gt_fut_traj'] = input_dict['gt_fut_traj'][gt_bboxes_mask]
+        #input_dict['gt_fut_traj_mask'] = input_dict['gt_fut_traj_mask'][gt_bboxes_mask]
+        #input_dict['gt_past_traj'] = input_dict['gt_past_traj'][gt_bboxes_mask]
+        #input_dict['gt_past_traj_mask'] = input_dict['gt_past_traj_mask'][gt_bboxes_mask]
         return input_dict
 
     def __repr__(self):

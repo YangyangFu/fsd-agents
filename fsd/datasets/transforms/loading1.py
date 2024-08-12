@@ -800,7 +800,7 @@ class LoadPointsFromFile(object):
             - 'DEPTH': Points in depth coordinates, usually for indoor dataset.
             - 'CAMERA': Points in camera coordinates.
         load_dim (int): The dimension of the loaded points.
-            Defaults to 6.
+            Defaults to 3.
         use_dim (list[int]): Which dimensions of the points to be used.
             Defaults to [0, 1, 2]. For KITTI dataset, set use_dim=4
             or use_dim=[0, 1, 2, 3] to use the intensity dimension.
@@ -813,7 +813,7 @@ class LoadPointsFromFile(object):
 
     def __init__(self,
                  coord_type,
-                 load_dim=6,
+                 load_dim=3,
                  use_dim=[0, 1, 2],
                  shift_height=False,
                  use_color=False,
@@ -895,7 +895,7 @@ class LoadPointsFromFile(object):
         points_class = get_points_type(self.coord_type)
         points = points_class(
             points, points_dim=points.shape[-1], attribute_dims=attribute_dims)
-        results['points'] = points
+        results['pts'] = points
 
         return results
 
@@ -985,7 +985,7 @@ class LoadAnnotations3D(LoadAnnotations):
         Returns:
             dict: The dict containing loaded 3D bounding box annotations.
         """
-        results['gt_bboxes_3d'] = results['ann_info']['gt_bboxes_3d']
+        results['gt_bboxes_3d'] = results['anno_info']['gt_bboxes_3d']
         results['bbox3d_fields'].append('gt_bboxes_3d')
         return results
 
@@ -1011,7 +1011,7 @@ class LoadAnnotations3D(LoadAnnotations):
         Returns:
             dict: The dict containing loaded label annotations.
         """
-        results['gt_labels_3d'] = results['ann_info']['gt_labels_3d']
+        results['gt_labels_3d'] = results['anno_info']['gt_labels_3d']
         return results
 
     def _load_attr_labels(self, results):
@@ -1023,7 +1023,7 @@ class LoadAnnotations3D(LoadAnnotations):
         Returns:
             dict: The dict containing loaded label annotations.
         """
-        results['attr_labels'] = results['ann_info']['attr_labels']
+        results['attr_labels'] = results['anno_info']['attr_labels']
         return results
 
     def _load_masks_3d(self, results):
@@ -1035,7 +1035,7 @@ class LoadAnnotations3D(LoadAnnotations):
         Returns:
             dict: The dict containing loaded 3D mask annotations.
         """
-        pts_instance_mask_path = results['ann_info']['pts_instance_mask_path']
+        pts_instance_mask_path = results['anno_info']['pts_instance_mask_path']
 
         if self.file_client is None:
             self.file_client = FileClient(**self.file_client_args)
@@ -1239,12 +1239,14 @@ class LoadAnnotations3D_E2E(LoadAnnotations3D):
             for more details.
     """
     def __init__(self,
+                 with_instances_future_traj=False,
                  with_future_anns=False,
                  with_ins_inds_3d=False,
                  with_vis_token=True,
                  ins_inds_add_1=False,  # NOTE: make ins_inds start from 1, not 0
                  **kwargs):
         super().__init__(**kwargs)
+        self.with_instances_future_traj = with_instances_future_traj
         self.with_future_anns = with_future_anns
         self.with_ins_inds_3d = with_ins_inds_3d
         self.with_vis_token = with_vis_token
@@ -1300,19 +1302,32 @@ class LoadAnnotations3D_E2E(LoadAnnotations3D):
         return results 
   
     def _load_ins_inds_3d(self, results):
-        ann_gt_inds = results['ann_info']['gt_inds'].copy() # TODO: note here
+        ann_gt_inds = results['anno_info']['gt_instances_ids'].copy() # TODO: note here
 
         # NOTE: Avoid gt_inds generated twice
-        results['ann_info'].pop('gt_inds')
+        results['anno_info'].pop('gt_instances_ids')
         
         if self.ins_inds_add_1:
             ann_gt_inds += 1
-        results['gt_inds'] = ann_gt_inds
+        results['gt_instances_ids'] = ann_gt_inds
         return results
 
+    def _load_ego_future_traj(self, results):
+        ego_future_traj = results['anno_info']['gt_ego_future_traj']
+        results['gt_ego_future_traj'] = ego_future_traj
+        return results
+    def _load_instances_future_traj(self, results):
+        instances_future_traj = results['anno_info']['gt_instances_future_traj']
+        results['gt_instances_future_traj'] = instances_future_traj
+        return results
+    
     def __call__(self, results):
         results = super().__call__(results)
         
+        # load future trajectory for ego vehicle
+        results = self._load_ego_future_traj(results)
+        if self.with_instances_future_traj:
+            results = self._load_instances_future_traj(results)
         if self.with_future_anns:
             results = self._load_future_anns(results)
         if self.with_ins_inds_3d:
@@ -1585,8 +1600,6 @@ class CustomLoadPointsFromMultiSweeps:
     def __repr__(self):
         """str: Return a string that describes the module."""
         return f"{self.__class__.__name__}(sweeps_num={self.sweeps_num})"
-
-
 
 @PIPELINES.register_module()
 class CustomLoadPointsFromFile:

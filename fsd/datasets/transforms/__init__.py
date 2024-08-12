@@ -1,7 +1,7 @@
-from .formating import (Collect, Collect3D, DefaultFormatBundle, DefaultFormatBundle3D, 
+from .formating import (Collect, DefaultFormatBundle, DefaultFormatBundle3D, 
                         CustomDefaultFormatBundle3D, ImageToTensor,
-                        ToDataContainer, ToTensor, Transpose, to_tensor,VADFormatBundle3D)
-from .loading import (LoadAnnotations, LoadImageFromFile, LoadImageFromWebcam,
+                        ToBaseDataElement, ToTensor, Transpose, to_tensor,VADFormatBundle3D)
+from .loading1 import (LoadAnnotations, LoadImageFromFile, LoadImageFromWebcam,
                       LoadMultiChannelImageFromFiles, LoadProposals,
                       LoadAnnotations3D, LoadImageFromFileMono3D,
                       LoadMultiViewImageFromFiles, LoadMultiViewImageFromFilesInCeph, 

@@ -2,14 +2,14 @@ from collections.abc import Sequence
 
 import numpy as np
 import torch
-from fsd.structures.data_container import DataContainer as DC
+#from fsd.structures.data_container import BaseDataElement as DC
 
 #from mmcv.core.bbox.structures.base_box3d import BaseInstance3DBoxes
 #from mmcv.core.points import BasePoints
-from mmdet3d.structures import BaseInstance3DBoxes, BasePoints
+from mmengine.structures import BaseDataElement, InstanceData, PixelData
+from mmdet3d.structures import BaseInstance3DBoxes, BasePoints, PointData
 from mmengine.utils import is_str
 from fsd.registry import TRANSFORMS
-
 
 def to_tensor(data):
     """Convert objects of various python types to :obj:`torch.Tensor`.
@@ -135,13 +135,13 @@ class Transpose:
 
 
 @TRANSFORMS.register_module()
-class ToDataContainer:
-    """Convert results to :obj:`mmcv.DataContainer` by given fields.
+class ToBaseDataElement:
+    """Convert results to :obj:`mmengine.BaseDataElement` by given fields.
 
     Args:
         fields (Sequence[dict]): Each field is a dict like
             ``dict(key='xxx', **kwargs)``. The ``key`` in result will
-            be converted to :obj:`mmcv.DataContainer` with ``**kwargs``.
+            be converted to :obj:`mmengine.BaseDataElement` with ``**kwargs``.
             Default: ``(dict(key='img', stack=True), dict(key='gt_bboxes'),
             dict(key='gt_labels'))``.
     """
@@ -153,102 +153,24 @@ class ToDataContainer:
 
     def __call__(self, results):
         """Call function to convert data in results to
-        :obj:`mmcv.DataContainer`.
+        :obj:`mmengine.BaseDataElement`.
 
         Args:
             results (dict): Result dict contains the data to convert.
 
         Returns:
             dict: The result dict contains the data converted to \
-                :obj:`mmcv.DataContainer`.
+                :obj:`mmengine.BaseDataElement`.
         """
 
         for field in self.fields:
             field = field.copy()
             key = field.pop('key')
-            results[key] = DC(results[key], **field)
+            results[key] = BaseDataElement(results[key], **field)
         return results
 
     def __repr__(self):
         return self.__class__.__name__ + f'(fields={self.fields})'
-
-
-@TRANSFORMS.register_module()
-class DefaultFormatBundle:
-    """Default formatting bundle.
-
-    It simplifies the pipeline of formatting common fields, including "img",
-    "proposals", "gt_bboxes", "gt_labels", "gt_masks" and "gt_semantic_seg".
-    These fields are formatted as follows.
-
-    - img: (1)transpose, (2)to tensor, (3)to DataContainer (stack=True)
-    - proposals: (1)to tensor, (2)to DataContainer
-    - gt_bboxes: (1)to tensor, (2)to DataContainer
-    - gt_bboxes_ignore: (1)to tensor, (2)to DataContainer
-    - gt_labels: (1)to tensor, (2)to DataContainer
-    - gt_masks: (1)to tensor, (2)to DataContainer (cpu_only=True)
-    - gt_semantic_seg: (1)unsqueeze dim-0 (2)to tensor, \
-                       (3)to DataContainer (stack=True)
-    """
-
-    def __call__(self, results):
-        """Call function to transform and format common fields in results.
-
-        Args:
-            results (dict): Result dict contains the data to convert.
-
-        Returns:
-            dict: The result dict contains the data that is formatted with \
-                default bundle.
-        """
-
-        if 'img' in results:
-            img = results['img']
-            # add default meta keys
-            results = self._add_default_meta_keys(results)
-            if len(img.shape) < 3:
-                img = np.expand_dims(img, -1)
-            img = np.ascontiguousarray(img.transpose(2, 0, 1))
-            results['img'] = DC(to_tensor(img), stack=True)
-        for key in ['proposals', 'gt_bboxes', 'gt_bboxes_ignore', 'gt_labels']:
-            if key not in results:
-                continue
-            results[key] = DC(to_tensor(results[key]))
-        if 'gt_masks' in results:
-            results['gt_masks'] = DC(results['gt_masks'], cpu_only=True)
-        if 'gt_semantic_seg' in results:
-            results['gt_semantic_seg'] = DC(
-                to_tensor(results['gt_semantic_seg'][None, ...]), stack=True)
-        return results
-
-    def _add_default_meta_keys(self, results):
-        """Add default meta keys.
-
-        We set default meta keys including `pad_shape`, `scale_factor` and
-        `img_norm_cfg` to avoid the case where no `Resize`, `Normalize` and
-        `Pad` are implemented during the whole pipeline.
-
-        Args:
-            results (dict): Result dict contains the data to convert.
-
-        Returns:
-            results (dict): Updated result dict contains the data to convert.
-        """
-        img = results['img']
-        results.setdefault('pad_shape', img.shape)
-        results.setdefault('scale_factor', 1.0)
-        num_channels = 1 if len(img.shape) < 3 else img.shape[2]
-        results.setdefault(
-            'img_norm_cfg',
-            dict(
-                mean=np.zeros(num_channels, dtype=np.float32),
-                std=np.ones(num_channels, dtype=np.float32),
-                to_rgb=False))
-        return results
-
-    def __repr__(self):
-        return self.__class__.__name__
-
 
 @TRANSFORMS.register_module()
 class Collect:
@@ -284,7 +206,7 @@ class Collect:
     Args:
         keys (Sequence[str]): Keys of results to be collected in ``data``.
         meta_keys (Sequence[str], optional): Meta keys to be converted to
-            ``mmcv.DataContainer`` and collected in ``data[img_metas]``.
+            ``mmengine.BaseDataElement`` and collected in ``data[img_metas]``.
             Default: ``('filename', 'ori_filename', 'ori_shape', 'img_shape',
             'pad_shape', 'scale_factor', 'flip', 'flip_direction',
             'img_norm_cfg')``
@@ -300,7 +222,7 @@ class Collect:
 
     def __call__(self, results):
         """Call function to collect keys in results. The keys in ``meta_keys``
-        will be converted to :obj:mmcv.DataContainer.
+        will be converted to :obj:mmengine.BaseDataElement.
 
         Args:
             results (dict): Result dict contains the data to collect.
@@ -367,8 +289,7 @@ class WrapFieldsToLists:
         return f'{self.__class__.__name__}()'
     
 
-TRANSFORMS._module_dict.pop('DefaultFormatBundle')
-
+#TRANSFORMS._module_dict.pop('DefaultFormatBundle')
 @TRANSFORMS.register_module()
 class DefaultFormatBundle(object):
     """Default formatting bundle.
@@ -377,14 +298,14 @@ class DefaultFormatBundle(object):
     "proposals", "gt_bboxes", "gt_labels", "gt_masks" and "gt_semantic_seg".
     These fields are formatted as follows.
 
-    - img: (1)transpose, (2)to tensor, (3)to DataContainer (stack=True)
-    - proposals: (1)to tensor, (2)to DataContainer
-    - gt_bboxes: (1)to tensor, (2)to DataContainer
-    - gt_bboxes_ignore: (1)to tensor, (2)to DataContainer
-    - gt_labels: (1)to tensor, (2)to DataContainer
-    - gt_masks: (1)to tensor, (2)to DataContainer (cpu_only=True)
+    - img: (1)transpose, (2)to tensor, (3)to BaseDataElement (stack=True)
+    - proposals: (1)to tensor, (2)to BaseDataElement
+    - gt_bboxes: (1)to tensor, (2)to BaseDataElement
+    - gt_bboxes_ignore: (1)to tensor, (2)to BaseDataElement
+    - gt_labels: (1)to tensor, (2)to BaseDataElement
+    - gt_masks: (1)to tensor, (2)to BaseDataElement (cpu_only=True)
     - gt_semantic_seg: (1)unsqueeze dim-0 (2)to tensor, \
-                       (3)to DataContainer (stack=True)
+                       (3)to BaseDataElement (stack=True)
     """
 
     def __init__(self, ):
@@ -405,130 +326,35 @@ class DefaultFormatBundle(object):
                 # process multiple imgs in single frame
                 imgs = [img.transpose(2, 0, 1) for img in results['img']]
                 imgs = np.ascontiguousarray(np.stack(imgs, axis=0))
-                results['img'] = DC(to_tensor(imgs), stack=True)
+                results['img'] = BaseDataElement(data=to_tensor(imgs))
             else:
                 img = np.ascontiguousarray(results['img'].transpose(2, 0, 1))
-                results['img'] = DC(to_tensor(img), stack=True)
+                results['img'] = BaseDataElement(data=to_tensor(img))
         for key in [
-                'proposals', 'gt_bboxes', 'gt_bboxes_ignore', 'gt_labels',
-                'gt_labels_3d', 'attr_labels', 'pts_instance_mask',
-                'pts_semantic_mask', 'centers2d', 'depths'
+                'proposals', 'gt_bboxes_ignore', 'gt_labels_3d', 
+                'pts_instance_mask', 'pts_semantic_mask', 'centers2d', 'depths'
         ]:
             if key not in results:
                 continue
             if isinstance(results[key], list):
-                results[key] = DC([to_tensor(res) for res in results[key]])
+                results[key] = BaseDataElement(data=[to_tensor(res) for res in results[key]])
             else:
-                results[key] = DC(to_tensor(results[key]))
+                results[key] = BaseDataElement(data=to_tensor(results[key]))
         if 'gt_bboxes_3d' in results:
             if isinstance(results['gt_bboxes_3d'], BaseInstance3DBoxes):
-                results['gt_bboxes_3d'] = DC(
-                    results['gt_bboxes_3d'], cpu_only=True)
+                results['gt_bboxes_3d'] = BaseDataElement(
+                    data=results['gt_bboxes_3d'])
             else:
-                results['gt_bboxes_3d'] = DC(
-                    to_tensor(results['gt_bboxes_3d']))
+                results['gt_bboxes_3d'] = BaseDataElement(
+                    data=to_tensor(results['gt_bboxes_3d']))
 
-        if 'gt_masks' in results:
-            results['gt_masks'] = DC(results['gt_masks'], cpu_only=True)
-        if 'gt_semantic_seg' in results:
-            results['gt_semantic_seg'] = DC(
-                to_tensor(results['gt_semantic_seg'][None, ...]), stack=True)
+        if 'gt_bboxes_mask' in results:
+            results['gt_bboxes_mask'] = BaseDataElement(data=results['gt_bboxes_mask'])
 
         return results
 
     def __repr__(self):
         return self.__class__.__name__
-
-
-@TRANSFORMS.register_module()
-class Collect3D(object):
-    """Collect data from the loader relevant to the specific task.
-
-    This is usually the last stage of the data loader pipeline. Typically keys
-    is set to some subset of "img", "proposals", "gt_bboxes",
-    "gt_bboxes_ignore", "gt_labels", and/or "gt_masks".
-
-    The "img_meta" item is always populated.  The contents of the "img_meta"
-    dictionary depends on "meta_keys". By default this includes:
-
-        - 'img_shape': shape of the image input to the network as a tuple \
-            (h, w, c).  Note that images may be zero padded on the \
-            bottom/right if the batch tensor is larger than this shape.
-        - 'scale_factor': a float indicating the preprocessing scale
-        - 'flip': a boolean indicating if image flip transform was used
-        - 'filename': path to the image file
-        - 'ori_shape': original shape of the image as a tuple (h, w, c)
-        - 'pad_shape': image shape after padding
-        - 'lidar2img': transform from lidar to image
-        - 'depth2img': transform from depth to image
-        - 'cam2img': transform from camera to image
-        - 'pcd_horizontal_flip': a boolean indicating if point cloud is \
-            flipped horizontally
-        - 'pcd_vertical_flip': a boolean indicating if point cloud is \
-            flipped vertically
-        - 'box_mode_3d': 3D box mode
-        - 'box_type_3d': 3D box type
-        - 'img_norm_cfg': a dict of normalization information:
-            - mean: per channel mean subtraction
-            - std: per channel std divisor
-            - to_rgb: bool indicating if bgr was converted to rgb
-        - 'pcd_trans': point cloud transformations
-        - 'sample_idx': sample index
-        - 'pcd_scale_factor': point cloud scale factor
-        - 'pcd_rotation': rotation applied to point cloud
-        - 'pts_filename': path to point cloud file.
-
-    Args:
-        keys (Sequence[str]): Keys of results to be collected in ``data``.
-        meta_keys (Sequence[str], optional): Meta keys to be converted to
-            ``mmcv.DataContainer`` and collected in ``data[img_metas]``.
-            Default: ('filename', 'ori_shape', 'img_shape', 'lidar2img',
-            'depth2img', 'cam2img', 'pad_shape', 'scale_factor', 'flip',
-            'pcd_horizontal_flip', 'pcd_vertical_flip', 'box_mode_3d',
-            'box_type_3d', 'img_norm_cfg', 'pcd_trans',
-            'sample_idx', 'pcd_scale_factor', 'pcd_rotation', 'pts_filename')
-    """
-
-    def __init__(self,
-                 keys,
-                 meta_keys=('filename', 'ori_shape', 'img_shape', 'lidar2img',
-                            'depth2img', 'cam2img', 'pad_shape',
-                            'scale_factor', 'flip', 'pcd_horizontal_flip',
-                            'pcd_vertical_flip', 'box_mode_3d', 'box_type_3d',
-                            'img_norm_cfg', 'pcd_trans', 'sample_idx',
-                            'pcd_scale_factor', 'pcd_rotation', 'pts_filename',
-                            'transformation_3d_flow')):
-        self.keys = keys
-        self.meta_keys = meta_keys
-
-    def __call__(self, results):
-        """Call function to collect keys in results. The keys in ``meta_keys``
-        will be converted to :obj:`mmcv.DataContainer`.
-
-        Args:
-            results (dict): Result dict contains the data to collect.
-
-        Returns:
-            dict: The result dict contains the following keys
-                - keys in ``self.keys``
-                - ``img_metas``
-        """
-        data = {}
-        img_metas = {}
-        for key in self.meta_keys:
-            if key in results:
-                img_metas[key] = results[key]
-
-        data['img_metas'] = DC(img_metas, cpu_only=True)
-        for key in self.keys:
-            data[key] = results[key]
-        return data
-
-    def __repr__(self):
-        """str: Return a string that describes the module."""
-        return self.__class__.__name__ + \
-            f'(keys={self.keys}, meta_keys={self.meta_keys})'
-
 
 @TRANSFORMS.register_module()
 class DefaultFormatBundle3D(DefaultFormatBundle):
@@ -539,11 +365,11 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
     "gt_semantic_seg".
     These fields are formatted as follows.
 
-    - img: (1)transpose, (2)to tensor, (3)to DataContainer (stack=True)
-    - proposals: (1)to tensor, (2)to DataContainer
-    - gt_bboxes: (1)to tensor, (2)to DataContainer
-    - gt_bboxes_ignore: (1)to tensor, (2)to DataContainer
-    - gt_labels: (1)to tensor, (2)to DataContainer
+    - img: (1)transpose, (2)to tensor, (3)to BaseDataElement (stack=True)
+    - proposals: (1)to tensor, (2)to BaseDataElement
+    - gt_bboxes: (1)to tensor, (2)to BaseDataElement
+    - gt_bboxes_ignore: (1)to tensor, (2)to BaseDataElement
+    - gt_labels: (1)to tensor, (2)to BaseDataElement
     """
 
     def __init__(self, class_names, with_gt=True, with_label=True):
@@ -632,11 +458,11 @@ class CustomDefaultFormatBundle3D(DefaultFormatBundle3D):
     including "proposals", "gt_bboxes", "gt_labels", "gt_masks" and
     "gt_semantic_seg".
     These fields are formatted as follows.
-    - img: (1)transpose, (2)to tensor, (3)to DataContainer (stack=True)
-    - proposals: (1)to tensor, (2)to DataContainer
-    - gt_bboxes: (1)to tensor, (2)to DataContainer
-    - gt_bboxes_ignore: (1)to tensor, (2)to DataContainer
-    - gt_labels: (1)to tensor, (2)to DataContainer
+    - img: (1)transpose, (2)to tensor, (3)to BaseDataElement (stack=True)
+    - proposals: (1)to tensor, (2)to BaseDataElement
+    - gt_bboxes: (1)to tensor, (2)to BaseDataElement
+    - gt_bboxes_ignore: (1)to tensor, (2)to BaseDataElement
+    - gt_labels: (1)to tensor, (2)to BaseDataElement
     """
 
     def __call__(self, results):
@@ -661,11 +487,11 @@ class VADFormatBundle3D(DefaultFormatBundle3D):
     including "proposals", "gt_bboxes", "gt_labels", "gt_masks" and
     "gt_semantic_seg".
     These fields are formatted as follows.
-    - img: (1)transpose, (2)to tensor, (3)to DataContainer (stack=True)
-    - proposals: (1)to tensor, (2)to DataContainer
-    - gt_bboxes: (1)to tensor, (2)to DataContainer
-    - gt_bboxes_ignore: (1)to tensor, (2)to DataContainer
-    - gt_labels: (1)to tensor, (2)to DataContainer
+    - img: (1)transpose, (2)to tensor, (3)to BaseDataElement (stack=True)
+    - proposals: (1)to tensor, (2)to BaseDataElement
+    - gt_bboxes: (1)to tensor, (2)to BaseDataElement
+    - gt_bboxes_ignore: (1)to tensor, (2)to BaseDataElement
+    - gt_labels: (1)to tensor, (2)to BaseDataElement
     """
     def __init__(self, class_names, with_gt=True, with_label=True, with_ego=True):
         super(VADFormatBundle3D, self).__init__(class_names, with_gt, with_label)

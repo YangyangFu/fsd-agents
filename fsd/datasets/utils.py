@@ -5,7 +5,7 @@ from mmengine.registry import HOOKS
 from mmengine.hooks import Hook
 #from mmengine.runner.hooks import HOOKS, Hook
 
-from fsd.datasets.transforms import (Collect3D, DefaultFormatBundle3D,
+from fsd.datasets.transforms import (DefaultFormatBundle3D,
                                         LoadAnnotations3D,
                                         LoadImageFromFileMono3D,
                                         LoadMultiViewImageFromFiles,

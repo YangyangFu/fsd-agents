@@ -42,6 +42,61 @@ The following keys are stored in the annotation file as `*.pkl`
 
 In the dataset, we need process the annotation file to get the desired annotations for the algorithms.
 
+
+Before going into transformation pipeline, the data are preprocessed to have the following fields:
+
+**NOTE:** there is no camera class in `cam_instrinsic` to relate the matrix to correspoinding camera.
+
+```
+- folder
+- scene_token 
+- frame_idx
+- ego_yaw 
+- ego_translation
+- sensors
+- world2lidar
+- gt_ids
+- gt_boxes 
+- gt_names
+- ego_vel
+- ego_accel
+- ego_rotation_rate
+- npc2world
+- gt_lane_labels
+- gt_lane_bboxes
+- gt_lane_masks
+- timestamp
+- img_filename
+- lidar2img
+- cam_intrinsic
+- lidar2cam
+- l2g_r_mat
+- l2g_t
+- ann_info
+- can_bus
+- occ_has_invalid_frame
+- occ_img_is_valid
+- occ_future_ann_infos
+- occ_l2e_r_mats
+- occ_l2e_t_vecs
+- occ_e2g_r_mats
+- occ_e2g_t_vecs
+- sdc_planning
+- sdc_planning_mask
+- command
+- img_fields: store key name related to img. empty in dataset
+- bbox3d_fields
+- pts_mask_fields
+- pts_seg_fields
+- bbox_fields
+- mask_fields
+- seg_fields
+- box_type_3d
+- box_mode_3d
+```
+
+
+
 ## QUESTIONS
 
 - Q1: For nuscene dataset in MMDET3D, the following data processing procedures are performed when formating a MMDET3D dataset:
