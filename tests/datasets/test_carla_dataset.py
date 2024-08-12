@@ -4,6 +4,7 @@ from mmengine.registry import init_default_scope
 # If point cloud range is changed, the models should also change their point
 # cloud range accordingly
 point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
+point_cloud_range = [-20.2, -20.2, -5.0, 20.2, 20.2, 3.0]
 voxel_size = [0.2, 0.2, 8]
 patch_size = [102.4, 102.4]
 img_norm_cfg = dict(mean=[103.530, 116.280, 123.675], std=[1.0, 1.0, 1.0], to_rgb=False)
@@ -77,13 +78,13 @@ train_pipeline = [
     # dict(type='GenerateOccFlowLabels', grid_conf=occflow_grid_conf, ignore_index=255, only_vehicle=True, 
     #                                 filter_invisible=False),  # NOTE: Currently vis_token is not in pkl 
 
-    dict(type="ObjectRangeFilterTrack", point_cloud_range=point_cloud_range),
-    dict(type="ObjectNameFilterTrack", classes=class_names),
+    dict(type="ObjectRangeFilter", point_cloud_range=point_cloud_range),
+    dict(type="ObjectNameFilter", classes=class_names),
     dict(type="NormalizeMultiviewImage", **img_norm_cfg),
     dict(type="PadMultiViewImage", size_divisor=32),
     dict(type="DefaultFormatBundle3D", class_names=class_names),
     dict(
-        type="CustomCollect3D",
+        type="Collect3D",
         keys=[
             "gt_bboxes_3d",
             "gt_labels_3d",

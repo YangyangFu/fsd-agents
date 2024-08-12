@@ -1,7 +1,7 @@
-from .formating import (Collect, DefaultFormatBundle, DefaultFormatBundle3D, 
+from .formating import (DefaultFormatBundle, DefaultFormatBundle3D, 
                         CustomDefaultFormatBundle3D, ImageToTensor,
                         ToBaseDataElement, ToTensor, Transpose, to_tensor,VADFormatBundle3D)
-from .loading1 import (LoadAnnotations, LoadImageFromFile, LoadImageFromWebcam,
+from .loading import (LoadAnnotations, LoadImageFromFile, LoadImageFromWebcam,
                       LoadMultiChannelImageFromFiles, LoadProposals,
                       LoadAnnotations3D, LoadImageFromFileMono3D,
                       LoadMultiViewImageFromFiles, LoadMultiViewImageFromFilesInCeph, 
@@ -10,16 +10,13 @@ from .loading1 import (LoadAnnotations, LoadImageFromFile, LoadImageFromWebcam,
                       PointSegClassMapping, LoadAnnotations3D_E2E, 
                       CustomLoadPointsFromMultiSweeps, CustomLoadPointsFromFile)
 from .test_time_aug import MultiScaleFlipAug, MultiScaleFlipAug3D
-from .transforms_3d import (BackgroundPointsFilter, GlobalAlignment,
-                            GlobalRotScaleTrans, IndoorPatchPointSample,
-                            IndoorPointSample, ObjectNameFilter, ObjectNoise,
-                            ObjectRangeFilter, ObjectSample, PointSample,
-                            PointShuffle, PointsRangeFilter,
-                            RandomDropPointsColor, RandomFlip3D,
-                            RandomJitterPoints, VoxelBasedPointSampler,
-                            PadMultiViewImage, NormalizeMultiviewImage, 
-                            PhotoMetricDistortionMultiViewImage, CustomCollect3D, 
-                            RandomScaleImageMultiViewImage,VADObjectRangeFilter,VADObjectNameFilter,CustomPointsRangeFilter)
+from .transforms_3d import (RandomDropPointsColor, RandomFlip3D, RandomJitterPoints, ObjectSample,
+                            ObjectNoise, GlobalAlignment, GlobalRotScaleTrans, PointShuffle,
+                            PointsRangeFilter, PointSample, IndoorPointSample, IndoorPatchPointSample,
+                            BackgroundPointsFilter, VoxelBasedPointSampler, PadMultiViewImage, NormalizeMultiviewImage,
+                            PhotoMetricDistortionMultiViewImage, Collect3D, RandomScaleImageMultiViewImage,
+                            ObjectNameFilter, ObjectRangeFilter
+                            )
 #from .transforms import (Albu, CutOut, Expand, MinIoURandomCrop, Normalize,
 #                         Pad, PhotoMetricDistortion, RandomCenterCropPad,
 #                         RandomCrop, RandomFlip, RandomShift, Resize,
