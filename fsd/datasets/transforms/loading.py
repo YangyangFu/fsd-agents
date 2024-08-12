@@ -200,7 +200,7 @@ class LoadMultiChannelImageFromFiles:
 
 @PIPELINES.register_module()
 class LoadAnnotations:
-    """Load multiple types of annotations.
+    """Load multiple types of annotations for 2D data such as img data.
 
     Args:
         with_bbox (bool): Whether to parse and load the bbox annotation.
@@ -434,36 +434,6 @@ class LoadProposals:
         return self.__class__.__name__ + \
             f'(num_max_proposals={self.num_max_proposals})'
 
-
-@PIPELINES.register_module()
-class FilterAnnotations:
-    """Filter invalid annotations.
-
-    Args:
-        min_gt_bbox_wh (tuple[int]): Minimum width and height of ground truth
-            boxes.
-    """
-
-    def __init__(self, min_gt_bbox_wh):
-        # TODO: add more filter options
-        self.min_gt_bbox_wh = min_gt_bbox_wh
-
-    def __call__(self, results):
-        assert 'gt_bboxes' in results
-        gt_bboxes = results['gt_bboxes']
-        w = gt_bboxes[:, 2] - gt_bboxes[:, 0]
-        h = gt_bboxes[:, 3] - gt_bboxes[:, 1]
-        keep = (w > self.min_gt_bbox_wh[0]) & (h > self.min_gt_bbox_wh[1])
-        if not keep.any():
-            return None
-        else:
-            keys = ('gt_bboxes', 'gt_labels', 'gt_masks', 'gt_semantic_seg')
-            for key in keys:
-                if key in results:
-                    results[key] = results[key][keep]
-            return results
-        
-
 @PIPELINES.register_module()
 class LoadMultiViewImageFromFiles(object):
     """Load multi channel images from a list of separate channel files.
@@ -553,145 +523,6 @@ class LoadImageFromFileMono3D(LoadImageFromFile):
 
 
 @PIPELINES.register_module()
-class LoadPointsFromMultiSweeps(object):
-    """Load points from multiple sweeps.
-
-    This is usually used for nuScenes dataset to utilize previous sweeps.
-
-    Args:
-        sweeps_num (int): Number of sweeps. Defaults to 10.
-        load_dim (int): Dimension number of the loaded points. Defaults to 5.
-        use_dim (list[int]): Which dimension to use. Defaults to [0, 1, 2, 4].
-        file_client_args (dict): Config dict of file clients, refer to
-            https://github.com/open-mmlab/mmcv/blob/master/mmcv/fileio/file_client.py
-            for more details. Defaults to dict(backend='disk').
-        pad_empty_sweeps (bool): Whether to repeat keyframe when
-            sweeps is empty. Defaults to False.
-        remove_close (bool): Whether to remove close points.
-            Defaults to False.
-        test_mode (bool): If test_model=True used for testing, it will not
-            randomly sample sweeps but select the nearest N frames.
-            Defaults to False.
-    """
-
-    def __init__(self,
-                 sweeps_num=10,
-                 load_dim=5,
-                 use_dim=[0, 1, 2, 4],
-                 file_client_args=dict(backend='disk'),
-                 pad_empty_sweeps=False,
-                 remove_close=False,
-                 test_mode=False):
-        self.load_dim = load_dim
-        self.sweeps_num = sweeps_num
-        self.use_dim = use_dim
-        self.file_client_args = file_client_args.copy()
-        self.file_client = None
-        self.pad_empty_sweeps = pad_empty_sweeps
-        self.remove_close = remove_close
-        self.test_mode = test_mode
-
-    def _load_points(self, pts_filename):
-        """Private function to load point clouds data.
-
-        Args:
-            pts_filename (str): Filename of point clouds data.
-
-        Returns:
-            np.ndarray: An array containing point clouds data.
-        """
-        if self.file_client is None:
-            self.file_client = FileClient(**self.file_client_args)
-        try:
-            pts_bytes = self.file_client.get(pts_filename)
-            points = np.frombuffer(pts_bytes, dtype=np.float32)
-        except ConnectionError:
-            check_file_exist(pts_filename)
-            if pts_filename.endswith('.npy'):
-                points = np.load(pts_filename)
-            else:
-                points = np.fromfile(pts_filename, dtype=np.float32)
-        return points
-
-    def _remove_close(self, points, radius=1.0):
-        """Removes point too close within a certain radius from origin.
-
-        Args:
-            points (np.ndarray | :obj:`BasePoints`): Sweep points.
-            radius (float): Radius below which points are removed.
-                Defaults to 1.0.
-
-        Returns:
-            np.ndarray: Points after removing.
-        """
-        if isinstance(points, np.ndarray):
-            points_numpy = points
-        elif isinstance(points, BasePoints):
-            points_numpy = points.tensor.numpy()
-        else:
-            raise NotImplementedError
-        x_filt = np.abs(points_numpy[:, 0]) < radius
-        y_filt = np.abs(points_numpy[:, 1]) < radius
-        not_close = np.logical_not(np.logical_and(x_filt, y_filt))
-        return points[not_close]
-
-    def __call__(self, results):
-        """Call function to load multi-sweep point clouds from files.
-
-        Args:
-            results (dict): Result dict containing multi-sweep point cloud \
-                filenames.
-
-        Returns:
-            dict: The result dict containing the multi-sweep points data. \
-                Added key and value are described below.
-
-                - points (np.ndarray | :obj:`BasePoints`): Multi-sweep point \
-                    cloud arrays.
-        """
-        points = results['points']
-        points.tensor[:, 4] = 0
-        sweep_points_list = [points]
-        ts = results['timestamp']
-        if self.pad_empty_sweeps and len(results['sweeps']) == 0:
-            for i in range(self.sweeps_num):
-                if self.remove_close:
-                    sweep_points_list.append(self._remove_close(points))
-                else:
-                    sweep_points_list.append(points)
-        else:
-            if len(results['sweeps']) <= self.sweeps_num:
-                choices = np.arange(len(results['sweeps']))
-            elif self.test_mode:
-                choices = np.arange(self.sweeps_num)
-            else:
-                choices = np.random.choice(
-                    len(results['sweeps']), self.sweeps_num, replace=False)
-            for idx in choices:
-                sweep = results['sweeps'][idx]
-                points_sweep = self._load_points(sweep['data_path'])
-                points_sweep = np.copy(points_sweep).reshape(-1, self.load_dim)
-                if self.remove_close:
-                    points_sweep = self._remove_close(points_sweep)
-                sweep_ts = sweep['timestamp'] / 1e6
-                points_sweep[:, :3] = points_sweep[:, :3] @ sweep[
-                    'sensor2lidar_rotation'].T
-                points_sweep[:, :3] += sweep['sensor2lidar_translation']
-                points_sweep[:, 4] = ts - sweep_ts
-                points_sweep = points.new_point(points_sweep)
-                sweep_points_list.append(points_sweep)
-
-        points = points.cat(sweep_points_list)
-        points = points[:, self.use_dim]
-        results['points'] = points
-        return results
-
-    def __repr__(self):
-        """str: Return a string that describes the module."""
-        return f'{self.__class__.__name__}(sweeps_num={self.sweeps_num})'
-
-
-@PIPELINES.register_module()
 class PointSegClassMapping(object):
     """Map original semantic class to valid category ids.
 
@@ -769,7 +600,7 @@ class NormalizePointsColor(object):
 
                 - points (:obj:`BasePoints`): Points after color normalization.
         """
-        points = results['points']
+        points = results['pts']
         assert points.attribute_dims is not None and \
             'color' in points.attribute_dims.keys(), \
             'Expect points have color attribute'
@@ -777,7 +608,7 @@ class NormalizePointsColor(object):
             points.color = points.color - \
                 points.color.new_tensor(self.color_mean)
         points.color = points.color / 255.0
-        results['points'] = points
+        results['pts'] = points
         return results
 
     def __repr__(self):
@@ -785,130 +616,6 @@ class NormalizePointsColor(object):
         repr_str = self.__class__.__name__
         repr_str += f'(color_mean={self.color_mean})'
         return repr_str
-
-
-@PIPELINES.register_module()
-class LoadPointsFromFile(object):
-    """Load Points From File.
-
-    Load sunrgbd and scannet points from file.
-
-    Args:
-        coord_type (str): The type of coordinates of points cloud.
-            Available options includes:
-            - 'LIDAR': Points in LiDAR coordinates.
-            - 'DEPTH': Points in depth coordinates, usually for indoor dataset.
-            - 'CAMERA': Points in camera coordinates.
-        load_dim (int): The dimension of the loaded points.
-            Defaults to 3.
-        use_dim (list[int]): Which dimensions of the points to be used.
-            Defaults to [0, 1, 2]. For KITTI dataset, set use_dim=4
-            or use_dim=[0, 1, 2, 3] to use the intensity dimension.
-        shift_height (bool): Whether to use shifted height. Defaults to False.
-        use_color (bool): Whether to use color features. Defaults to False.
-        file_client_args (dict): Config dict of file clients, refer to
-            https://github.com/open-mmlab/mmcv/blob/master/mmcv/fileio/file_client.py
-            for more details. Defaults to dict(backend='disk').
-    """
-
-    def __init__(self,
-                 coord_type,
-                 load_dim=3,
-                 use_dim=[0, 1, 2],
-                 shift_height=False,
-                 use_color=False,
-                 file_client_args=dict(backend='disk')):
-        self.shift_height = shift_height
-        self.use_color = use_color
-        if isinstance(use_dim, int):
-            use_dim = list(range(use_dim))
-        assert max(use_dim) < load_dim, \
-            f'Expect all used dimensions < {load_dim}, got {use_dim}'
-        assert coord_type in ['CAMERA', 'LIDAR', 'DEPTH']
-
-        self.coord_type = coord_type
-        self.load_dim = load_dim
-        self.use_dim = use_dim
-        self.file_client_args = file_client_args.copy()
-        self.file_client = None
-
-    def _load_points(self, pts_filename):
-        """Private function to load point clouds data.
-
-        Args:
-            pts_filename (str): Filename of point clouds data.
-
-        Returns:
-            np.ndarray: An array containing point clouds data.
-        """
-        if self.file_client is None:
-            self.file_client = FileClient(**self.file_client_args)
-        try:
-            pts_bytes = self.file_client.get(pts_filename)
-            points = np.frombuffer(pts_bytes, dtype=np.float32)
-        except ConnectionError:
-            check_file_exist(pts_filename)
-            if pts_filename.endswith('.npy'):
-                points = np.load(pts_filename)
-            else:
-                points = np.fromfile(pts_filename, dtype=np.float32)
-
-        return points
-
-    def __call__(self, results):
-        """Call function to load points data from file.
-
-        Args:
-            results (dict): Result dict containing point clouds data.
-
-        Returns:
-            dict: The result dict containing the point clouds data. \
-                Added key and value are described below.
-
-                - points (:obj:`BasePoints`): Point clouds data.
-        """
-        pts_filename = results['pts_filename']
-        points = self._load_points(pts_filename)
-        points = points.reshape(-1, self.load_dim)
-        points = points[:, self.use_dim]
-        attribute_dims = None
-
-        if self.shift_height:
-            floor_height = np.percentile(points[:, 2], 0.99)
-            height = points[:, 2] - floor_height
-            points = np.concatenate(
-                [points[:, :3],
-                 np.expand_dims(height, 1), points[:, 3:]], 1)
-            attribute_dims = dict(height=3)
-
-        if self.use_color:
-            assert len(self.use_dim) >= 6
-            if attribute_dims is None:
-                attribute_dims = dict()
-            attribute_dims.update(
-                dict(color=[
-                    points.shape[1] - 3,
-                    points.shape[1] - 2,
-                    points.shape[1] - 1,
-                ]))
-
-        points_class = get_points_type(self.coord_type)
-        points = points_class(
-            points, points_dim=points.shape[-1], attribute_dims=attribute_dims)
-        results['pts'] = points
-
-        return results
-
-    def __repr__(self):
-        """str: Return a string that describes the module."""
-        repr_str = self.__class__.__name__ + '('
-        repr_str += f'shift_height={self.shift_height}, '
-        repr_str += f'use_color={self.use_color}, '
-        repr_str += f'file_client_args={self.file_client_args}, '
-        repr_str += f'load_dim={self.load_dim}, '
-        repr_str += f'use_dim={self.use_dim})'
-        return repr_str
-
 
 @PIPELINES.register_module()
 class LoadAnnotations3D(LoadAnnotations):
@@ -998,7 +705,7 @@ class LoadAnnotations3D(LoadAnnotations):
         Returns:
             dict: The dict containing loaded 2.5D bounding box annotations.
         """
-        results['centers2d'] = results['ann_info']['centers2d']
+        results['centers2d'] = results['ann_info']['centers2d'].copy()
         results['depths'] = results['ann_info']['depths']
         return results
 
@@ -1011,7 +718,7 @@ class LoadAnnotations3D(LoadAnnotations):
         Returns:
             dict: The dict containing loaded label annotations.
         """
-        results['gt_labels_3d'] = results['anno_info']['gt_labels_3d']
+        results['gt_labels_3d'] = results['anno_info']['gt_labels_3d'].copy()
         return results
 
     def _load_attr_labels(self, results):
@@ -1023,7 +730,7 @@ class LoadAnnotations3D(LoadAnnotations):
         Returns:
             dict: The dict containing loaded label annotations.
         """
-        results['attr_labels'] = results['anno_info']['attr_labels']
+        results['attr_labels'] = results['anno_info']['attr_labels'].copy()
         return results
 
     def _load_masks_3d(self, results):
@@ -1126,90 +833,18 @@ class LoadAnnotations3D(LoadAnnotations):
         return repr_str
 
 @PIPELINES.register_module()
-class LoadMultiViewImageFromFilesInCeph(object):
-    """Load multi channel images from a list of separate channel files.
-
-    Expects results['img_filename'] to be a list of filenames.
-
-    Args:
-        to_float32 (bool): Whether to convert the img to float32.
-            Defaults to False.
-        color_type (str): Color type of the file. Defaults to 'unchanged'.
-    """
-
-    def __init__(self, to_float32=False, color_type='unchanged', file_client_args=dict(backend='disk'), img_root=''):
-        self.to_float32 = to_float32
-        self.color_type = color_type
-        self.file_client_args = file_client_args.copy()
-        self.file_client = FileClient(**self.file_client_args)
-        self.img_root = img_root
-
-    def __call__(self, results):
-        """Call function to load multi-view image from files.
-
-        Args:
-            results (dict): Result dict containing multi-view image filenames.
-
-        Returns:
-            dict: The result dict containing the multi-view image data. \
-                Added keys and values are described below.
-
-                - filename (list of str): Multi-view image filenames.
-                - img (np.ndarray): Multi-view image arrays.
-                - img_shape (tuple[int]): Shape of multi-view image arrays.
-                - ori_shape (tuple[int]): Shape of original image arrays.
-                - pad_shape (tuple[int]): Shape of padded image arrays.
-                - scale_factor (float): Scale factor.
-                - img_norm_cfg (dict): Normalization configuration of images.
-        """
-        images_multiView = []
-        filename = results['img_filename']
-        for img_path in filename:
-            # img_path = os.path.join(self.img_root, img_path)
-            if self.file_client_args['backend'] == 'petrel':
-                img_bytes = self.file_client.get(img_path)
-                img = imfrombytes(img_bytes)
-            elif self.file_client_args['backend'] == 'disk':
-                img = imread(img_path, self.color_type)
-            images_multiView.append(img)
-        # img is of shape (h, w, c, num_views)
-        img = np.stack(
-            #[mmcv.imread(name, self.color_type) for name in filename], axis=-1)
-            images_multiView, axis=-1)
-        if self.to_float32:
-            img = img.astype(np.float32)
-        results['filename'] = filename
-        # unravel to list, see `DefaultFormatBundle` in formating.py
-        # which will transpose each image separately and then stack into array
-        results['img'] = [img[..., i] for i in range(img.shape[-1])]
-        results['img_shape'] = img.shape
-        results['ori_shape'] = img.shape
-        # Set initial values for default meta_keys
-        results['pad_shape'] = img.shape
-        results['scale_factor'] = 1.0
-        num_channels = 1 if len(img.shape) < 3 else img.shape[2]
-        results['img_norm_cfg'] = dict(
-            mean=np.zeros(num_channels, dtype=np.float32),
-            std=np.ones(num_channels, dtype=np.float32),
-            to_rgb=False)
-        return results
-
-    def __repr__(self):
-        """str: Return a string that describes the module."""
-        repr_str = self.__class__.__name__
-        repr_str += f'(to_float32={self.to_float32}, '
-        repr_str += f"color_type='{self.color_type}')"
-        return repr_str
-
-
-@PIPELINES.register_module()
-class LoadAnnotations3D_E2E(LoadAnnotations3D):
-    """Load Annotations3D.
+class LoadAnnotations3DPlanning(LoadAnnotations3D):
+    """Load Annotations3D for planning tasks.
 
     Load instance mask and semantic mask of points and
     encapsulate the items into related fields.
 
     Args:
+    # Planning:
+        with_instances_future_traj (bool, optional): Whether to load future trajectory for instances.
+            Defaults to False.
+        
+    # 3D annotations inherited from LoadAnnotations3D
         with_bbox_3d (bool, optional): Whether to load 3D boxes.
             Defaults to True.
         with_label_3d (bool, optional): Whether to load 3D labels.
@@ -1220,6 +855,8 @@ class LoadAnnotations3D_E2E(LoadAnnotations3D):
             for points. Defaults to False.
         with_seg_3d (bool, optional): Whether to load 3D semantic masks.
             for points. Defaults to False.
+       
+    # 2D annotations
         with_bbox (bool, optional): Whether to load 2D boxes.
             Defaults to False.
         with_label (bool, optional): Whether to load 2D labels.
@@ -1240,75 +877,14 @@ class LoadAnnotations3D_E2E(LoadAnnotations3D):
     """
     def __init__(self,
                  with_instances_future_traj=False,
-                 with_future_anns=False,
-                 with_ins_inds_3d=False,
-                 with_vis_token=True,
-                 ins_inds_add_1=False,  # NOTE: make ins_inds start from 1, not 0
+                 with_instances_ids=False,
                  **kwargs):
         super().__init__(**kwargs)
         self.with_instances_future_traj = with_instances_future_traj
-        self.with_future_anns = with_future_anns
-        self.with_ins_inds_3d = with_ins_inds_3d
-        self.with_vis_token = with_vis_token
-        self.ins_inds_add_1 = ins_inds_add_1
-    
-    def _load_future_anns(self, results):
-        """Private function to load 3D bounding box annotations.
+        self.with_instances_ids = with_instances_ids
 
-        Args:
-            results (dict): Result dict from :obj:`mmcv3d.CustomDataset`.
-
-        Returns:
-            dict: The dict containing loaded 3D bounding box annotations.
-        """
-
-        gt_bboxes_3d = []
-        gt_labels_3d = []
-        gt_inds_3d = []
-        # gt_valid_flags = []
-        gt_vis_tokens  = []
-
-        for ann_info in results['occ_future_ann_infos']:
-            if ann_info is not None:
-                gt_bboxes_3d.append(ann_info['gt_bboxes_3d'])
-                gt_labels_3d.append(ann_info['gt_labels_3d'])
-                
-                ann_gt_inds = ann_info['gt_inds']
-                if self.ins_inds_add_1:
-                    ann_gt_inds += 1
-                    # NOTE: sdc query is changed from -10 -> -9
-                gt_inds_3d.append(ann_gt_inds)
-
-                # gt_valid_flags.append(ann_info['gt_valid_flag'])
-                if self.with_vis_token:
-                    gt_vis_tokens.append(ann_info['gt_vis_tokens'])
-            else:
-                # invalid frame
-                gt_bboxes_3d.append(None)
-                gt_labels_3d.append(None)
-                gt_inds_3d.append(None)
-                # gt_valid_flags.append(None)
-                if self.with_vis_token:
-                    gt_vis_tokens.append(None)
-
-        results['future_gt_bboxes_3d'] = gt_bboxes_3d
-        # results['future_bbox3d_fields'].append('gt_bboxes_3d')  # Field is used for augmentations, not needed here
-        results['future_gt_labels_3d'] = gt_labels_3d
-        results['future_gt_inds'] = gt_inds_3d
-        # results['future_gt_valid_flag'] = gt_valid_flags
-        if self.with_vis_token:
-            results['future_gt_vis_tokens'] = gt_vis_tokens
-
-        return results 
-  
-    def _load_ins_inds_3d(self, results):
-        ann_gt_inds = results['anno_info']['gt_instances_ids'].copy() # TODO: note here
-
-        # NOTE: Avoid gt_inds generated twice
-        results['anno_info'].pop('gt_instances_ids')
-        
-        if self.ins_inds_add_1:
-            ann_gt_inds += 1
+    def _load_instances_ids(self, results):
+        ann_gt_inds = results['anno_info']['gt_instances_ids'].copy() 
         results['gt_instances_ids'] = ann_gt_inds
         return results
 
@@ -1316,6 +892,7 @@ class LoadAnnotations3D_E2E(LoadAnnotations3D):
         ego_future_traj = results['anno_info']['gt_ego_future_traj']
         results['gt_ego_future_traj'] = ego_future_traj
         return results
+    
     def _load_instances_future_traj(self, results):
         instances_future_traj = results['anno_info']['gt_instances_future_traj']
         results['gt_instances_future_traj'] = instances_future_traj
@@ -1328,22 +905,16 @@ class LoadAnnotations3D_E2E(LoadAnnotations3D):
         results = self._load_ego_future_traj(results)
         if self.with_instances_future_traj:
             results = self._load_instances_future_traj(results)
-        if self.with_future_anns:
-            results = self._load_future_anns(results)
-        if self.with_ins_inds_3d:
-            results = self._load_ins_inds_3d(results)
-        
-        # Generate ann for plan
-        if 'occ_future_ann_infos_for_plan' in results.keys():
-            results = self._load_future_anns_plan(results)
-        
+        if self.with_instances_ids:
+            results = self._load_instances_ids(results)
+
         return results
 
     def __repr__(self):
         repr_str = super().__repr__()
         indent_str = '    '
-        repr_str += f'{indent_str}with_future_anns={self.with_future_anns}, '
-        repr_str += f'{indent_str}with_ins_inds_3d={self.with_ins_inds_3d}, '
+        repr_str += f'{indent_str}with_instances_future_traj={self.with_instances_future_traj}, '
+        repr_str += f'{indent_str}with_instances_ids={self.with_instances_ids}, '
         
         return repr_str
 
@@ -1448,7 +1019,7 @@ def reduce_LiDAR_beams(pts, reduce_beams_to=32):
     return points.numpy()
 
 @PIPELINES.register_module()
-class CustomLoadPointsFromMultiSweeps:
+class LoadPointsFromMultiSweeps:
     """Load points from multiple sweeps.
 
     This is usually used for nuScenes dataset to utilize previous sweeps.
@@ -1497,7 +1068,7 @@ class CustomLoadPointsFromMultiSweeps:
         Returns:
             np.ndarray: An array containing point clouds data.
         """
-        mmcv.check_file_exist(lidar_path)
+        check_file_exist(lidar_path)
         if self.load_augmented:
             assert self.load_augmented in ["pointpainting", "mvp"]
             virtual = self.load_augmented == "mvp"
@@ -1546,7 +1117,7 @@ class CustomLoadPointsFromMultiSweeps:
                 - points (np.ndarray | :obj:`BasePoints`): Multi-sweep point \
                     cloud arrays.
         """
-        points = results["points"]
+        points = results["pts"]
         points.tensor[:, 4] = 0
         sweep_points_list = [points]
         ts = results["timestamp"] / 1e6
@@ -1594,7 +1165,7 @@ class CustomLoadPointsFromMultiSweeps:
 
         points = points.cat(sweep_points_list)
         points = points[:, self.use_dim]
-        results["points"] = points
+        results["pts"] = points
         return results
 
     def __repr__(self):
@@ -1602,7 +1173,7 @@ class CustomLoadPointsFromMultiSweeps:
         return f"{self.__class__.__name__}(sweeps_num={self.sweeps_num})"
 
 @PIPELINES.register_module()
-class CustomLoadPointsFromFile:
+class LoadPointsFromFile:
     """Load Points From File.
 
     Load sunrgbd and scannet points from file.
@@ -1656,7 +1227,7 @@ class CustomLoadPointsFromFile:
         Returns:
             np.ndarray: An array containing point clouds data.
         """
-        mmcv.check_file_exist(lidar_path)
+        check_file_exist(lidar_path)
         if self.load_augmented:
             assert self.load_augmented in ["pointpainting", "mvp"]
             virtual = self.load_augmented == "mvp"
@@ -1717,6 +1288,6 @@ class CustomLoadPointsFromFile:
         points = points_class(
             points, points_dim=points.shape[-1], attribute_dims=attribute_dims
         )
-        results["points"] = points
+        results["pts"] = points
 
         return results

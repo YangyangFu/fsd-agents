@@ -60,19 +60,16 @@ ann_file_val=info_root + f"/b2d_infos_val.pkl"
 ann_file_test=info_root + f"/b2d_infos_val.pkl"
 
 train_pipeline = [
-    dict(type="LoadMultiViewImageFromFilesInCeph", to_float32=True, file_client_args=file_client_args, img_root=data_root),
-    dict(type="LoadPointsFromFile", coord_type="LIDAR", load_dim=3, use_dim=[0, 1, 2], file_client_args=file_client_args),
+    dict(type="LoadMultiViewImageFromFiles", to_float32=True),
+    dict(type="LoadPointsFromFile", coord_type="LIDAR", load_dim=3, use_dim=[0, 1, 2]),
     dict(type="PhotoMetricDistortionMultiViewImage"),
     dict(
-        type="LoadAnnotations3D_E2E",
+        type="LoadAnnotations3DPlanning",
         with_bbox_3d=True,
         with_label_3d=True,
-        with_instances_future_traj=True,
+        with_instances_ids=True,  # instance ids 
         with_attr_label=False,
-        with_vis_token=False,
-        with_future_anns=False,  # occ_flow gt
-        with_ins_inds_3d=True,  # ins_inds 
-        ins_inds_add_1=True,    # ins_inds start from 1
+        with_instances_future_traj=True, # future
     ),
 
     # dict(type='GenerateOccFlowLabels', grid_conf=occflow_grid_conf, ignore_index=255, only_vehicle=True, 
