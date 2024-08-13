@@ -9,6 +9,7 @@ import torch
 from mmengine.structures import BaseDataElement, InstanceData, PixelData
 from mmdet3d.structures import BaseInstance3DBoxes, BasePoints, PointData
 from mmengine.utils import is_str
+from fsd.structures import PlanningDataSample
 from fsd.registry import TRANSFORMS
 
 def to_tensor(data):
@@ -255,7 +256,7 @@ class DefaultFormatBundle(object):
                 img = np.ascontiguousarray(results['img'].transpose(2, 0, 1))
                 results['img'] = BaseDataElement(data=to_tensor(img))
         for key in [
-                'proposals', 'gt_bboxes_ignore', 'gt_labels_3d', 
+                'proposals', 'gt_bboxes_ignore', 'gt_labels', 'gt_bboxes' 
                 'pts_instance_mask', 'pts_semantic_mask', 'centers2d', 'depths'
         ]:
             if key not in results:
@@ -264,16 +265,6 @@ class DefaultFormatBundle(object):
                 results[key] = BaseDataElement(data=[to_tensor(res) for res in results[key]])
             else:
                 results[key] = BaseDataElement(data=to_tensor(results[key]))
-        if 'gt_bboxes_3d' in results:
-            if isinstance(results['gt_bboxes_3d'], BaseInstance3DBoxes):
-                results['gt_bboxes_3d'] = BaseDataElement(
-                    data=results['gt_bboxes_3d'])
-            else:
-                results['gt_bboxes_3d'] = BaseDataElement(
-                    data=to_tensor(results['gt_bboxes_3d']))
-
-        if 'gt_bboxes_mask' in results:
-            results['gt_bboxes_mask'] = BaseDataElement(data=results['gt_bboxes_mask'])
 
         return results
 
@@ -296,12 +287,10 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
     - gt_labels: (1)to tensor, (2)to BaseDataElement
     """
 
-    def __init__(self, class_names, with_gt=True, with_label=True):
+    def __init__(self, with_map=False):
         super(DefaultFormatBundle3D, self).__init__()
-        self.class_names = class_names
-        self.with_gt = with_gt
-        self.with_label = with_label
-
+        self.with_map = with_map
+        
     def __call__(self, results):
         """Call function to transform and format common fields in results.
 
@@ -312,7 +301,9 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
             dict: The result dict contains the data that is formatted with
                 default bundle.
         """
-        # Format 3D data
+        results = super(DefaultFormatBundle3D, self).__call__(results)
+        
+        # Format 3D data: points
         if 'pts' in results:
             assert isinstance(results['pts'], BasePoints)
             results['pts'] = BaseDataElement(data=results['pts'].tensor)
@@ -322,87 +313,67 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
                 continue
             results[key] = BaseDataElement(data=to_tensor(results[key]))
 
-        if self.with_gt:
-            # Clean GT bboxes in the final
-            if 'gt_bboxes_mask' in results:
-                gt_bboxes_mask = results['gt_bboxes_mask']
-                results['gt_bboxes_3d'] = results['gt_bboxes_3d'][
-                    gt_bboxes_mask]
-                if 'gt_classes' in results:
-                    results['gt_names_3d'] = results['gt_names_3d'][
-                        gt_bboxes_mask]
-                if 'centers2d' in results:
-                    results['centers2d'] = results['centers2d'][
-                        gt_bboxes_mask]
-                if 'depths' in results:
-                    results['depths'] = results['depths'][gt_bboxes_mask]
-            if 'gt_bboxes_mask' in results:
-                gt_bboxes_mask = results['gt_bboxes_mask']
-                if 'gt_bboxes' in results:
-                    results['gt_bboxes'] = results['gt_bboxes'][gt_bboxes_mask]
-                results['gt_names'] = results['gt_names'][gt_bboxes_mask]
-            if self.with_label:
-                if 'gt_names' in results and len(results['gt_names']) == 0:
-                    results['gt_labels'] = np.array([], dtype=np.int64)
-                    results['attr_labels'] = np.array([], dtype=np.int64)
-                elif 'gt_names' in results and isinstance(
-                        results['gt_names'][0], list):
-                    # gt_labels might be a list of list in multi-view setting
-                    results['gt_labels'] = [
-                        np.array([self.class_names.index(n) for n in res],
-                                 dtype=np.int64) for res in results['gt_names']
-                    ]
-                elif 'gt_names' in results:
-                    results['gt_labels'] = np.array([
-                        self.class_names.index(n) for n in results['gt_names']
-                    ],
-                                                    dtype=np.int64)
-                # we still assume one pipeline for one frame LiDAR
-                # thus, the 3D name is list[string]
-                if 'gt_names_3d' in results:
-                    results['gt_labels_3d'] = np.array([
-                        self.class_names.index(n)
-                        for n in results['gt_names_3d']
-                    ],
-                                                       dtype=np.int64)
-        results = super(DefaultFormatBundle3D, self).__call__(results)
+        # 3D annotations
+        gt_keys_3d = ['gt_bboxes_3d', 'gt_labels_3d', 
+                      'gt_bboxes_3d_mask', 'gt_instances_ids', 
+                      'gt_classes', 'gt_instances2world',
+                      "gt_instances_future_traj", 
+                      "gt_ego_future_traj",
+                      ]
+        gt_instances_3d = InstanceData()
+        
+        for key in gt_keys_3d:
+            if key in results:
+                if isinstance(results[key], BaseDataElement):
+                    gt_instances_3d[key] = results[key].to_tensor()
+                elif isinstance(results[key], BaseInstance3DBoxes):
+                    gt_instances_3d[key] = results[key]
+                else:
+                    gt_instances_3d[key] = to_tensor(results[key])
+
+                results.pop(key)
+
+        """
+        if 'gt_bboxes_3d' in results:
+            if isinstance(results['gt_bboxes_3d'], BaseInstance3DBoxes):
+                results['gt_bboxes_3d'] = BaseDataElement(
+                    data=results['gt_bboxes_3d'])
+            else:
+                results['gt_bboxes_3d'] = BaseDataElement(
+                    data=to_tensor(results['gt_bboxes_3d']))
+
+        if 'gt_bboxes_mask' in results:
+            results['gt_bboxes_mask'] = BaseDataElement(data=results['gt_bboxes_mask'])
+
+        if 'gt_instances_ids' in results:
+            results['gt_instances_ids'] = BaseDataElement(data=to_tensor(results['gt_instances_ids']))
+        
+        if 'gt_labels_3d' in results:
+            results['gt_labels_3d'] = BaseDataElement(data=to_tensor(results['gt_labels_3d']))
+        if 'gt_instances2world' in results:
+            results['gt_instances2world'] = BaseDataElement(data=to_tensor(results['gt_instances2world']))
+        
+        # future annotations
+        if 'gt_instances_future_traj' in results:
+            results['gt_instances_future_traj'] = BaseDataElement(data=results['gt_instances_future_traj'])
+        
+        if 'gt_ego_future_traj' in results:
+            results['gt_ego_future_traj'] = BaseDataElement(data=results['gt_ego_future_traj'])
+        """
+        # TODO: add map data
+        # with map
+        
+        data_sample = PlanningDataSample()
+        data_sample.gt_instances_3d = gt_instances_3d
+        
+        results['data_sample'] = data_sample
         return results
 
     def __repr__(self):
         """str: Return a string that describes the module."""
         repr_str = self.__class__.__name__
-        repr_str += f'(class_names={self.class_names}, '
-        repr_str += f'with_gt={self.with_gt}, with_label={self.with_label})'
         return repr_str
     
-@TRANSFORMS.register_module()
-class CustomDefaultFormatBundle3D(DefaultFormatBundle3D):
-    """Default formatting bundle.
-    It simplifies the pipeline of formatting common fields for voxels,
-    including "proposals", "gt_bboxes", "gt_labels", "gt_masks" and
-    "gt_semantic_seg".
-    These fields are formatted as follows.
-    - img: (1)transpose, (2)to tensor, (3)to BaseDataElement (stack=True)
-    - proposals: (1)to tensor, (2)to BaseDataElement
-    - gt_bboxes: (1)to tensor, (2)to BaseDataElement
-    - gt_bboxes_ignore: (1)to tensor, (2)to BaseDataElement
-    - gt_labels: (1)to tensor, (2)to BaseDataElement
-    """
-
-    def __call__(self, results):
-        """Call function to transform and format common fields in results.
-        Args:
-            results (dict): Result dict contains the data to convert.
-        Returns:
-            dict: The result dict contains the data that is formatted with
-                default bundle.
-        """
-        # Format 3D data
-        results = super(CustomDefaultFormatBundle3D, self).__call__(results)
-        results['gt_map_masks'] = DC(
-            to_tensor(results['gt_map_masks']), stack=True)
-
-        return results
 
 @TRANSFORMS.register_module()
 class VADFormatBundle3D(DefaultFormatBundle3D):

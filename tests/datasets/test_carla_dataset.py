@@ -79,7 +79,6 @@ train_pipeline = [
     dict(type="ObjectNameFilter", classes=class_names),
     dict(type="NormalizeMultiviewImage", **img_norm_cfg),
     dict(type="PadMultiViewImage", size_divisor=32),
-    dict(type="DefaultFormatBundle3D", class_names=class_names),
     dict(
         type="Collect3D",
         keys=[
@@ -120,6 +119,7 @@ train_pipeline = [
             # "command",
         ],
     ),
+    dict(type="DefaultFormatBundle3D")
 ]
 
 

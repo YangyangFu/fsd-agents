@@ -1,10 +1,9 @@
-from .formating import (DefaultFormatBundle, DefaultFormatBundle3D, 
-                        CustomDefaultFormatBundle3D, ImageToTensor,
+from .formating import (DefaultFormatBundle, DefaultFormatBundle3D, ImageToTensor,
                         ToBaseDataElement, ToTensor, Transpose, to_tensor,VADFormatBundle3D)
 from .loading import (LoadAnnotations, LoadImageFromFile, LoadImageFromWebcam,
                       LoadMultiChannelImageFromFiles, LoadProposals,
                       LoadAnnotations3D, LoadImageFromFileMono3D,
-                      LoadMultiViewImageFromFiles, LoadMultiViewImageFromFilesInCeph, 
+                      LoadMultiViewImageFromFiles, 
                       LoadPointsFromFile,
                       LoadPointsFromMultiSweeps, NormalizePointsColor,
                       PointSegClassMapping, LoadAnnotations3DPlanning)
