@@ -1,8 +1,8 @@
 import os
 import os.path as osp
 import torch
-import mmcv
 import numpy as np
+import laspy
 import pycocotools.mask as maskUtils
 
 from mmengine.fileio import FileClient
@@ -72,7 +72,7 @@ class LoadImageFromFile:
         results['img'] = img
         results['img_shape'] = img.shape
         results['ori_shape'] = img.shape
-        results['img_fields'] = ['img']
+        results['img_fields'].append('img')
         return results
 
     def __repr__(self):
@@ -111,7 +111,7 @@ class LoadImageFromWebcam(LoadImageFromFile):
         results['img'] = img
         results['img_shape'] = img.shape
         results['ori_shape'] = img.shape
-        results['img_fields'] = ['img']
+        results['img_fields'].append('img')
         return results
 
 
@@ -188,6 +188,8 @@ class LoadMultiChannelImageFromFiles:
             mean=np.zeros(num_channels, dtype=np.float32),
             std=np.ones(num_channels, dtype=np.float32),
             to_rgb=False)
+        
+        results['img_fields'].append('img')
         return results
 
     def __repr__(self):
@@ -264,6 +266,7 @@ class LoadAnnotations:
         """
 
         results['gt_labels'] = results['ann_info']['labels'].copy()
+        results['bbox_fields'].append('gt_labels')
         return results
 
     def _poly2mask(self, mask_ann, img_h, img_w):
@@ -332,7 +335,7 @@ class LoadAnnotations:
                 [self.process_polygons(polygons) for polygons in gt_masks], h,
                 w)
         results['gt_masks'] = gt_masks
-        results['mask_fields'].append('gt_masks')
+        results['bbox_fields'].append('gt_masks')
         return results
 
     def _load_semantic_seg(self, results):
@@ -353,7 +356,7 @@ class LoadAnnotations:
         img_bytes = self.file_client.get(filename)
         results['gt_semantic_seg'] = imfrombytes(
             img_bytes, flag='unchanged').squeeze()
-        results['seg_fields'].append('gt_semantic_seg')
+        results['img_seg_fields'].append('gt_semantic_seg')
         return results
 
     def __call__(self, results):
@@ -488,6 +491,8 @@ class LoadMultiViewImageFromFiles(object):
             mean=np.zeros(num_channels, dtype=np.float32),
             std=np.ones(num_channels, dtype=np.float32),
             to_rgb=False)
+        # add key words to img_fields
+        results['img_fields'].append('img')
         return results
 
     def __repr__(self):
@@ -567,6 +572,7 @@ class PointSegClassMapping(object):
         converted_pts_sem_mask = self.cat_id2class[pts_semantic_mask]
 
         results['pts_semantic_mask'] = converted_pts_sem_mask
+        results['pts_seg_fields'].append('pts_semantic_mask')
         return results
 
     def __repr__(self):
@@ -707,6 +713,7 @@ class LoadAnnotations3D(LoadAnnotations):
         """
         results['centers2d'] = results['ann_info']['centers2d'].copy()
         results['depths'] = results['ann_info']['depths']
+        results['bbox3d_fields'].extend(['centers2d', 'depths'])
         return results
 
     def _load_labels_3d(self, results):
@@ -719,6 +726,7 @@ class LoadAnnotations3D(LoadAnnotations):
             dict: The dict containing loaded label annotations.
         """
         results['gt_labels_3d'] = results['anno_info']['gt_labels_3d'].copy()
+        results['bbox3d_fields'].append('gt_labels_3d')
         return results
 
     def _load_attr_labels(self, results):
@@ -755,7 +763,7 @@ class LoadAnnotations3D(LoadAnnotations):
                 pts_instance_mask_path, dtype=np.long)
 
         results['pts_instance_mask'] = pts_instance_mask
-        results['pts_mask_fields'].append('pts_instance_mask')
+        results['pts_fields'].append('pts_instance_mask')
         return results
 
     def _load_semantic_seg_3d(self, results):
@@ -886,16 +894,19 @@ class LoadAnnotations3DPlanning(LoadAnnotations3D):
     def _load_instances_ids(self, results):
         ann_gt_inds = results['anno_info']['gt_instances_ids'].copy() 
         results['gt_instances_ids'] = ann_gt_inds
+        results['bbox3d_fields'].append('gt_instances_ids')
         return results
 
     def _load_ego_future_traj(self, results):
         ego_future_traj = results['anno_info']['gt_ego_future_traj']
         results['gt_ego_future_traj'] = ego_future_traj
+        results['ego_fields'].append('gt_ego_future_traj')
         return results
     
     def _load_instances_future_traj(self, results):
         instances_future_traj = results['anno_info']['gt_instances_future_traj']
         results['gt_instances_future_traj'] = instances_future_traj
+        results['bbox3d_fields'].append('gt_instances_future_traj')
         return results
     
     def __call__(self, results):
@@ -1166,6 +1177,7 @@ class LoadPointsFromMultiSweeps:
         points = points.cat(sweep_points_list)
         points = points[:, self.use_dim]
         results["pts"] = points
+        results['pts_fileds'].append('pts')
         return results
 
     def __repr__(self):
@@ -1202,6 +1214,7 @@ class LoadPointsFromFile:
         use_color=False,
         load_augmented=None,
         reduce_beams=None,
+        to_float32=True,
     ):
         self.shift_height = shift_height
         self.use_color = use_color
@@ -1217,7 +1230,8 @@ class LoadPointsFromFile:
         self.use_dim = use_dim
         self.load_augmented = load_augmented
         self.reduce_beams = reduce_beams
-
+        self.to_float32 = to_float32
+        
     def _load_points(self, lidar_path):
         """Private function to load point clouds data.
 
@@ -1236,9 +1250,22 @@ class LoadPointsFromFile:
             )
         elif lidar_path.endswith(".npy"):
             points = np.load(lidar_path)
+        elif lidar_path.endswith(".laz"):
+            assert self.load_dim <= 4, "Only support loading xyz and intensity in laz for now"
+            with open(lidar_path, "rb") as f:
+                las = laspy.read(f)
+                if self.load_dim == 4:
+                    points = np.vstack([las.x, las.y, las.z, las.intensity]).T
+                elif self.load_dim == 3:
+                    points = np.vstack([las.x, las.y, las.z]).T
+                else: 
+                    raise NotImplementedError
         else:
-            points = np.fromfile(lidar_path, dtype=np.float32)
+            points = np.fromfile(lidar_path)
 
+        if self.to_float32:
+            points = points.astype(np.float32)
+        
         return points
 
     def __call__(self, results):
@@ -1289,5 +1316,6 @@ class LoadPointsFromFile:
             points, points_dim=points.shape[-1], attribute_dims=attribute_dims
         )
         results["pts"] = points
+        results['pts_fields'].append('pts')
 
         return results

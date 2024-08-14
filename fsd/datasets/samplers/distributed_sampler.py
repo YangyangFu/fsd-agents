@@ -2,10 +2,10 @@ import math
 
 import torch
 from torch.utils.data import DistributedSampler as _DistributedSampler
-from .sampler import SAMPLER
+from fsd.registry import DATA_SAMPLER
 
 
-@SAMPLER.register_module()
+@DATA_SAMPLER.register_module()
 class DistributedSampler(_DistributedSampler):
 
     def __init__(self,

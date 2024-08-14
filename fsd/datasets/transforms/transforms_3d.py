@@ -1601,9 +1601,17 @@ class Collect3D(object):
             if key in results:
                 img_metas[key] = results[key]
 
+        # pass meta
         data['img_metas'] = img_metas
+        for key in ['img_fields', 'pts_fields', 'ego_fields', 'bbox3d_fields', 
+                    'pts_seg_fields', 'bbox_fields', 'simg_seg_fields', 
+                    'box_type_3d', 'box_mode_3d']:
+            if key in results:
+                data[key] = results[key]
+        # pass data        
         for key in self.keys:
             data[key] = results[key]
+        
         return data
 
     def __repr__(self):

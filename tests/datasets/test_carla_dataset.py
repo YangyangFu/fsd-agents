@@ -1,5 +1,6 @@
 from fsd.registry import DATASETS 
 from mmengine.registry import init_default_scope
+from mmengine.runner import Runner 
 
 # If point cloud range is changed, the models should also change their point
 # cloud range accordingly
@@ -122,21 +123,31 @@ train_pipeline = [
     dict(type="DefaultFormatBundle3D")
 ]
 
-
-dataset = dict(
+dataloader = dict(
+    batch_size = 1,
+    num_workers = 1,
+    dataset=dict(
         type=dataset_type,
         data_root=data_root,
         ann_file=ann_file_train,
         pipeline=train_pipeline,
+        classes=class_names,
         modality=input_modality,
         box_type_3d="LiDAR",
-        test_mode=False,
-        classes=class_names,
+        filter_empty_gt = True,
+        past_steps = 4, # past trajectory length
+        prediction_steps = 6, # motion prediction length if any
+        planning_steps = 6, # planning length
+        sample_interval = 5, # sample interval # frames skiped per step
+        test_mode = False
+    ),
+    sampler=dict(type="DistributedGroupSampler"),
+    #nonshuffler_sampler=dict(type="DistributedSampler"),
 )
 
+
 init_default_scope('fsd')
-dataset = DATASETS.build(dataset)
+dl = Runner.build_dataloader(dataloader)
 
 # test dataset
-sample = dataset.__getitem__(45)
-print(sample.keys())
+print(dl.dataset[0])

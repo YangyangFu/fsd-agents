@@ -30,6 +30,10 @@ from mmengine.registry import \
 from mmengine.registry import Registry
 
 # manging all kinds of modules inheriting from 'nn.Module'
+DATA_SAMPLER=Registry('data_sampler', 
+                      parent=MMENGINE_DATA_SAMPLERS, 
+                      locations=['fsd.datasets.samplers'])
+
 MODELS = Registry('model', parent=MMENGINE_MODELS, locations=['fsd.models'])
 NECKS = MODELS 
 BACKBONES = MODELS

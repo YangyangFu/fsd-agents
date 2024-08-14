@@ -313,16 +313,10 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
                 continue
             results[key] = BaseDataElement(data=to_tensor(results[key]))
 
-        # 3D annotations
-        gt_keys_3d = ['gt_bboxes_3d', 'gt_labels_3d', 
-                      'gt_bboxes_3d_mask', 'gt_instances_ids', 
-                      'gt_classes', 'gt_instances2world',
-                      "gt_instances_future_traj", 
-                      "gt_ego_future_traj",
-                      ]
+        # format gt_instances_3d: data related to instances
         gt_instances_3d = InstanceData()
         
-        for key in gt_keys_3d:
+        for key in results['bbox3d_fields']:
             if key in results:
                 if isinstance(results[key], BaseDataElement):
                     gt_instances_3d[key] = results[key].to_tensor()
@@ -333,38 +327,25 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
 
                 results.pop(key)
 
-        """
-        if 'gt_bboxes_3d' in results:
-            if isinstance(results['gt_bboxes_3d'], BaseInstance3DBoxes):
-                results['gt_bboxes_3d'] = BaseDataElement(
-                    data=results['gt_bboxes_3d'])
-            else:
-                results['gt_bboxes_3d'] = BaseDataElement(
-                    data=to_tensor(results['gt_bboxes_3d']))
+        # format gt_ego: data related to ego vehicle
+        gt_ego = BaseDataElement()
+        for key in results['ego_fields']:
+            if key in results:
+                if isinstance(results[key], BaseDataElement):
+                    gt_ego.set_field(results[key].to_tensor(), key)
+                elif isinstance(results[key], BaseInstance3DBoxes):
+                    gt_ego.set_field(results[key], key)
+                else:
+                    gt_ego.set_field(to_tensor(results[key]), key)
 
-        if 'gt_bboxes_mask' in results:
-            results['gt_bboxes_mask'] = BaseDataElement(data=results['gt_bboxes_mask'])
-
-        if 'gt_instances_ids' in results:
-            results['gt_instances_ids'] = BaseDataElement(data=to_tensor(results['gt_instances_ids']))
-        
-        if 'gt_labels_3d' in results:
-            results['gt_labels_3d'] = BaseDataElement(data=to_tensor(results['gt_labels_3d']))
-        if 'gt_instances2world' in results:
-            results['gt_instances2world'] = BaseDataElement(data=to_tensor(results['gt_instances2world']))
-        
-        # future annotations
-        if 'gt_instances_future_traj' in results:
-            results['gt_instances_future_traj'] = BaseDataElement(data=results['gt_instances_future_traj'])
-        
-        if 'gt_ego_future_traj' in results:
-            results['gt_ego_future_traj'] = BaseDataElement(data=results['gt_ego_future_traj'])
-        """
+                results.pop(key)
+                
         # TODO: add map data
         # with map
         
         data_sample = PlanningDataSample()
         data_sample.gt_instances_3d = gt_instances_3d
+        data_sample.gt_ego = gt_ego
         
         results['data_sample'] = data_sample
         return results

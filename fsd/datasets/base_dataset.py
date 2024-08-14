@@ -499,13 +499,14 @@ class Planning3DDataset(Dataset):
                 - box_type_3d (str): 3D box type.
                 - box_mode_3d (str): 3D box mode.
         """
+        
         results['img_fields'] = []
+        results['pts_fields'] = []
+        results['ego_fields'] = []
         results['bbox3d_fields'] = []
-        results['pts_mask_fields'] = []
         results['pts_seg_fields'] = []
         results['bbox_fields'] = []
-        results['mask_fields'] = []
-        results['seg_fields'] = []
+        results['img_seg_fields'] = []
         results['box_type_3d'] = self.box_type_3d
         results['box_mode_3d'] = self.box_mode_3d
 
