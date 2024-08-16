@@ -5,8 +5,15 @@ Agent's pose in world is the transformation from agent to world.
 - Carla Coordinate - lefthand
     - world: x forward, y right, z up
     - ego: same
-    - lidar: same
+    - lidar:
+        - coord: same as world
+        - data: processed into ego frame
+        
     - camera: x facing forward, y right, z up
+    - bboxes:
+        - location is in ego coordinate
+        - vertice is in world coordinate
+
 - Nuscene Coordinate - righthand
     - world: x forward, y left, z up
     - ego: x forward, y left, z up

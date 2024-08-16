@@ -4,9 +4,9 @@ import numpy as np
 import torch
 from mmengine.dist import get_dist_info
 from torch.utils.data import Sampler
-from fsd.registry import DATA_SAMPLER
+from fsd.registry import DATA_SAMPLERS
 
-@DATA_SAMPLER.register_module()
+@DATA_SAMPLERS.register_module()
 class GroupSampler(Sampler):
 
     def __init__(self, dataset, samples_per_gpu=1):
@@ -47,7 +47,7 @@ class GroupSampler(Sampler):
     def __len__(self):
         return self.num_samples
 
-@DATA_SAMPLER.register_module()
+@DATA_SAMPLERS.register_module()
 class DistributedGroupSampler(Sampler):
     """Sampler that restricts data loading to a subset of the dataset.
     It is especially useful in conjunction with

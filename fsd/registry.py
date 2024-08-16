@@ -30,7 +30,7 @@ from mmengine.registry import \
 from mmengine.registry import Registry
 
 # manging all kinds of modules inheriting from 'nn.Module'
-DATA_SAMPLER=Registry('data_sampler', 
+DATA_SAMPLERS=Registry('data_sampler', 
                       parent=MMENGINE_DATA_SAMPLERS, 
                       locations=['fsd.datasets.samplers'])
 
@@ -47,3 +47,5 @@ DATASETS = Registry(
 
 TRANSFORMS = Registry(
     'transform', parent=MMENGINE_TRANSFORMS, locations=['fsd.datasets.transforms'])
+
+RUNNERS = Registry('runner', parent=MMENGINE_RUNNERS, locations=['fsd.runner'])

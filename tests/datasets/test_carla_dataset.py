@@ -1,6 +1,9 @@
-from fsd.registry import DATASETS 
+from fsd.registry import DATASETS, RUNNERS
 from mmengine.registry import init_default_scope
-from mmengine.runner import Runner 
+#from mmengine.runner import Runner 
+from mmengine.visualization import Visualizer
+from fsd.runner import Runner
+from mmengine.registry import count_registered_modules
 
 # If point cloud range is changed, the models should also change their point
 # cloud range accordingly
@@ -63,7 +66,7 @@ ann_file_test=info_root + f"/b2d_infos_val.pkl"
 train_pipeline = [
     dict(type="LoadMultiViewImageFromFiles", to_float32=True),
     dict(type="LoadPointsFromFileCarlaDataset", coord_type="LIDAR", load_dim=3, use_dim=[0, 1, 2]),
-    dict(type="PhotoMetricDistortionMultiViewImage"),
+    #dict(type="PhotoMetricDistortionMultiViewImage"),
     dict(
         type="LoadAnnotations3DPlanning",
         with_bbox_3d=True,
@@ -74,8 +77,8 @@ train_pipeline = [
     ),
     dict(type="ObjectRangeFilter", point_cloud_range=point_cloud_range),
     dict(type="ObjectNameFilter", classes=class_names),
-    dict(type="NormalizeMultiviewImage", **img_norm_cfg),
-    dict(type="PadMultiViewImage", size_divisor=32),
+    #dict(type="NormalizeMultiviewImage", **img_norm_cfg),
+    #dict(type="PadMultiViewImage", size_divisor=32),
     dict(type="Points2BinHistogramGenerator"),
     dict(
         type="Collect3D",
@@ -138,13 +141,23 @@ dataloader = dict(
         sample_interval = 5, # sample interval # frames skiped per step
         test_mode = False
     ),
-    sampler=dict(type="DistributedGroupSampler"),
+    sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
+    #sampler=dict(type="DistributedSampler"),
     #nonshuffler_sampler=dict(type="DistributedSampler"),
 )
 
-
 init_default_scope('fsd')
 dl = Runner.build_dataloader(dataloader)
+#dl = DATASETS.build_dataloader(dataloader)
 
-# test dataset
-print(dl.dataset[45])
+# visualize the sample
+vis = Visualizer()
+
+for sample in dl:
+    vis.set_image(sample['img'][0].data[0,...].numpy().transpose(1,2,0))
+    vis.show(backend='cv2')    
+    vis.set_image(sample['pts'][0].data.numpy().transpose(1,2,0)*255)
+    vis.show(backend='cv2')
+
+    
+
