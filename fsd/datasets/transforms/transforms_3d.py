@@ -1772,11 +1772,28 @@ class Points2BinHistogramGenerator():
         https://github.com/autonomousvision/transfuser/blob/6d1d0421598e3767ced97a113739a40a621cdc25/transfuser/data.py#L266
     
     """
-    def __init__(self):
-        self.pixel_per_meter = 8
-        self.hist_max_per_pixel = 5
-        self.bev_range = [-20, 20, -35, 35]
-        self.below_threshold = -2.0
+    def __init__(self, 
+                 pixel_per_meter=4, 
+                 hist_max_per_pixel=5, 
+                 bev_range=[0, 30, -20, 20], 
+                 below_threshold=-2.0, 
+                 view_ego_coord=True):
+        """_summary_
+
+        Args:
+            pixel_per_meter (int, optional): pixels per meter. Defaults to 4.
+            hist_max_per_pixel (int, optional): max histogram bins for each pixel. Defaults to 5.
+            bev_range (list, optional): grid range of interest, [x_min, x_max, y_min, y_max], where x is front and y is left 
+                Defaults to [0, 30, -20, 20].
+            below_threshold (float, optional): height threshold. Defaults to -2.0.
+            view_ego_coord (bool, optional): view the transformed histogram in ego coordinate where x is front, y is left. 
+                Defaults to False
+        """
+        self.pixel_per_meter = pixel_per_meter
+        self.hist_max_per_pixel = hist_max_per_pixel
+        self.bev_range = bev_range # [x_min, x_max, y_min, y_max]
+        self.below_threshold = below_threshold
+        self.view_ego_coord = view_ego_coord
         
     def __call__(self, results):
         points = results['pts']
@@ -1791,8 +1808,17 @@ class Points2BinHistogramGenerator():
         total_feat = below_feat + above_feat
         features = np.stack([below_feat, above_feat, total_feat], axis=0).astype(np.float32) # [C, H, W]
         
+        # to image
+        features = features / features.max() * 255
+        features = features.astype(np.uint8)
+        
+        # flip for visualization as image: x front -> -y in image
+        if self.view_ego_coord:
+            features = np.rot90(features, k=1, axes=(1,2))
+        
+        # to tensor
         if isinstance(points, BasePoints):
-            points = to_tensor(features).to(device)
+            points = to_tensor(features.copy()).to(device)
             
         results['pts'] = points
         return results
@@ -1800,7 +1826,7 @@ class Points2BinHistogramGenerator():
     def _2bin_histogram(self, points):
         xbins = np.linspace(self.bev_range[0], self.bev_range[1]+1, (self.bev_range[1]-self.bev_range[0])*self.pixel_per_meter+1)
         ybins = np.linspace(self.bev_range[2], self.bev_range[3]+1, (self.bev_range[3]-self.bev_range[2])*self.pixel_per_meter+1)
-        hist = np.histogramdd(points[:, :2], bins=(xbins, ybins))[0]
+        hist = np.histogramdd(points[:, :2], bins=(ybins, xbins))[0] # x in lidar -> y in image
         hist[hist > self.hist_max_per_pixel] = self.hist_max_per_pixel
         hist = hist / self.hist_max_per_pixel
         return hist
