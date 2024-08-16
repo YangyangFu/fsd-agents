@@ -168,7 +168,7 @@ class Planning3DDataset(Dataset):
                     - 'world2sensor': world to lidar transformation
                     - 'data_path': lidar data path
             - 'gt_bboxes_3d': ground truth boxes in the format of [x, y, z, w, l, h, ry]
-            - 'gt_classes': ground truth class names
+            - 'gt_instances_names': ground truth class names
             - 'gt_bboxes_mask': ground truth boxes mask
             - 'gt_instances_velocities': ground truth velocities for all instances
             - 'gt_instances_ids': ground truth instance ids
@@ -222,19 +222,19 @@ class Planning3DDataset(Dataset):
                 - gt_bboxes_3d (:obj:`LiDARInstance3DBoxes`): \
                     3D ground truth bboxes
                 - gt_labels_3d (np.ndarray): Labels of ground truths.
-                - gt_classes (list[str]): Class names of ground truths.
+                - gt_instances_names (list[str]): Class names of ground truths.
         """
         ## Construct mmdet3d Box objects
         # -------------------------------------------------------------------
 
         gt_bboxes_mask = info.pop('gt_bboxes_mask')
         gt_bboxes_3d = info.pop('gt_bboxes_3d')
-        gt_classes = info.pop('gt_classes')
+        gt_instances_names = info.pop('gt_instances_names')
         gt_instances_ids = info.pop('gt_instances_ids')
         gt_instances2world = info.pop('gt_instances2world')
         
         gt_labels_3d = []
-        for cat in gt_classes:
+        for cat in gt_instances_names:
             if cat in self.CLASSES:
                 gt_labels_3d.append(self.CLASSES.index(cat))
             else:
@@ -268,7 +268,7 @@ class Planning3DDataset(Dataset):
             gt_bboxes_3d=gt_bboxes_3d,
             gt_labels_3d=gt_labels_3d,
             gt_bboxes_mask=gt_bboxes_mask,
-            gt_classes=gt_classes,
+            gt_instances_names=gt_instances_names,
             gt_instances_ids=gt_instances_ids,
             gt_instances2world=gt_instances2world,
             gt_instances_future_traj=gt_instances_future_traj,

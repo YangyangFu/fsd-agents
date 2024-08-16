@@ -738,7 +738,9 @@ class LoadAnnotations3D(LoadAnnotations):
         Returns:
             dict: The dict containing loaded label annotations.
         """
-        results['attr_labels'] = results['anno_info']['attr_labels'].copy()
+        results['gt_instances_names'] = results['anno_info']['gt_instances_names'].copy()
+        results['bbox3d_fields'].append('gt_instances_names')
+        
         return results
 
     def _load_masks_3d(self, results):

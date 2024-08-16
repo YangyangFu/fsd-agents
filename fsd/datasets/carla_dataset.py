@@ -72,11 +72,11 @@ class CarlaDataset(Planning3DDataset):
         info['gt_bboxes_3d'] = raw_info['gt_boxes'][:, :7] # (N, 9) -> (N, 7)
         
         # raw namse are object name in carla, need map to standard class name
-        info['gt_classes'] = raw_info['gt_names']
+        info['gt_instances_names'] = raw_info['gt_names']
         mapped_classes = []
-        for name in info['gt_classes']:
+        for name in info['gt_instances_names']:
             mapped_classes.append(map_carla_class_name(name))
-        info['gt_classes'] = np.array(mapped_classes)
+        info['gt_instances_names'] = np.array(mapped_classes)
         
         # box masks 
         # filtering out boxes that are hit by lidar points: too close or too far

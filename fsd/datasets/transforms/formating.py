@@ -318,7 +318,10 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
         
         for key in results['bbox3d_fields']:
             if key in results:
-                if isinstance(results[key], BaseDataElement):
+                # torch cannot convert str to tensor
+                if key == "gt_instances_names":
+                    gt_instances_3d.set_metainfo({'class_names': results[key]})
+                elif isinstance(results[key], BaseDataElement):
                     gt_instances_3d[key] = results[key].to_tensor()
                 elif isinstance(results[key], BaseInstance3DBoxes):
                     gt_instances_3d[key] = results[key]
