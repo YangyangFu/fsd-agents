@@ -73,7 +73,7 @@ The following keys are stored in the annotation file as `*.pkl`
     - command_far -> command to farther waypoint
     - command_near_xy -> nearby waypoint in world coordinates
     - command_near -> command to nearby command
-    - ego_yaw -> in radians. carla world coordinate or left-handed system world??
+    - ego_yaw -> in radians. 
     - ego_translation -> 3D
     - ego_vel -> 3D
     - ego_accel -> 3D
@@ -84,7 +84,7 @@ The following keys are stored in the annotation file as `*.pkl`
     - throttle -> [0, 1]
     - steer -> [0, 1]
     - gt_ids -> id of instances in the scence (multi view camera, or lidar or combined?) (N,)
-    - gt_boxes -> boxes in XXX coordinates for each npc instance including traffic sign, traffic light, vehicle, etc, (N, 9) with (3d center in lidar coord, 3d size (extent x 2), yaw in lidar coord, speed x, speed y)
+    - gt_boxes -> boxes in lidar coordinates for each npc instance including traffic sign, traffic light, vehicle, etc, (N, 9) with (3d center in lidar coord, 3d size (extent x 2), yaw in lidar coord, speed x, speed y)
     - gt_names -> class name in Carla for each instance, (N, )
     - num_points -> number of lidar points hitting on the bounding box. used to filter invisible instance.
     - npc2world -> transformation matrix for npc (N, 4, 4)

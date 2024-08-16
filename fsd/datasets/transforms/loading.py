@@ -1288,11 +1288,17 @@ class LoadPointsFromFileCarlaDataset:
                 - points (:obj:`BasePoints`): Point clouds data.
         """
         lidar_path = results["pts_filename"]
+        lidar_name = results["pts_sensor_name"]
         points = self._load_points(lidar_path)
         points = points.reshape(-1, self.load_dim)
         
-        # convert from left-hand ego coord to right-hand ego coord
-        points[:, 1] *= -1
+        # convert from left-hand ego coord to right-hand lidar coord
+        left2right = np.eye(4)
+        left2right[1, 1] = -1
+        lidar2ego = results['sensors'][lidar_name]['sensor2ego']
+        points_hom = np.concatenate([points, np.ones((points.shape[0], 1))], axis=1)
+        points = (np.linalg.inv(lidar2ego) @ left2right @ points_hom.T).T 
+        points = points[:, :3]
         
         # TODO: make it more general
         if self.reduce_beams and self.reduce_beams < 32:

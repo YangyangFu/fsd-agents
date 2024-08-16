@@ -299,13 +299,13 @@ class Planning3DDataset(Dataset):
         if self.modality and self.modality.get('use_lidar', False):
             pts_filenames, pts_sensors = self._get_pts_info(info)
             input_dict['pts_filename'] = pts_filenames
-            input_dict['pts_sensor_names'] = pts_sensors
+            input_dict['pts_sensor_name'] = pts_sensors
             
         # get camera data file
         if self.modality and self.modality.get('use_camera', False):
             img_filenames, img_sensors = self._get_imgs_info(info)
             input_dict['img_filename'] = img_filenames       
-            input_dict['img_sensor_names'] = img_sensors
+            input_dict['img_sensor_name'] = img_sensors
                     
         # get ego and sensor info
         input_dict['ego'] = info['ego']
