@@ -8,12 +8,13 @@ from mmengine.structures import BaseDataElement
 
 from mmcv.image import impad, impad_to_multiple, imnormalize, imresize, bgr2hsv, hsv2bgr
 from mmdet3d.models.task_modules import VoxelGenerator
-from mmdet3d.structures import (CameraInstance3DBoxes, DepthInstance3DBoxes,
+from mmdet3d.structures import (BasePoints, CameraInstance3DBoxes, DepthInstance3DBoxes,
                                 LiDARInstance3DBoxes)
 from mmdet3d.structures.ops import box_np_ops
 from mmdet3d.datasets.transforms.data_augment_utils import noise_per_object_v3_
 
 from mmdet.datasets.transforms import RandomFlip
+from fsd.datasets.transforms import to_tensor
 from fsd.registry import TRANSFORMS as PIPELINES
 
 @PIPELINES.register_module()
@@ -830,7 +831,7 @@ class PointSample(object):
         # Points in Camera coord can provide the depth information.
         # TODO: Need to suport distance-based sampling for other coord system.
         if self.sample_range is not None:
-            from mmcv.core.points import CameraPoints
+            from mmdet3d.structures.points import CameraPoints
             assert isinstance(points, CameraPoints), \
                 'Sampling based on distance is only appliable for CAMERA coord'
         points, choices = self._points_random_sampling(
@@ -1761,4 +1762,50 @@ class ObjectNameFilter(object):
         """str: Return a string that describes the module."""
         repr_str = self.__class__.__name__
         repr_str += f'(classes={self.classes})'
+        return repr_str
+
+@PIPELINES.register_module()
+class Points2BinHistogramGenerator():
+    """Point cloud data into 2-bin histogram feature over a predefined grid.
+    
+    Reimplementation:
+        https://github.com/autonomousvision/transfuser/blob/6d1d0421598e3767ced97a113739a40a621cdc25/transfuser/data.py#L266
+    
+    """
+    def __init__(self):
+        self.pixel_per_meter = 8
+        self.hist_max_per_pixel = 5
+        self.bev_range = [-20, 20, -35, 35]
+        self.below_threshold = -2.0
+        
+    def __call__(self, results):
+        points = results['pts']
+        if isinstance(points, BasePoints):
+            device = points.device
+        below_mask = points.tensor[:, 2] <= self.below_threshold
+        above_mask = ~below_mask
+        below = points[below_mask]
+        above = points[above_mask]
+        below_feat = self._2bin_histogram(below.numpy())
+        above_feat = self._2bin_histogram(above.numpy())
+        total_feat = below_feat + above_feat
+        features = np.stack([below_feat, above_feat, total_feat], axis=0).astype(np.float32) # [C, H, W]
+        
+        if isinstance(points, BasePoints):
+            points = to_tensor(features).to(device)
+            
+        results['pts'] = points
+        return results
+
+    def _2bin_histogram(self, points):
+        xbins = np.linspace(self.bev_range[0], self.bev_range[1]+1, (self.bev_range[1]-self.bev_range[0])*self.pixel_per_meter+1)
+        ybins = np.linspace(self.bev_range[2], self.bev_range[3]+1, (self.bev_range[3]-self.bev_range[2])*self.pixel_per_meter+1)
+        hist = np.histogramdd(points[:, :2], bins=(xbins, ybins))[0]
+        hist[hist > self.hist_max_per_pixel] = self.hist_max_per_pixel
+        hist = hist / self.hist_max_per_pixel
+        return hist
+    
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        repr_str += f'(num_points={self.num_points})'
         return repr_str

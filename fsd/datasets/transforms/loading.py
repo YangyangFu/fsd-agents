@@ -1185,9 +1185,13 @@ class LoadPointsFromMultiSweeps:
         return f"{self.__class__.__name__}(sweeps_num={self.sweeps_num})"
 
 @PIPELINES.register_module()
-class LoadPointsFromFile:
-    """Load Points From File.
+class LoadPointsFromFileCarlaDataset:
+    """Load Points From File used for carla dataset only.
 
+    CarlaDataset save points data in .laz file, and 
+    the points are in left-hand ego coordinates as in Carla.
+    Here we load the points and convert them to right-hand MMDET3D ego coordinates for consistency.
+    
     Load sunrgbd and scannet points from file.
 
     Args:
@@ -1271,6 +1275,9 @@ class LoadPointsFromFile:
     def __call__(self, results):
         """Call function to load points data from file.
 
+        Carladataset left-hand ego coordinates: x-front, y-right, z-up
+        MMDET3D right-hand lidar coordinates: x-front, y-left, z-up
+        
         Args:
             results (dict): Result dict containing point clouds data.
 
@@ -1283,6 +1290,10 @@ class LoadPointsFromFile:
         lidar_path = results["pts_filename"]
         points = self._load_points(lidar_path)
         points = points.reshape(-1, self.load_dim)
+        
+        # convert from left-hand ego coord to right-hand ego coord
+        points[:, 1] *= -1
+        
         # TODO: make it more general
         if self.reduce_beams and self.reduce_beams < 32:
             points = reduce_LiDAR_beams(points, self.reduce_beams)

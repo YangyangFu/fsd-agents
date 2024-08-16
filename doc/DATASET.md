@@ -1,8 +1,68 @@
 # Dataset
+Agent's pose in world is the transformation from agent to world.
 
-## Carla
+## Carla Dataset
+- Carla Coordinate - lefthand
+    - world: x forward, y right, z up
+    - ego: same
+    - lidar: same
+    - camera: x facing forward, y right, z up
+- Nuscene Coordinate - righthand
+    - world: x forward, y left, z up
+    - ego: x forward, y left, z up
+    - lidar top: x right, y forward, z up
+    - front camera: x right, y down, z forward
+    - other cameras: front camera with some yaws
+    - sensors 
+        - data: in corresponding sensor frame
+        - locations: xyz are in ego frame
 
-### Annotation file
+    - ego-pose: with respect to world frame
+    - bbox: location data is given in world frame
+
+- MMDET3D coordinate
+    - lidar coord: x forward, y left, z up
+    - camera coord: x right, y down, z forward
+
+**TODO**:
+- Nuscence dataset save lidar point data in its own lidar coordination, but MMDET3D Nuscence dataset assumes the point data in MMDET3D lidar coordination without applying transformation, why??? 
+    - this seems not affecting the algorithm, as long as the designer knows the correct coordinate
+
+### Collected Data
+
+The data are not stored in different coordinates during collection.
+
+data
+- lidar points are stored in Carla `ego` coordinate. When load data in the Dataset, need convert this coordinate
+
+annotations:
+- sensors
+    - CAM_XXX
+        - cam2ego
+        - instrinsic
+        - world2cam
+        - data_path
+
+    - LIDAR_TOP
+        - lidar2ego
+        - world2lidar
+
+- bounding_bboxes
+    - agent xx
+        - class/type/id, ...
+        - location: x,y,z in Carla/UE4 world coordinate
+        - rotation: in Carla/UE4 world
+        - bbox_loc: x, y, z in ego coordinate
+        - center: center point in Carla world coordinate
+        - extent: extension length (half of size) in Carla world coordinate
+        - world2ego: Carla world to ego transformation
+        - ...
+
+In the dataset, we need process the annotation file to get the desired annotations for the algorithms.
+
+### Annotation 
+The second round of processing the data is performed using `prepare_B2D.py`, which annotate the above data into `right hand system or Nuscene system`
+
 
 The following keys are stored in the annotation file as `*.pkl`
 ```
@@ -40,9 +100,9 @@ The following keys are stored in the annotation file as `*.pkl`
             - world2lidar
 ```
 
-In the dataset, we need process the annotation file to get the desired annotations for the algorithms.
 
 
+### Before Data Pipepline
 Before going into transformation pipeline, the data are preprocessed to have the following fields:
 
 **NOTE:** there is no camera class in `cam_instrinsic` to relate the matrix to correspoinding camera.

@@ -305,9 +305,9 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
         
         # Format 3D data: points
         if 'pts' in results:
-            assert isinstance(results['pts'], BasePoints)
-            results['pts'] = BaseDataElement(data=results['pts'].tensor)
-
+            if not isinstance(results['pts'], BasePoints):
+                results['pts'] = BaseDataElement(data=to_tensor(results['pts']))
+                
         for key in ['voxels', 'coors', 'voxel_centers', 'num_points']:
             if key not in results:
                 continue

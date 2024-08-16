@@ -4,15 +4,16 @@ from mmcv.cnn import VGG
 from mmengine.registry import HOOKS
 from mmengine.hooks import Hook
 #from mmengine.runner.hooks import HOOKS, Hook
-
+from mmengine.structures import BaseDataElement
 from fsd.datasets.transforms import (DefaultFormatBundle3D,
                                         LoadAnnotations3D,
                                         LoadImageFromFileMono3D,
                                         LoadMultiViewImageFromFiles,
-                                        LoadPointsFromFile,
+                                        LoadPointsFromFileCarlaDataset,
                                         LoadPointsFromMultiSweeps,
                                         MultiScaleFlipAug3D,
-                                        PointSegClassMapping)
+                                        PointSegClassMapping,
+                                        Collect3D)
 from fsd.datasets.transforms import LoadAnnotations, LoadImageFromFile
 from mmdet.models.dense_heads import GARPNHead, RPNHead
 from mmdet.models.roi_heads.mask_heads import FusedSemanticHead
@@ -143,7 +144,7 @@ def is_loading_function(transform):
             When transform is `MultiScaleFlipAug3D`, we return None.
     """
     # TODO: use more elegant way to distinguish loading modules
-    loading_functions = (LoadImageFromFile, LoadPointsFromFile,
+    loading_functions = (LoadImageFromFile, LoadPointsFromFileCarlaDataset,
                          LoadAnnotations3D, LoadMultiViewImageFromFiles,
                          LoadPointsFromMultiSweeps, DefaultFormatBundle3D,
                          Collect3D, LoadImageFromFileMono3D,
@@ -249,7 +250,7 @@ def extract_result_dict(results, key):
     data = results[key]
     if isinstance(data, (list, tuple)):
         data = data[0]
-    if isinstance(data, DataContainer):
+    if isinstance(data, BaseDataElement):
         data = data._data
     return data
 

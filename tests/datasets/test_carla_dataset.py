@@ -62,7 +62,7 @@ ann_file_test=info_root + f"/b2d_infos_val.pkl"
 
 train_pipeline = [
     dict(type="LoadMultiViewImageFromFiles", to_float32=True),
-    dict(type="LoadPointsFromFile", coord_type="LIDAR", load_dim=3, use_dim=[0, 1, 2]),
+    dict(type="LoadPointsFromFileCarlaDataset", coord_type="LIDAR", load_dim=3, use_dim=[0, 1, 2]),
     dict(type="PhotoMetricDistortionMultiViewImage"),
     dict(
         type="LoadAnnotations3DPlanning",
@@ -72,14 +72,11 @@ train_pipeline = [
         with_attr_label=False,
         with_instances_future_traj=True, # future
     ),
-
-    # dict(type='GenerateOccFlowLabels', grid_conf=occflow_grid_conf, ignore_index=255, only_vehicle=True, 
-    #                                 filter_invisible=False),  # NOTE: Currently vis_token is not in pkl 
-
     dict(type="ObjectRangeFilter", point_cloud_range=point_cloud_range),
     dict(type="ObjectNameFilter", classes=class_names),
     dict(type="NormalizeMultiviewImage", **img_norm_cfg),
     dict(type="PadMultiViewImage", size_divisor=32),
+    dict(type="Points2BinHistogramGenerator"),
     dict(
         type="Collect3D",
         keys=[
@@ -150,4 +147,4 @@ init_default_scope('fsd')
 dl = Runner.build_dataloader(dataloader)
 
 # test dataset
-print(dl.dataset[0])
+print(dl.dataset[45])

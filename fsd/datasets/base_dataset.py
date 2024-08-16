@@ -422,8 +422,8 @@ class Planning3DDataset(Dataset):
         return TrajectoryData(metainfo=dict(past_steps=self.past_steps, 
                                             planning_steps=self.planning_steps,
                                             sample_interval=self.sample_interval), 
-                              xy=xy, 
-                              mask=mask)
+                              xy=xy.astype(np.float32), 
+                              mask=mask.astype(np.uint8))
             
     def _generate_past_future_instances_trajectory(self, index, curr_info):
         """Generate past and future trajectories for instances, 
@@ -480,8 +480,8 @@ class Planning3DDataset(Dataset):
         return TrajectoryData(metainfo=dict(past_steps=self.past_steps,
                                             planning_steps=self.planning_steps,
                                             sample_interval=self.sample_interval),
-                                xy=xy,
-                                mask=mask)
+                                xy=xy.astype(np.float32),
+                                mask=mask.astype(np.uint8))
                 
     def pre_pipeline(self, results):
         """Initialization before data preparation.

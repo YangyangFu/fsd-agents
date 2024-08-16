@@ -4,7 +4,7 @@ from .loading import (LoadAnnotations, LoadImageFromFile, LoadImageFromWebcam,
                       LoadMultiChannelImageFromFiles, LoadProposals,
                       LoadAnnotations3D, LoadImageFromFileMono3D,
                       LoadMultiViewImageFromFiles, 
-                      LoadPointsFromFile,
+                      LoadPointsFromFileCarlaDataset,
                       LoadPointsFromMultiSweeps, NormalizePointsColor,
                       PointSegClassMapping, LoadAnnotations3DPlanning)
 from .test_time_aug import MultiScaleFlipAug, MultiScaleFlipAug3D

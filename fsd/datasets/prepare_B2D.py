@@ -12,10 +12,11 @@ import argparse
 # This code converts all coordinate systems (world coordinate system, vehicle coordinate system,
 # camera coordinate system, and lidar coordinate system) to the right-handed coordinate system
 # consistent with the nuscenes dataset.
+# Nuscene coord: https://www.nuscenes.org/nuscenes#data-collection
 
-DATAROOT = '../../data/bench2drive'
-MAP_ROOT = '../../data/bench2drive/maps'
-OUT_DIR = '../../data/infos'
+DATAROOT = 'data-mini/carla/'
+MAP_ROOT = 'data-min/data/carla/maps'
+OUT_DIR = 'data-mini/carla/infos'
 
 MAX_DISTANCE = 75              # Filter bounding boxes that are too far from the vehicle
 FILTER_Z_SHRESHOLD = 10        # Filter bounding boxes that are too high/low from the vehicle
@@ -25,21 +26,25 @@ NUM_OUTPOINT_SHRESHOLD = 7     # Filter bounding boxes where the number of verti
 CAMERAS = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
 CAMERA_TO_FOLDER_MAP = {'CAM_FRONT':'rgb_front', 'CAM_FRONT_LEFT':'rgb_front_left', 'CAM_FRONT_RIGHT':'rgb_front_right', 'CAM_BACK':'rgb_back', 'CAM_BACK_LEFT':'rgb_back_left', 'CAM_BACK_RIGHT':'rgb_back_right'}
 
+# stand: right-hand with x right, y down, z forward - Nuscenes front camera coord
+# ue4: left-hand with x forward, y right, z up, same as lefthand ego, lefthand world, lefthand camera, lefthand lidar
 stand_to_ue4_rotate = np.array([[ 0, 0, 1, 0],
                                 [ 1, 0, 0, 0],
                                 [ 0,-1, 0, 0],
                                 [ 0, 0, 0, 1]])
-
+# lidar coord: right-hand system with x right, y forward, z up - Nusecenes lidar coord
+# righthand_ego: right-hand system with x forward, y left, z up - Nuscenes ego coord??? imu coord
 lidar_to_righthand_ego = np.array([[  0, 1, 0, 0],
                                    [ -1, 0, 0, 0],
                                    [  0, 0, 1, 0],
                                    [  0, 0, 0, 1]])
-
+# lefthand ego: left-hand with x forward, y right, z up: Carla ego coord
+# lidar: right-hand with x right, y forward, z up: Nuscenes lidar coord
 lefthand_ego_to_lidar = np.array([[ 0, 1, 0, 0],
                                   [ 1, 0, 0, 0],
                                   [ 0, 0, 1, 0],
                                   [ 0, 0, 0, 1]])
-
+# left to right: this transformation could be used for any left-hand system to right-hand system
 left2right = np.eye(4)
 left2right[1,1] = -1
 
@@ -265,10 +270,13 @@ def preprocess(folder_list,idx,tmp_dir,train_or_val):
             frame_data['frame_idx'] = int(ann_name.split('.')[0])
             frame_data['ego_yaw'] = -np.nan_to_num(anno['theta'],nan=np.pi)+np.pi/2  
             frame_data['ego_translation'] = np.array([anno['x'],-anno['y'],0])
-            frame_data['ego_vel'] = np.array([anno['speed'],0,0])
+            frame_data['ego_vel'] = np.array([anno['speed'],0,0]) # ego speed in ego coord
             frame_data['ego_accel'] = np.array([anno['acceleration'][0],-anno['acceleration'][1],anno['acceleration'][2]])
             frame_data['ego_rotation_rate'] = -np.array(anno['angular_velocity'])
             frame_data['ego_size'] = np.array([anno['bounding_boxes'][0]['extent'][1],anno['bounding_boxes'][0]['extent'][0],anno['bounding_boxes'][0]['extent'][2]])*2
+            
+            # NOTE: left2right is not only orthogonal, but also self-inverse, that is right2left = left2right
+            # right-hand world to right-hand ego = left2right @ leftworld 2 left ego @ right2left
             world2ego = left2right @ anno['bounding_boxes'][0]['world2ego'] @ left2right
             frame_data['world2ego'] = world2ego
             if frame_data['frame_idx'] == 0:
@@ -290,12 +298,16 @@ def preprocess(folder_list,idx,tmp_dir,train_or_val):
             sensor_infos = {}
             for cam in CAMERAS:
                 sensor_infos[cam] = {}
+                # right camera 2 right ego = left ego 2 right ego @ left camera 2 left ego @ right camera 2 left camera
                 sensor_infos[cam]['cam2ego'] = left2right @ np.array(anno['sensors'][cam]['cam2ego']) @ stand_to_ue4_rotate 
                 sensor_infos[cam]['intrinsic'] = np.array(anno['sensors'][cam]['intrinsic'])
+                # nuscene world 2 nuscene camera = left camera 2 right camera @ left world 2 left camera @ right world 2 left world
                 sensor_infos[cam]['world2cam'] = np.linalg.inv(stand_to_ue4_rotate) @ np.array(anno['sensors'][cam]['world2cam']) @left2right
                 sensor_infos[cam]['data_path'] = join(folder_name,'camera',CAMERA_TO_FOLDER_MAP[cam],ann_name.split('.')[0]+'.jpg')
                 cam_gray_depth[cam] = cv2.imread(join(data_root,sensor_infos[cam]['data_path']).replace('rgb_','depth_').replace('.jpg','.png'))[:,:,0]
             sensor_infos['LIDAR_TOP'] = {}
+            # right-hand lidar 2 right-hand ego = left2right @ left lidar 2 left ego @ right lidar 2 left lidar
+            # right lidar 2 left lidar = right ego 2 left lidar @ right lidar 2 right ego = right2left @ right lidar 2 right ego
             sensor_infos['LIDAR_TOP']['lidar2ego'] = left2right @ np.array(anno['sensors']['LIDAR_TOP']['lidar2ego']) @ left2right @ lidar_to_righthand_ego
             world2lidar = lefthand_ego_to_lidar @ np.array(anno['sensors']['LIDAR_TOP']['world2lidar']) @ left2right
             sensor_infos['LIDAR_TOP']['world2lidar'] = world2lidar
@@ -432,7 +444,7 @@ if __name__ == "__main__":
     args = argparser.parse_args()    
     workers = args.workers
     process_list = []
-    with open('../../data/splits/bench2drive_base_train_val_split.json','r') as f:
+    with open('data-mini/carla/splits/bench2drive_base_train_val_split.json','r') as f:
         train_val_split = json.load(f)
         
     all_folder = os.listdir(join(DATAROOT,'v1'))
