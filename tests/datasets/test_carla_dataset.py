@@ -8,7 +8,6 @@ from mmengine.registry import count_registered_modules
 # If point cloud range is changed, the models should also change their point
 # cloud range accordingly
 point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
-point_cloud_range = [-20.2, -20.2, -5.0, 20.2, 20.2, 3.0]
 voxel_size = [0.2, 0.2, 8]
 patch_size = [102.4, 102.4]
 img_norm_cfg = dict(mean=[103.530, 116.280, 123.675], std=[1.0, 1.0, 1.0], to_rgb=False)
@@ -66,7 +65,7 @@ ann_file_test=info_root + f"/b2d_infos_val.pkl"
 train_pipeline = [
     dict(type="LoadMultiViewImageFromFiles", to_float32=True),
     dict(type="LoadPointsFromFileCarlaDataset", coord_type="LIDAR", load_dim=3, use_dim=[0, 1, 2]),
-    #dict(type="PhotoMetricDistortionMultiViewImage"),
+    dict(type="PhotoMetricDistortionMultiViewImage"),
     dict(
         type="LoadAnnotations3DPlanning",
         with_bbox_3d=True,
@@ -77,9 +76,9 @@ train_pipeline = [
     ),
     dict(type="ObjectRangeFilter", point_cloud_range=point_cloud_range),
     dict(type="ObjectNameFilter", classes=class_names),
-    #dict(type="NormalizeMultiviewImage", **img_norm_cfg),
-    #dict(type="PadMultiViewImage", size_divisor=32),
-    dict(type="Points2BinHistogramGenerator"),
+    dict(type="NormalizeMultiviewImage", **img_norm_cfg),
+    dict(type="PadMultiViewImage", size_divisor=32),
+    dict(type="Points2BinHistogramGenerator", pixels_per_meter=10, bev_range=[-40, 40, -25, 25]),
     dict(
         type="Collect3D",
         keys=[

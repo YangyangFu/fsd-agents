@@ -1773,8 +1773,8 @@ class Points2BinHistogramGenerator():
     
     """
     def __init__(self, 
-                 pixel_per_meter=4, 
-                 hist_max_per_pixel=5, 
+                 pixels_per_meter=4, 
+                 max_hist_per_pixel=5, 
                  bev_range=[0, 30, -20, 20], 
                  below_threshold=-2.0, 
                  view_ego_coord=True):
@@ -1782,15 +1782,15 @@ class Points2BinHistogramGenerator():
 
         Args:
             pixel_per_meter (int, optional): pixels per meter. Defaults to 4.
-            hist_max_per_pixel (int, optional): max histogram bins for each pixel. Defaults to 5.
+            max_hist_per_pixel (int, optional): max histogram bins for each pixel. Defaults to 5.
             bev_range (list, optional): grid range of interest, [x_min, x_max, y_min, y_max], where x is front and y is left 
                 Defaults to [0, 30, -20, 20].
             below_threshold (float, optional): height threshold. Defaults to -2.0.
             view_ego_coord (bool, optional): view the transformed histogram in ego coordinate where x is front, y is left. 
                 Defaults to False
         """
-        self.pixel_per_meter = pixel_per_meter
-        self.hist_max_per_pixel = hist_max_per_pixel
+        self.pixels_per_meter = pixels_per_meter
+        self.max_hist_per_pixel = max_hist_per_pixel
         self.bev_range = bev_range # [x_min, x_max, y_min, y_max]
         self.below_threshold = below_threshold
         self.view_ego_coord = view_ego_coord
@@ -1824,11 +1824,11 @@ class Points2BinHistogramGenerator():
         return results
 
     def _2bin_histogram(self, points):
-        xbins = np.linspace(self.bev_range[0], self.bev_range[1]+1, (self.bev_range[1]-self.bev_range[0])*self.pixel_per_meter+1)
-        ybins = np.linspace(self.bev_range[2], self.bev_range[3]+1, (self.bev_range[3]-self.bev_range[2])*self.pixel_per_meter+1)
+        xbins = np.linspace(self.bev_range[0], self.bev_range[1]+1, (self.bev_range[1]-self.bev_range[0])*self.pixels_per_meter+1)
+        ybins = np.linspace(self.bev_range[2], self.bev_range[3]+1, (self.bev_range[3]-self.bev_range[2])*self.pixels_per_meter+1)
         hist = np.histogramdd(points[:, :2], bins=(ybins, xbins))[0] # x in lidar -> y in image
-        hist[hist > self.hist_max_per_pixel] = self.hist_max_per_pixel
-        hist = hist / self.hist_max_per_pixel
+        hist[hist > self.max_hist_per_pixel] = self.max_hist_per_pixel
+        hist = hist / self.max_hist_per_pixel
         return hist
     
     def __repr__(self):
