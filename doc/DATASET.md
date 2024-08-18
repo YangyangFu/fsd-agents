@@ -8,7 +8,7 @@ Agent's pose in world is the transformation from agent to world.
     - lidar:
         - coord: same as world
         - data: processed into ego frame
-        
+
     - camera: x facing forward, y right, z up
     - bboxes:
         - location is in ego coordinate
@@ -37,7 +37,7 @@ Agent's pose in world is the transformation from agent to world.
 
 ### Collected Data
 
-The data are not stored in different coordinates during collection.
+The data are stored in different coordinates during collection.
 
 data
 - lidar points are stored in Carla `ego` coordinate. When load data in the Dataset, need convert this coordinate
@@ -86,6 +86,9 @@ The following keys are stored in the annotation file as `*.pkl`
     - ego_accel -> 3D
     - ego_rotation_rate ->3D
     - ego_size -> 3D
+    - ego_affected_by_lights: 
+    - ego_affected_by_signs:
+    - ego_affected_by_junction:
     - world2ego -> (4, 4)
     - brake -> [0, 1]
     - throttle -> [0, 1]

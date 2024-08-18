@@ -89,34 +89,6 @@ train_pipeline = [
             "gt_instances_future_traj",
             "img",
             "pts",
-            #"frame_index",
-            #"gt_fut_traj",
-            #"gt_fut_traj_mask",
-            #"gt_past_traj",
-            #"gt_past_traj_mask",
-            #"gt_sdc_bbox",
-            #"gt_sdc_label",
-            #"gt_sdc_fut_traj",
-            #"gt_sdc_fut_traj_mask",
-            #"gt_lane_labels",
-            #"gt_lane_bboxes",
-            #"gt_lane_masks",
-             # Occ gt
-            # "gt_segmentation",
-            # "gt_instance", 
-            # "gt_centerness", 
-            # "gt_offset", 
-            # "gt_flow",
-            # "gt_backward_flow",
-            # "gt_occ_has_invalid_frame",
-            # "gt_occ_img_is_valid",
-            # # gt future bbox for plan	
-            # "gt_future_boxes",	
-            # "gt_future_labels",	
-            # # planning	
-            # "sdc_planning",	
-            # "sdc_planning_mask",	
-            # "command",
         ],
     ),
     dict(type="DefaultFormatBundle3D")
@@ -157,6 +129,7 @@ for sample in dl:
     vis.show(backend='cv2')    
     vis.set_image(sample['pts'][0].data.numpy().transpose(1,2,0)*255)
     vis.show(backend='cv2')
+    break
 
     
 

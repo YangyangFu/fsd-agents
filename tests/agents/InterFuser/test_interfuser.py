@@ -64,4 +64,4 @@ def test_agent(cfg):
     out = agent.val_step((inputs, None))
     
     
-pytest.main(['-s', 'tests/agents/test_interfuser.py'])
+pytest.main(['-s', 'tests/agents/InterFuser/test_interfuser.py'])

@@ -118,8 +118,9 @@ class Planning3DDataset(Dataset):
             bool: Whether the annotation is valid.
         """
         required_keys = ['folder', 'scene_token', 'frame_idx', 'ego', 'sensors', 
-                         'gt_bboxes_3d', 'gt_classes', 'gt_instances_ids', 'gt_bboxes_mask', \
-                             'gt_velocities']
+                         'gt_bboxes_3d', 'gt_instances_names', 
+                         'gt_instances_ids', 'gt_bboxes_mask', \
+                          'gt_instances_velocities']
         for key in required_keys:
             if key not in anno_info:
                 return False
@@ -275,6 +276,11 @@ class Planning3DDataset(Dataset):
             gt_ego_future_traj=gt_ego_future_traj)
         
         return anns_results
+    
+    def _get_map_info(self, info):
+        """Get map data info from the given info. 
+        """
+        pass
     
     def get_data_info(self, info):
         """Get data info according to the given index.
@@ -502,7 +508,7 @@ class Planning3DDataset(Dataset):
         
         results['img_fields'] = []
         results['pts_fields'] = []
-        results['ego_fields'] = []
+        results['ego_fields'] = [] # ['gt_ego_future_traj', 'ego_xy', 'ego_yaw']
         results['bbox3d_fields'] = []
         results['pts_seg_fields'] = []
         results['bbox_fields'] = []
