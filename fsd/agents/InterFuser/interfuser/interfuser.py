@@ -262,7 +262,7 @@ class InterFuser(Base3DDetector):
         
         return feats
     
-    def _forward_transformer(self, batch_inputs_dict, data_samples):
+    def _forward_transformer(self, batch_inputs_dict, batch_targets_dict):
         """Forward function in tensor mode
         
         Args:
@@ -272,7 +272,7 @@ class InterFuser(Base3DDetector):
                 - img (torch.Tensor): Image of each sample.
                 - pts (torch.Tensor): Point cloud BEV of each sample.
                 
-            data_samples (dict): The data samples dict.
+            batch_targets_dict (dict): The data samples dict.
         
         Returns:
             torch.Tensor: The output tensor that represents the model output without any post-processing.
@@ -361,7 +361,7 @@ class InterFuser(Base3DDetector):
         
         Args:
             output_decoder (torch.Tensor): The output tensor of decoder.
-            data_samples (dict): The data samples dict.
+            batch_targets_dict (dict): The data samples dict.
         
         Returns:
             torch.Tensor: The output tensor that represents the model output without any post-processing.
@@ -371,32 +371,31 @@ class InterFuser(Base3DDetector):
         
         return output
     
-    def _forward(self, batch_inputs_dict, data_samples) -> Dict[AnyStr, torch.Tensor]:
+    def _forward(self, batch_inputs_dict, batch_targets_dict) -> Dict[AnyStr, torch.Tensor]:
         
         goal_points = batch_inputs_dict.get('goal_points', None)
-        output_dec = self._forward_transformer(batch_inputs_dict, data_samples)
+        output_dec = self._forward_transformer(batch_inputs_dict, batch_targets_dict)
         output = self._forward_heads(output_dec, goal_points)
         
         return output
     
-    def loss(self, batch_inputs_dict, data_samples, targets, **kwargs):
+    def loss(self, batch_inputs_dict, batch_targets_dict, targets, **kwargs):
         goal_points = batch_inputs_dict.get('goal_points', None)
-        output_dec = self._forward_transformer(batch_inputs_dict, data_samples)
+        output_dec = self._forward_transformer(batch_inputs_dict, batch_targets_dict)
         losses = self.heads.loss(output_dec, goal_points, targets)
         
         return losses 
     
-    def predict(self, batch_inputs_dict, data_samples, **kwargs):
+    def predict(self, batch_inputs_dict, batch_targets_dict, **kwargs):
         goal_points = batch_inputs_dict.get('goal_points', None)
-        output_dec = self._forward_transformer(batch_inputs_dict, data_samples)
-        preds = self.heads.predict(output_dec)
-        output_data_samples = self.add_pred_to_datasample(data_samples, preds)
-
-        return output_data_samples
+        output_dec = self._forward_transformer(batch_inputs_dict, batch_targets_dict)
+        preds = self.heads.predict(output_dec, goal_points)
+        
+        return preds
     
     def forward(self,
                 inputs: Union[dict, List[dict]],
-                data_samples = None,
+                batch_targets_dict = None,
                 mode: str = 'tensor',
                 **kwargs):
         """The unified entry for a forward process in both training and test.
@@ -421,8 +420,7 @@ class InterFuser(Base3DDetector):
 
                 - points (list[torch.Tensor]): Point cloud of each sample.
                 - imgs (torch.Tensor): Image tensor has shape (B, C, H, W).
-            data_samples (list[:obj:`Det3DDataSample`],
-                list[list[:obj:`Det3DDataSample`]], optional): The
+            batch_targets_dict (dict): The
                 annotation data of every samples. When it is a list[list], the
                 outer list indicate the test time augmentation, and the
                 inter list indicate the batch. Otherwise, the list simply
@@ -433,16 +431,16 @@ class InterFuser(Base3DDetector):
             The return type depends on ``mode``.
 
             - If ``mode="tensor"``, return a tensor or a tuple of tensor.
-            - If ``mode="predict"``, return a list of :obj:`Det3DDataSample`.
+            - If ``mode="predict"``, return a dict of predictions.
             - If ``mode="loss"``, return a dict of tensor.
         """
         if mode == 'loss':
-            return self.loss(inputs, data_samples, **kwargs)
+            return self.loss(inputs, batch_targets_dict, **kwargs)
         elif mode == 'predict':
             
-            return self.predict(inputs, data_samples, **kwargs)
+            return self.predict(inputs, batch_targets_dict, **kwargs)
         elif mode == 'tensor':
-            return self._forward(inputs, data_samples, **kwargs)
+            return self._forward(inputs, batch_targets_dict, **kwargs)
         else:
             raise RuntimeError(f'Invalid mode "{mode}". '
                                'Only supports loss, predict and tensor mode')
