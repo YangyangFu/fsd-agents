@@ -1,1 +1,1 @@
-from .l1_loss import MaskedL1Loss
+from .l1_loss import MaskedL1Loss, MaskedSmoothL1Loss

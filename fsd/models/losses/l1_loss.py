@@ -31,6 +31,7 @@ def masked_loss(loss_func: Callable) -> Callable:
 
 
 @weighted_loss
+@masked_loss
 def smooth_l1_loss(pred: Tensor, target: Tensor, beta: float = 1.0) -> Tensor:
     """Smooth L1 loss.
 
@@ -76,8 +77,8 @@ def l1_loss(pred: Tensor, target: Tensor) -> Tensor:
 
 
 @MODELS.register_module()
-class SmoothL1Loss(nn.Module):
-    """Smooth L1 loss.
+class MaskedSmoothL1Loss(nn.Module):
+    """Masked Smooth L1 loss.
 
     Args:
         beta (float, optional): The threshold in the piecewise function.
@@ -101,6 +102,7 @@ class SmoothL1Loss(nn.Module):
                 target: Tensor,
                 weight: Optional[Tensor] = None,
                 avg_factor: Optional[int] = None,
+                mask: Optional[Tensor] = None,
                 reduction_override: Optional[str] = None,
                 **kwargs) -> Tensor:
         """Forward function.
@@ -112,6 +114,7 @@ class SmoothL1Loss(nn.Module):
                 prediction. Defaults to None.
             avg_factor (int, optional): Average factor that is used to average
                 the loss. Defaults to None.
+            mask (Tensor, optional): The mask of loss for each prediction.
             reduction_override (str, optional): The reduction method used to
                 override the original reduction method of the loss.
                 Defaults to None.
@@ -119,22 +122,31 @@ class SmoothL1Loss(nn.Module):
         Returns:
             Tensor: Calculated loss
         """
-        if weight is not None and not torch.any(weight > 0):
-            if pred.dim() == weight.dim() + 1:
-                weight = weight.unsqueeze(1)
-            return (pred * weight).sum()
         assert reduction_override in (None, 'none', 'mean', 'sum')
         reduction = (
             reduction_override if reduction_override else self.reduction)
-        loss_bbox = self.loss_weight * smooth_l1_loss(
+
+        # masks
+        if mask is None:
+            mask = torch.ones_like(pred)
+        
+        # masked average factor
+        if avg_factor is None:
+            avg_factor = mask.sum() 
+        else:
+            avg_factor = avg_factor * mask.sum()
+
+        # smooth l1 loss
+        loss = self.loss_weight * smooth_l1_loss(
             pred,
             target,
             weight,
             beta=self.beta,
             reduction=reduction,
             avg_factor=avg_factor,
+            mask = mask,
             **kwargs)
-        return loss_bbox
+        return loss
 
 
 @MODELS.register_module()
