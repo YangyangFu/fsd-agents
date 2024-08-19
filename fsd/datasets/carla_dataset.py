@@ -17,6 +17,11 @@ class CarlaDataset(Planning3DDataset):
                  with_velocity: bool = True,
                  *args, 
                  **kwargs):
+        """_summary_
+
+        Args:
+            with_velocity (bool, optional): add velocity to bounding box. Defaults to True.
+        """
         super().__init__(*args, **kwargs)
         
         self.with_velocity = with_velocity

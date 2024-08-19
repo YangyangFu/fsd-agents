@@ -80,7 +80,7 @@ train_pipeline = [
     dict(type="ObjectNameFilter", classes=class_names),
     dict(type="NormalizeMultiviewImage", **img_norm_cfg),
     dict(type="PadMultiViewImage", size_divisor=32),
-    dict(type="Points2BinHistogramGenerator", pixels_per_meter=10, bev_range=[-40, 40, -25, 25]),
+    dict(type="Points2BinHistogramGenerator", pixels_per_meter=10, bev_range=[0, 20, -10, 10]),
     dict(
         type="Collect3D",
         keys=[

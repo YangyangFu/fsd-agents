@@ -4,6 +4,7 @@ from mmengine.registry import init_default_scope
 from mmengine.visualization import Visualizer
 from fsd.runner import Runner
 from mmengine.registry import count_registered_modules
+from fsd.agents.InterFuser import InterFuserDataPreprocessor
 
 # If point cloud range is changed, the models should also change their point
 # cloud range accordingly
@@ -78,7 +79,7 @@ train_pipeline = [
     dict(type="ObjectNameFilter", classes=class_names),
     dict(type="NormalizeMultiviewImage", **img_norm_cfg),
     dict(type="PadMultiViewImage", size_divisor=32),
-    dict(type="Points2BinHistogramGenerator", pixels_per_meter=10, bev_range=[-40, 40, -25, 25]),
+    dict(type="Points2BinHistogramGenerator", pixels_per_meter=10, bev_range=[0, 20, -10, 10]),
     dict(
         type="Collect3D",
         keys=[
@@ -117,6 +118,8 @@ dataloader = dict(
     #nonshuffler_sampler=dict(type="DistributedSampler"),
 )
 
+data_preprocessor = InterFuserDataPreprocessor(bev_range=[0, 20, -10, 10], pixels_per_meter=1)
+
 init_default_scope('fsd')
 dl = Runner.build_dataloader(dataloader)
 #dl = DATASETS.build_dataloader(dataloader)
@@ -126,11 +129,13 @@ vis = Visualizer()
 
 for sample in dl:
     print(sample.keys())
-    vis.set_image(sample['img'][0].data[0,...].numpy().transpose(1,2,0))
-    vis.show(backend='cv2')    
-    vis.set_image(sample['pts'][0].data.numpy().transpose(1,2,0)*255)
-    vis.show(backend='cv2')
-    break
-
+    #vis.set_image(sample['img'][0].data[0,...].numpy().transpose(1,2,0))
+    #vis.show(backend='cv2')    
+    #vis.set_image(sample['pts'][0].data.numpy().transpose(1,2,0)*255)
+    #vis.show(backend='cv2')
     
+    data = data_preprocessor(sample)
+    print(data.keys())
+
+    break
 

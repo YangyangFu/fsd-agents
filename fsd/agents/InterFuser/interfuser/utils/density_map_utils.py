@@ -34,24 +34,27 @@ def generate_density_map(gt_instances, bev_range, pixels_per_meter = 1):
     """Generate density map used in InterFuser.
 
     Args:
-        bev_range (list[float]): BEV range of the density map.
+        bev_range (list[float]): BEV range of the density map in lidary coordinate. 
+            [xmin, xmax, ymin, ymax]
 
     Returns:
         np.ndarray: Density map with shape (R, R, 7).
     """
-    bev_range = [0, 20, -10, 10] # (x forward, y left)
     map = np.zeros((int((bev_range[1] - bev_range[0]) * pixels_per_meter),
                     int((bev_range[3] - bev_range[2]) * pixels_per_meter), 7),
     dtype=np.float32)
     
     # filter instances out of the bev range
     bboxes = gt_instances['gt_bboxes_3d']
+    if len(bboxes) == 0:
+        return torch.from_numpy(map)
+    
     assert bboxes.box_dim >= 7, "Lidar box should have velocity augumented so that the dimension is at least 7"
     instances_velocities = bboxes.tensor[:, 6:8] # (N, 2)
     filter = bboxes.in_range_bev([bev_range[0], bev_range[2], bev_range[1], bev_range[3]])
     bboxes = bboxes[filter]
     if len(bboxes) == 0:
-        return map
+        return torch.from_numpy(map)
     
     # fill map
     center_xy_boxes = bboxes.center[:, 0:2] # (N, 2)
