@@ -62,6 +62,8 @@ class Planning3DDataset(Dataset):
                  pipeline = None,
                  classes = None,
                  modality = None,
+                 camera_sensors = ['CAM_FRONT'],
+                 lidar_sensors = None,
                  box_type_3d = 'LiDAR',
                  filter_empty_gt = True,
                  past_steps = 4, # past trajectory length
@@ -74,6 +76,8 @@ class Planning3DDataset(Dataset):
         self.ann_file = ann_file
         self.test_mode = test_mode
         self.modality = modality
+        self.camera_sensors = [sensor.upper() for sensor in camera_sensors] if camera_sensors is not None else None
+        self.lidar_sensors = [sensor.upper() for sensor in lidar_sensors] if lidar_sensors is not None else None
         self.filter_empty_gt = filter_empty_gt
         
         # past and future frames
@@ -190,8 +194,8 @@ class Planning3DDataset(Dataset):
         """
         pts_filenames = []
         pts_sensors = []
-        for sensor in info['sensors'].keys():
-            if 'lidar' in sensor.lower():
+        for sensor in self.lidar_sensors:
+            if 'LIDAR' in sensor and sensor in info['sensors']:
                 pts_datapath = info['sensors'][sensor]['data_path']
                 pts_filenames.append(osp.join(self.data_root, pts_datapath))
                 pts_sensors.append(sensor)
@@ -203,8 +207,8 @@ class Planning3DDataset(Dataset):
     def _get_imgs_info(self, info):
         img_filenames = []
         img_sensors = []
-        for sensor in info['sensors'].keys():
-            if 'cam' in sensor.lower():
+        for sensor in self.camera_sensors:
+            if 'CAM' in sensor and sensor in info['sensors']:
                 img_datapath = info['sensors'][sensor]['data_path']
                 img_filenames.append(osp.join(self.data_root, img_datapath))
                 img_sensors.append(sensor)
@@ -302,13 +306,13 @@ class Planning3DDataset(Dataset):
         input_dict = {}
         
         # get lidar data
-        if self.modality and self.modality.get('use_lidar', False):
+        if self.modality and self.modality.get('use_lidar', False) and self.lidar_sensors:
             pts_filenames, pts_sensors = self._get_pts_info(info)
             input_dict['pts_filename'] = pts_filenames
             input_dict['pts_sensor_name'] = pts_sensors
             
         # get camera data file
-        if self.modality and self.modality.get('use_camera', False):
+        if self.modality and self.modality.get('use_camera', False) and self.camera_sensors:
             img_filenames, img_sensors = self._get_imgs_info(info)
             input_dict['img_filename'] = img_filenames       
             input_dict['img_sensor_name'] = img_sensors
@@ -494,16 +498,13 @@ class Planning3DDataset(Dataset):
 
         Args:
             results (dict): Dict before data preprocessing.
-
-                - img_fields (list): Image fields.
-                - bbox3d_fields (list): 3D bounding boxes fields.
-                - pts_mask_fields (list): Mask fields of points.
-                - pts_seg_fields (list): Mask fields of point segments.
-                - bbox_fields (list): Fields of bounding boxes.
-                - mask_fields (list): Fields of masks.
-                - seg_fields (list): Segment fields.
-                - box_type_3d (str): 3D box type.
-                - box_mode_3d (str): 3D box mode.
+                - img_fields (list[str]): Image fields, inlcuding 'img', 'img_filename', etc
+                - pts_fields (list[str]): Point fields, including 'pts', 'pts_filename', etc
+                - ego_fields (list[str]): Ego fields, including 
+                        'gt_ego_future_traj', 'ego_world2ego', 'ego_velocity', 'ego_affected_by_lights', 'ego_affected_by_stop_sign', 'ego_is_at_junction', etc
+                - bbox3d_fields (list[str]): 3D bbox fields, including 'gt_bboxes_3d', 'gt_labels_3d', 'gt_classes', etc
+                - pts_seg_fields (list[str]): Point cloud segmentation fields.
+                - grid_fields (list[str]): Grid fields, including "gt_grid_density", "gt_grid_occupancy", etc
         """
         
         results['img_fields'] = []
@@ -511,6 +512,7 @@ class Planning3DDataset(Dataset):
         results['ego_fields'] = [] # ['gt_ego_future_traj', 'ego_xy', 'ego_yaw']
         results['bbox3d_fields'] = []
         results['pts_seg_fields'] = []
+        results['grid_fields'] = [] 
         results['bbox_fields'] = []
         results['img_seg_fields'] = []
         results['box_type_3d'] = self.box_type_3d

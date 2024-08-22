@@ -48,6 +48,11 @@ class CarlaDataset(Planning3DDataset):
         ego['yaw'] = ego_yaw
         ego['velocity'] = raw_info['ego_vel'] # [x, y, z]
         ego['acceleration'] = raw_info['ego_accel'] # [x, y, z]
+        
+        # TODO: faked data, need to be updated
+        ego['affected_by_lights'] = 0
+        ego['affected_by_stop_sign'] = 0
+        ego['is_at_junction'] = 0
         info['ego'] = ego
         
         # sensor info

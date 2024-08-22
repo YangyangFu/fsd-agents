@@ -199,14 +199,21 @@ class TrajectoryData(BaseDataElement):
         
         Args:
             value (torch.Tensor): The xy coordinates of the trajectory with a dim of 2 or 3. 
-                Shape (N, 2, ...). if dim == 2, then shape is (N, 2). 
+                Shape (N, 2, ...). 
+                if dim == 2, then shape is (N, 2). 
                 if dim == 3, then shape is (N, 2, T).
+                if dim == 4, then shape is (B, N, 2, T).
         """
         if isinstance(value, (torch.Tensor, np.ndarray)) and (value.ndim == 1):
             value = value[None, ...]
             
-        assert isinstance(value, (torch.Tensor, np.ndarray)) and (value.ndim == 2 or value.ndim == 3) and value.shape[1] == 2, \
-            "xy coordinates should be a 2D or 3D tensor with dim 1 of size 2"
+        assert isinstance(value, (torch.Tensor, np.ndarray)) and (value.ndim == 2 or value.ndim == 3 or value.ndim==4), \
+            "xy coordinates should be a 2D or 3D or 3D tensor"
+        if value.ndim == 2:
+            assert value.shape[1] == 2, "The last dimension of xy should be 2"
+        elif value.ndim > 2:
+            assert value.shape[-2] == 2, "The second last dimension of xy should be 2"
+            
         if hasattr(self, 'mask'):
             assert value.ndim - self.mask.ndim == 1, "xy dimension has to be greater than mask dimension"
             
@@ -226,11 +233,14 @@ class TrajectoryData(BaseDataElement):
         """mask of the trajectory
         
         Args:
-            value (torch.Tensor): The mask of the trajectory with a dim of 1 or 2. 
-                Shape (N, ...). If dim == 1, then shape is (N,). If dim == 2, then shape is (N, T).
+            value (torch.Tensor): The mask of the trajectory with a dim of 1 or 2 or 3.
+                Shape (N, ...). 
+                If dim == 1, then shape is (N,). 
+                If dim == 2, then shape is (N, T).
+                if dim == 3, then shape is (B, N, T).
         """
-        assert isinstance(value, (torch.Tensor, np.ndarray)) and (value.ndim == 1 or value.ndim == 2), \
-            "mask should be a 1D or 2D tensor"
+        assert isinstance(value, (torch.Tensor, np.ndarray)) and (value.ndim == 1 or value.ndim == 2 or value.ndim == 3), \
+            "mask should be a 1D or 2D or 3D tensor"
         if hasattr(self, 'xy'):
             assert self.xy.ndim - value.ndim == 1, "mask dimension has to be less than xy dimension"
         
