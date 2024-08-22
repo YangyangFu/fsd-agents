@@ -27,25 +27,30 @@ from mmengine.registry import VISBACKENDS as MMENGINE_VISBACKENDS
 from mmengine.registry import VISUALIZERS as MMENGINE_VISUALIZERS
 from mmengine.registry import \
     WEIGHT_INITIALIZERS as MMENGINE_WEIGHT_INITIALIZERS
-from mmengine.registry import Registry
+from mmengine.registry import Registry, count_registered_modules
 
 # manging all kinds of modules inheriting from 'nn.Module'
 DATA_SAMPLERS=Registry('data_sampler', 
                       parent=MMENGINE_DATA_SAMPLERS, 
                       locations=['fsd.datasets.samplers'])
 
-MODELS = Registry('model', parent=MMENGINE_MODELS, locations=['fsd.models'])
+MODELS = Registry('model', parent=MMENGINE_MODELS, locations=['fsd.models', 'fsd.agents'])
 NECKS = MODELS 
 BACKBONES = MODELS
 HEADS = MODELS
 TRANSFORMERS = MODELS
 
-AGENTS = Registry('agent', locations=['fsd.agents'])
-
 DATASETS = Registry(
     'dataset', parent=MMENGINE_DATASETS, locations=['fsd.datasets'])
 
 TRANSFORMS = Registry(
-    'transform', parent=MMENGINE_TRANSFORMS, locations=['fsd.datasets.transforms'])
+    'transform', parent=MMENGINE_TRANSFORMS, locations=['fsd.datasets.transforms', 'fsd.agents'])
 
 RUNNERS = Registry('runner', parent=MMENGINE_RUNNERS, locations=['fsd.runner'])
+
+AGENTS = MODELS
+#AGENTS = Registry('agent', parent=MODELS, locations=['fsd.agents'])
+#AGENT_TRANSFORMS = Registry('agent_transform', locations=['fsd.agents'])
+#AGENT_TRANSFORMS = Registry('agent_transform', parent=TRANSFORMS, locations=['fsd.agents'])
+AGENT_TRANSFORMS=TRANSFORMS
+#count_registered_modules()
