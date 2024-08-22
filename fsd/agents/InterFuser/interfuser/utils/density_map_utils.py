@@ -12,8 +12,11 @@ The density map is generated with a dimension of (R, R, 7) as follows:
         - 5: box in y-axis of the nearest instance in the scene
         - 6: velocity of the nearest instance in the scene
 """
+from typing import Optional, Sequence
 import torch
 import numpy as np 
+from mmengine.structures import InstanceData
+from mmdet3d.structures import BaseInstance3DBoxes
 
 def grid_to_xy(i, j, bev_range, pixels_per_meter):
     """Convert grid index to Lidar xy coordinates.
@@ -30,7 +33,9 @@ def grid_to_xy(i, j, bev_range, pixels_per_meter):
     y = (j + 0.5)/ pixels_per_meter + ymin
     return x, y
 
-def generate_density_map(gt_instances, bev_range, pixels_per_meter = 1):
+def generate_density_map(bboxes: BaseInstance3DBoxes, 
+                         bev_range: Sequence, 
+                         pixels_per_meter: Optional[float] = 1):
     """Generate density map used in InterFuser.
 
     Args:
@@ -45,7 +50,6 @@ def generate_density_map(gt_instances, bev_range, pixels_per_meter = 1):
     dtype=np.float32)
     
     # filter instances out of the bev range
-    bboxes = gt_instances['gt_bboxes_3d']
     if len(bboxes) == 0:
         return torch.from_numpy(map)
     

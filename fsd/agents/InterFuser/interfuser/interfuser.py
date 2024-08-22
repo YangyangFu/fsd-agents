@@ -167,6 +167,8 @@ class InterFuser(Base3DDetector):
             input_metas (List[dict]): The meta information of multiple samples
             
         """
+        if img is None:
+            return None
         
         if self.with_img_backbone and img is not None:
             dim = img.dim()            
@@ -198,6 +200,9 @@ class InterFuser(Base3DDetector):
                 Shape: [B, C, H, W].
             input_metas (List[dict]): The meta information of multiple samples.
         """
+        if pts_bev is None:
+            return None
+        
         if self.with_pts_backbone and pts_bev is not None:
             dim = pts_bev.dim()
             # 
@@ -227,8 +232,8 @@ class InterFuser(Base3DDetector):
         Returns:
             dict: The extracted features.
         """
-        imgs = batch_inputs_dict.get('imgs', None)
-        pts = batch_inputs_dict.get('pts', None)
+        imgs = batch_inputs_dict['img'].data if 'img' in batch_inputs_dict else None
+        pts = batch_inputs_dict['pts'].data if 'pts' in batch_inputs_dict else None
         img_feats = self.extract_img_feat(imgs, None)
         pts_feats = self.extract_pts_feat(pts, None)
         
@@ -379,10 +384,10 @@ class InterFuser(Base3DDetector):
         
         return output
     
-    def loss(self, batch_inputs_dict, batch_targets_dict, targets, **kwargs):
+    def loss(self, batch_inputs_dict, batch_targets_dict, **kwargs):
         goal_points = batch_inputs_dict.get('goal_points', None)
         output_dec = self._forward_transformer(batch_inputs_dict, batch_targets_dict)
-        losses = self.heads.loss(output_dec, goal_points, targets)
+        losses = self.heads.loss(output_dec, goal_points, batch_targets_dict)
         
         return losses 
     

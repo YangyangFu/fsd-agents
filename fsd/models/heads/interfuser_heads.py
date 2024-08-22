@@ -328,17 +328,17 @@ class InterfuserHead(BaseModule):
         
         # TODO: better way to switch between batch_first and not batch_first
         if self.batch_first:
-            loss_density = self.object_density_head.loss(hidden_states[:, :self.num_object_density_queries, :], targets['object_density'])
-            loss_junction = self.junction_head.loss(hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :], targets['junction'])
-            loss_stop_sign = self.stop_sign_head.loss(hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :], targets['stop_sign'])
-            loss_traffic_light = self.traffic_light_head.loss(hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :], targets['traffic_light'])
-            loss_waypoints = self.waypoints_head.loss(hidden_states[:, -self.num_waypoints_queries:, :], goal_point, targets['waypoints'])
+            loss_density = self.object_density_head.loss(hidden_states[:, :self.num_object_density_queries, :], targets['gt_density_maps'])
+            loss_junction = self.junction_head.loss(hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :], targets['gt_affected_by_junctions'])
+            loss_stop_sign = self.stop_sign_head.loss(hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :], targets['gt_affected_by_signs'])
+            loss_traffic_light = self.traffic_light_head.loss(hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :], targets['gt_affected_by_lights'])
+            loss_waypoints = self.waypoints_head.loss(hidden_states[:, -self.num_waypoints_queries:, :], goal_point, targets['gt_waypoints'])
         else:
-            loss_density = self.object_density_head.loss(hidden_states[:self.num_object_density_queries, :, :], targets['object_density'])
-            loss_junction = self.junction_head.loss(hidden_states[self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :, :], targets['junction'])
-            loss_stop_sign = self.stop_sign_head.loss(hidden_states[self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :, :], targets['stop_sign'])
-            loss_traffic_light = self.traffic_light_head.loss(hidden_states[self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :, :], targets['traffic_light'])
-            loss_waypoints = self.waypoints_head.loss(hidden_states[-self.num_waypoints_queries:, :, :], goal_point, targets['waypoints'])
+            loss_density = self.object_density_head.loss(hidden_states[:self.num_object_density_queries, :, :], targets['gt_density_maps'])
+            loss_junction = self.junction_head.loss(hidden_states[self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :, :], targets['gt_affected_by_junctions'])
+            loss_stop_sign = self.stop_sign_head.loss(hidden_states[self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :, :], targets['gt_affected_by_signs'])
+            loss_traffic_light = self.traffic_light_head.loss(hidden_states[self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :, :], targets['gt_affected_by_lights'])
+            loss_waypoints = self.waypoints_head.loss(hidden_states[-self.num_waypoints_queries:, :, :], goal_point, targets['gt_waypoints'])
         
         loss = dict(
             loss_object_density=loss_density,

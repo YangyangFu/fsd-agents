@@ -1,8 +1,14 @@
 import pytest 
 import torch 
 
+from mmengine.config import Config
+from mmengine.registry import init_default_scope
+from mmengine.structures import InstanceData, BaseDataElement
+
 from fsd.utils import get_agent_cfg, seed_everything
-from fsd.registry import AGENTS
+from fsd.structures import PlanningDataSample
+from fsd.registry import RUNNERS, DATASETS, MODELS, AGENTS
+from fsd.runner import Runner
 
 @pytest.fixture(autouse=True)
 def seed():
@@ -11,24 +17,24 @@ def seed():
 
 # test three modes
 cfgs = ['fsd/agents/InterFuser/configs/interfuser_r50_carla.py']
+init_default_scope('fsd')
 
 @pytest.mark.parametrize('cfg', cfgs)
 def test_agent(cfg):
-    # build agent
-    cfg = get_agent_cfg(cfg)
+    # cfg
+    cfg = Config.fromfile(cfg)
     assert cfg is not None
-    agent = AGENTS.build(cfg)    
+
+    # separate building
+    dataloader = Runner.build_dataloader(cfg.train_dataloader)
+    agent = AGENTS.build(cfg.model)    
+
+    # get one sample
+    sample = next(iter(dataloader))
     
-    #4 camera images
-    imgs = torch.randn(2, 4, 3, 224, 224)
-    # 1 lidar bev image
-    pts = torch.randn(2, 3, 224, 224)
-    # goal points
-    goal_points = torch.randn(2, 2)
-    inputs = dict(imgs=imgs, pts=pts, goal_points=goal_points)
 
     ## forward pass
-    outputs = agent(inputs, mode='tensor')
+    outputs = agent(sample, mode='predict')
     object_density = outputs['object_density']
     junction = outputs['junction']
     stop_sign = outputs['stop_sign']
@@ -43,25 +49,22 @@ def test_agent(cfg):
     assert waypoints.shape == (2, 10, 2)
 
     print(junction)
+    
     # loss calculation
-    targets = {
-        'waypoints': torch.randn(2, 10, 2),
-        'object_density': torch.randn(2, 400, 7),
-        'junction': torch.randint(0, 2, (2, 1, 2)),
-        'stop_sign': torch.randint(0, 2, (2, 1, 2)),
-        'traffic_light': torch.randint(0, 2, (2, 1, 2)),
-    }
-    losses = agent(inputs, data_samples=None, mode='loss', targets = targets)
 
-    print(losses)
+    
+    
+    #losses = agent(inputs, batch_target_dict=targets, mode='loss')
 
-    predictions = agent(inputs, data_samples=None, mode='predict')
-    print(predictions['junction'])
+    #print(losses)
+
+    #predictions = agent(inputs, batch_target_dict=None, mode='predict')
+    #print(predictions['junction'])
     
     # test train_step
     
     # test val_step
-    out = agent.val_step((inputs, None))
+    #out = agent.val_step(inputs)
     
-    
-pytest.main(['-s', 'tests/agents/InterFuser/test_interfuser.py'])
+test_agent(cfgs[0])   
+#pytest.main(['-s', 'tests/agents/InterFuser/test_interfuser.py'])

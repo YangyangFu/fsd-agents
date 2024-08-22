@@ -1,5 +1,5 @@
 from .utils.density_map_utils import generate_density_map
-from .data_preprocessor import InterFuserDataPreprocessor
+from .transform import InterFuserDensityMap
 from .interfuser import InterFuser
 
-__all__ = ['InterFuser', 'InterFuserDataPreprocessor', 'generate_density_map']
+__all__ = ['InterFuser', 'InterFuserDensityMap', 'generate_density_map']
