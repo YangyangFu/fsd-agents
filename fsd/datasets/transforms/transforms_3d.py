@@ -6,6 +6,7 @@ from mmengine.utils import is_tuple_of
 from mmengine.registry import build_from_cfg
 from mmengine.structures import BaseDataElement
 
+from torchvision.transforms import functional as F
 from mmcv.image import impad, impad_to_multiple, imnormalize, imresize, bgr2hsv, hsv2bgr
 from mmdet3d.models.task_modules import VoxelGenerator
 from mmdet3d.structures import (BasePoints, CameraInstance3DBoxes, DepthInstance3DBoxes,
@@ -14,7 +15,7 @@ from mmdet3d.structures.ops import box_np_ops
 from mmdet3d.datasets.transforms.data_augment_utils import noise_per_object_v3_
 
 from mmdet.datasets.transforms import RandomFlip
-from fsd.datasets.transforms import to_tensor
+from fsd.datasets.transforms import to_tensor, center_crop
 from fsd.registry import TRANSFORMS as PIPELINES
 
 @PIPELINES.register_module()
@@ -1423,6 +1424,83 @@ class NormalizeMultiviewImage(object):
         repr_str += f'(mean={self.mean}, std={self.std}, to_rgb={self.to_rgb})'
         return repr_str
 
+#TODO: may modify with torchvision.transforms
+@PIPELINES.register_module()
+class ResizeMultiviewImage(object):
+    """Resize the multi-view image.
+
+    """
+
+    def __init__(self, target_size):
+        # if only one size is provided, we will resize the image to this size
+        if isinstance(target_size, int):
+            target_size = [(target_size, target_size)]
+        # if a tuple is provided, we will resize the image to the size
+        if isinstance(target_size, tuple):
+            assert len(target_size) == 2, 'target_size must be length of 2, (h, w)'
+            target_size = [target_size]
+        # if a list of sizes is provided, each size is used for each image
+        if isinstance(target_size, list):
+            target_size = [tuple(size) for size in target_size]
+            
+        self.target_size = target_size
+
+    def __call__(self, results):
+        """Call function to resize images.
+        Args:
+            results (dict): Result dict from loading pipeline.
+        Returns:
+            dict: Resized results, 'scale' and 'keep_ratio' keys are added into
+                result dict.
+        """
+        num_views = len(results['img'])
+        if len(self.target_size) == 1:
+            self.target_size = self.target_size * num_views
+        
+        for i in range(num_views):
+            results['img'] = [imresize(img, self.target_size[i]) for img in results['img']]
+            results['img_shape'] = [img.shape for img in results['img']]
+            
+        return results
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        repr_str += f'(target_size={self.target_size})'
+        return repr_str
+
+@PIPELINES.register_module()
+class CenterCropMultiviewImage(object):
+    """Center crop the multi-view image.
+    """
+    def __init__(self, crop_size):
+        if isinstance(crop_size, int):
+            crop_size = [(crop_size, crop_size)]
+        if isinstance(crop_size, tuple):
+            assert len(crop_size) == 2, 'crop_size must be length of 2, (h, w)'
+            crop_size = [crop_size]
+        if isinstance(crop_size, list):
+            crop_size = [tuple(size) for size in crop_size]
+        self.crop_size = crop_size
+    
+    def __call__(self, results):
+        num_views = len(results['img'])
+        if len(self.crop_size) == 1:
+            self.crop_size = self.crop_size * num_views
+        cropped_imgs = []
+        cropped_imgs_shapes = []
+        
+        for i in range(num_views):
+            img = results['img'][i]
+            # center x, y
+            center = (img.shape[1] // 2, img.shape[0] // 2)
+            crop_size = self.crop_size[i]
+            cropped_img, _, _ = center_crop(img, center, crop_size)
+            cropped_imgs.append(cropped_img)
+            cropped_imgs_shapes.append(cropped_img.shape)
+        
+        results['img'] = cropped_imgs
+        results['img_shape'] = cropped_imgs_shapes
+        return results
 
 @PIPELINES.register_module()
 class PhotoMetricDistortionMultiViewImage:
@@ -1604,12 +1682,19 @@ class Collect3D(object):
 
         # pass meta
         data['img_metas'] = img_metas
-        for key in ['img_fields', 'pts_fields', 'ego_fields', 'bbox3d_fields', 
+        for key in ['img_fields', 'pts_fields', 'ego_fields', 'bbox3d_fields', 'grid_fields',
                     'pts_seg_fields', 'bbox_fields', 'simg_seg_fields', 
                     'box_type_3d', 'box_mode_3d']:
             if key in results:
                 data[key] = results[key]
-        # pass data        
+                
+        # collect default keys: in xx_fields
+        data_fields = ['img_fields', 'pts_fields', 'ego_fields', 'bbox3d_fields', 'grid_fields']
+        for field in data_fields:
+            for key in data[field]:
+                data[key] = results[key]
+                
+        # collect additional data        
         for key in self.keys:
             data[key] = results[key]
         

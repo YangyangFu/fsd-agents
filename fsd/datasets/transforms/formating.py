@@ -266,6 +266,12 @@ class DefaultFormatBundle(object):
             else:
                 results[key] = BaseDataElement(data=to_tensor(results[key]))
 
+        if 'inputs' not in results:
+            results['inputs'] = {}
+            
+        results['inputs']['img'] = results['img']
+        results.pop('img')
+        
         return results
 
     def __repr__(self):
@@ -313,6 +319,12 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
                 continue
             results[key] = BaseDataElement(data=to_tensor(results[key]))
 
+        # bundle inputs
+        if 'inputs' not in results:
+            results['inputs'] = {}
+        results['inputs']['pts'] = results['pts']
+        results.pop('pts')
+        
         # format gt_instances_3d: data related to instances
         gt_instances_3d = InstanceData()
         
@@ -342,15 +354,27 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
                     gt_ego.set_field(to_tensor(results[key]), key)
 
                 results.pop(key)
-                
+        
+        # format gt_grids: data related to grids
+        gt_grids = BaseDataElement()
+        for key in results['grid_fields']:
+            if key in results:
+                if isinstance(results[key], BaseDataElement):
+                    gt_grids.set_field(results[key].to_tensor(), key)
+                else:
+                    gt_grids.set_field(to_tensor(results[key]), key)
+                results.pop(key)
+        
         # TODO: add map data
         # with map
         
         data_sample = PlanningDataSample()
         data_sample.gt_instances_3d = gt_instances_3d
         data_sample.gt_ego = gt_ego
+        data_sample.gt_grids = gt_grids
         
         results['data_sample'] = data_sample
+        
         return results
 
     def __repr__(self):

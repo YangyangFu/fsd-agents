@@ -1,6 +1,7 @@
+from .utils import center_crop
 from .formating import (DefaultFormatBundle, DefaultFormatBundle3D, ImageToTensor,
                         ToBaseDataElement, ToTensor, Transpose, to_tensor,VADFormatBundle3D)
-from .loading import (LoadAnnotations, LoadImageFromFile, LoadImageFromWebcam,
+from .loading import (LoadImageFromFile, LoadImageFromWebcam,
                       LoadMultiChannelImageFromFiles, LoadProposals,
                       LoadAnnotations3D, LoadImageFromFileMono3D,
                       LoadMultiViewImageFromFiles, 
