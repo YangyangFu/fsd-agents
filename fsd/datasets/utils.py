@@ -14,7 +14,7 @@ from fsd.datasets.transforms import (DefaultFormatBundle3D,
                                         MultiScaleFlipAug3D,
                                         PointSegClassMapping,
                                         Collect3D)
-from fsd.datasets.transforms import LoadAnnotations, LoadImageFromFile
+from fsd.datasets.transforms import LoadImageFromFile
 from mmdet.models.dense_heads import GARPNHead, RPNHead
 from mmdet.models.roi_heads.mask_heads import FusedSemanticHead
 from fsd.registry import TRANSFORMS
