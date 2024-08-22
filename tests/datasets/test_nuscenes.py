@@ -1,5 +1,6 @@
 from mmengine.registry import init_default_scope
-from mmdet3d.registry import DATASETS 
+from mmdet3d.registry import DATASETS
+from mmengine.runner import Runner
 from mmdet3d.structures import Det3DDataSample, PointData
 
 # Copyright (c) OpenMMLab. All rights reserved.
@@ -107,24 +108,31 @@ train_pipeline = [
         ])
 ]
 
-dataset_train=dict(
-    type=NuScenesDataset,
-    data_root=data_root,
-    ann_file='nuscenes_infos_train.pkl',
-    pipeline=train_pipeline,
-    metainfo=metainfo,
-    modality=input_modality,
-    test_mode=False,
-    data_prefix=data_prefix,
-    # we use box_type_3d='LiDAR' in kitti and nuscenes dataset
-    # and box_type_3d='Depth' in sunrgbd and scannet dataset.
-    box_type_3d='LiDAR',
-    backend_args=backend_args)
+dataloader = dict(
+    batch_size = 1,
+    num_workers = 1,
+    dataset=dict(
+        type=NuScenesDataset,
+        data_root=data_root,
+        ann_file='nuscenes_infos_train.pkl',
+        pipeline=train_pipeline,
+        metainfo=metainfo,
+        modality=input_modality,
+        test_mode=False,
+        data_prefix=data_prefix,
+        # we use box_type_3d='LiDAR' in kitti and nuscenes dataset
+        # and box_type_3d='Depth' in sunrgbd and scannet dataset.
+        box_type_3d='LiDAR',
+        backend_args=backend_args),
+        sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
+)
+
+
 
 init_default_scope('mmdet3d')
-ds = DATASETS.build(dataset_train)
+ds = Runner.build_dataloader(dataloader)
 
-sample = ds.__getitem__(0)
+sample = next(iter(ds))
 
 # sample
 # sample['inputs']
