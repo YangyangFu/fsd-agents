@@ -7,6 +7,7 @@ from mmengine.structures import InstanceData, BaseDataElement
 
 from fsd.utils import get_agent_cfg, seed_everything
 from fsd.structures import PlanningDataSample
+from fsd.agents import InterFuserDataPreprocessor
 from fsd.registry import RUNNERS, DATASETS, MODELS, AGENTS
 from fsd.runner import Runner
 
@@ -25,6 +26,7 @@ def test_agent(cfg):
     cfg = Config.fromfile(cfg)
     assert cfg is not None
 
+    init_default_scope('fsd')
     # separate building
     dataloader = Runner.build_dataloader(cfg.train_dataloader)
     data_preprocessor = MODELS.build(cfg.model.data_preprocessor)
@@ -33,8 +35,7 @@ def test_agent(cfg):
     # get one sample
     sample = next(iter(dataloader))
     sample = data_preprocessor(sample)
-    sample['inputs']['goal_points'] = torch.rand(2, 2)
-    
+
     ## forward pass
     outputs = agent(**sample, mode='predict')
     object_density = outputs['object_density']
@@ -59,5 +60,5 @@ def test_agent(cfg):
                            'loss_traffic_light', 
                            'loss_waypoints'}
     
-#test_agent(cfgs[0])   
-pytest.main(['-s', 'tests/agents/InterFuser/test_interfuser.py'])
+test_agent(cfgs[0])   
+#pytest.main(['-s', 'tests/agents/InterFuser/test_interfuser.py'])

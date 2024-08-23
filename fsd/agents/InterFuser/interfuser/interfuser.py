@@ -292,7 +292,6 @@ class InterFuser(Base3DDetector):
         feats = self._apply_neck(feats)
         img_feats = feats['img']
         pts_feats = feats['pts']
-        goal_points = batch_inputs_dict.get('goal_points', None)
         del feats
         
         
