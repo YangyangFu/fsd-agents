@@ -29,8 +29,8 @@ class GRUWaypointHead(BaseModule):
                  dropout: float = 0., 
                  batch_first: bool = True,
                  loss_cfg: ConfigType = dict(
-                     type='mmdet.SmoothL1Loss', 
-                     beta=1.0, 
+                     type='MaskedSmoothL1Loss', 
+                     beta=0.5, 
                      reduction='mean', 
                      loss_weight=1.0),
                  waypoints_weights: Optional[List[float]] = None,
@@ -63,7 +63,7 @@ class GRUWaypointHead(BaseModule):
         
         Args:
             hidden_states (torch.Tensor): Features from transformer decoder with
-                shape (B, L, input_size) if batch_first else (L, B, input_size)
+                shape (B, L, input_size) 
             goal_point (torch.Tensor): with shape (B, 2)
 
         Returns:
@@ -72,12 +72,12 @@ class GRUWaypointHead(BaseModule):
         assert hidden_states.dim() == 3, f"hidden_states must have 3 dimensions, got {hidden_states.dim()}"
         assert goal_points.dim() == 2, f"goal_points must have 2 dimensions, got {goal_points.dim()}"
         
-        L = hidden_states.size(1) if self.batch_first else hidden_states.size(0)
+        L = hidden_states.size(1) 
         assert L == self.num_waypoints, f"Number of waypoints {L} must be equal to the number of waypoints {self.num_waypoints}"
         
         # (B, 2) -> (B, hidden_size) -> (1, B, hidden_size)
         z = self.linear1(goal_points).unsqueeze(0).repeat(self.num_layers, 1, 1)
-        # (B, L, hidden_size)
+        # (B, L, hidden_size) or (L, B, hidden_size)
         output, _ = self.gru(hidden_states, z)
         # (B, L, 2) or (L, B, 2)
         output = self.linear2(output)
@@ -93,16 +93,46 @@ class GRUWaypointHead(BaseModule):
 
     def loss(self, hidden_states: torch.Tensor, 
              goal_points: torch.Tensor, 
-             target_waypoints: torch.Tensor) -> torch.Tensor:
+             target_waypoints: torch.Tensor,
+             target_waypoints_masks: Optional[torch.Tensor]=None) -> torch.Tensor:
+        """_summary_
+
+        Args:
+            hidden_states (torch.Tensor): (B, L, input_size)
+            goal_points (torch.Tensor): (B, 2) 
+            target_waypoints (torch.Tensor): (B, L, 2)
+            target_waypoints_masks (Optional[torch.Tensor], optional): (B, L) or (B, L ,2).
+                Defaults to None.
+
+        Returns:
+            torch.Tensor: _description_
+        """
+        # forward
         pred_waypoints = self(hidden_states, goal_points)
+        
+        # resize
+        if target_waypoints_masks is not None \
+            and target_waypoints_masks.dim() == 2:
+            target_waypoints_masks = target_waypoints_masks.unsqueeze(-1).repeat(1, 1, 2)
+        if target_waypoints_masks is not None \
+            and target_waypoints_masks.dim() == 3:
+                assert target_waypoints_masks.size(2) == 2, f"target_waypoints_masks must have 2 channels, got {target_waypoints_masks.size(2)}"
+        
         if self.batch_first:
             B, L, _ = pred_waypoints.size()
             weight = self.waypoints_weights.repeat(B, 1, 2)
         else:
             L, B, _ = pred_waypoints.size()
             weight = self.waypoints_weights.repeat(1, B, 2)
+            target_waypoints = target_waypoints.permute(1, 0, 2)
+            target_waypoints_masks = target_waypoints_masks.permute(1, 0, 2)
+            
         weight = weight.to(pred_waypoints.device)
-        return self.loss_fcn(pred_waypoints, target_waypoints, weight=weight)
+        
+        return self.loss_fcn(pred_waypoints, 
+                             target_waypoints, 
+                             weight=weight, 
+                             mask=target_waypoints_masks)
     
 
 class ObjectDensityLoss(BaseModule):
@@ -367,7 +397,8 @@ class InterfuserHead(BaseModule):
             loss_waypoints = self.waypoints_head.loss(
                 hidden_states[:, -self.num_waypoints_queries:, :], 
                 goal_point, 
-                gt_ego_future_waypoints
+                gt_ego_future_waypoints,
+                gt_ego_future_waypoints_masks
             )
         else:
             loss_density = self.object_density_head.loss(
