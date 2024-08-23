@@ -538,7 +538,7 @@ class Planning3DDataset(Dataset):
         example = self.pipeline(input_dict)
         if self.filter_empty_gt and \
                 (example is None or
-                    ~(example['data_sample'].gt_instances_3d.gt_labels_3d != -1).any()):
+                    ~(example['data_samples'].gt_instances_3d.gt_labels_3d != -1).any()):
             return None
         return example
 

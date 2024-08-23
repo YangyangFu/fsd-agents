@@ -32,6 +32,7 @@ lidar_sensors = ['LIDAR_TOP']
 
 EMBED_DIMS = 256
 BATCH_FIRST = True
+PLANNING_STEPS = 10
 
 model = dict(
     type='InterFuser',
@@ -117,7 +118,7 @@ model = dict(
     ),
     heads=dict(
         type='interfuser_heads',
-        num_waypoints_queries=10,
+        num_waypoints_queries=PLANNING_STEPS,
         num_traffic_rule_queries=1,
         num_object_density_queries=400,
         waypoints_head=dict(
@@ -222,7 +223,7 @@ train_pipeline = [
     dict(type="LoadMultiViewImageFromFiles", to_float32=True),
     dict(type="LoadPointsFromFileCarlaDataset", coord_type="LIDAR", load_dim=3, use_dim=[0, 1, 2]),
     dict(type="PhotoMetricDistortionMultiViewImage"),
-    dict(type="InterFuserDensityMap", bev_range=[0, 20, -10, 10], pixels_per_meter=8),
+    dict(type="InterFuserDensityMap", bev_range=[0, 20, -10, 10], pixels_per_meter=1),
     dict(
         type="LoadAnnotations3DPlanning",
         with_bbox_3d=True,
@@ -235,12 +236,11 @@ train_pipeline = [
     ),
     dict(type="ObjectRangeFilter", point_cloud_range=point_cloud_range),
     dict(type="ObjectNameFilter", classes=class_names),
-    
     dict(type="NormalizeMultiviewImage", **img_norm_cfg),
-    dict(type="PadMultiViewImage", size_divisor=32),
-    dict(type="ResizeMultiviewImage", target_size=(341, 256)),
-    dict(type="CenterCropMultiviewImage", crop_size=(224, 224)),
-    dict(type="Points2BinHistogramGenerator", pixels_per_meter=10, bev_range=[0, 20, -10, 10]),
+    dict(type="ResizeMultiviewImage", target_size=[(341, 256), (341, 256), (341, 256), (195, 146)]),
+    dict(type="CenterCropMultiviewImage", crop_size=[(224, 224), (224, 224), (224, 224), (128, 128)]),
+    dict(type="PadMultiViewImage", size=(224, 224)),
+    dict(type="Points2BinHistogramGenerator", pixels_per_meter=8, bev_range=[0, 28, -14, 14]),
     dict(type="Collect3D", keys= []), # default keys are in xx_fields
     dict(type="DefaultFormatBundle3D")
 ]
@@ -260,9 +260,9 @@ train_dataloader = dict(
         lidar_sensors=lidar_sensors,
         box_type_3d="LiDAR",
         filter_empty_gt = True,
-        past_steps = 4, # past trajectory length
-        prediction_steps = 6, # motion prediction length if any
-        planning_steps = 6, # planning length
+        past_steps = 0, # past trajectory length
+        prediction_steps = 0, # motion prediction length if any
+        planning_steps = PLANNING_STEPS, # planning length
         sample_interval = 5, # sample interval # frames skiped per step
         test_mode = False
     ),
@@ -274,19 +274,19 @@ lr = 0.002  # max learning rate
 optim_wrapper = dict(
     type='OptimWrapper',
     _scope_="mmdet",
-    optimizer=dict(type='mmdet.AdamW', lr=lr, weight_decay=0.),
+    optimizer=dict(type='AdamW', lr=lr, weight_decay=0.),
     clip_grad=dict(max_norm=35, norm_type=2),
 )
 
 # training schedule for 1x
-train_cfg = dict(type='mmdet.EpochBasedTrainLoop', max_epochs=80, val_interval=2)
+train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=80, val_interval=2)
 #val_cfg = dict(type='ValLoop')
 #test_cfg = dict(type='TestLoop')
 
 # learning rate
 param_scheduler = [
     dict(
-        type='mmdet.MultiStepLR',
+        type='MultiStepLR',
         begin=0,
         end=80,
         by_epoch=True,

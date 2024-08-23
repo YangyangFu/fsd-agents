@@ -373,7 +373,7 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
         data_sample.gt_ego = gt_ego
         data_sample.gt_grids = gt_grids
         
-        results['data_sample'] = data_sample
+        results['data_samples'] = data_sample
         
         return results
 

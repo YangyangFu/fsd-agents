@@ -27,14 +27,16 @@ def test_agent(cfg):
 
     # separate building
     dataloader = Runner.build_dataloader(cfg.train_dataloader)
+    data_preprocessor = MODELS.build(cfg.model.data_preprocessor)
     agent = AGENTS.build(cfg.model)    
 
     # get one sample
     sample = next(iter(dataloader))
+    sample = data_preprocessor(sample)
+    sample['inputs']['goal_points'] = torch.rand(2, 2)
     
-
     ## forward pass
-    outputs = agent(sample, mode='predict')
+    outputs = agent(**sample, mode='predict')
     object_density = outputs['object_density']
     junction = outputs['junction']
     stop_sign = outputs['stop_sign']
@@ -48,23 +50,14 @@ def test_agent(cfg):
     assert traffic_light.shape == (2, 1, 2)
     assert waypoints.shape == (2, 10, 2)
 
-    print(junction)
-    
-    # loss calculation
 
+    # loss calculation    
+    loss = agent(**sample, mode='loss')
+    assert loss.keys() == {'loss_object_density', 
+                           'loss_junction', 
+                           'loss_stop_sign', 
+                           'loss_traffic_light', 
+                           'loss_waypoints'}
     
-    
-    #losses = agent(inputs, batch_target_dict=targets, mode='loss')
-
-    #print(losses)
-
-    #predictions = agent(inputs, batch_target_dict=None, mode='predict')
-    #print(predictions['junction'])
-    
-    # test train_step
-    
-    # test val_step
-    #out = agent.val_step(inputs)
-    
-test_agent(cfgs[0])   
-#pytest.main(['-s', 'tests/agents/InterFuser/test_interfuser.py'])
+#test_agent(cfgs[0])   
+pytest.main(['-s', 'tests/agents/InterFuser/test_interfuser.py'])

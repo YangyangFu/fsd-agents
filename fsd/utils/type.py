@@ -23,3 +23,12 @@ PixelList = List[PixelData]
 OptPixelList = Optional[PixelList]
 
 RangeType = Sequence[Tuple[int, int]]
+
+
+# type hinting for data sample
+from fsd.structures import PlanningDataSample
+
+DataSampleType = Union[PlanningDataSample, dict]
+OptDataSampleType = Optional[DataSampleType]
+DataSampleList = List[DataSampleType]
+OptDataSampleList = Optional[DataSampleList]

@@ -8,6 +8,7 @@ from mmdet3d.structures import CameraInstance3DBoxes, LiDARInstance3DBoxes
 from mmdet3d.datasets import Det3DDataset
 from fsd.datasets import Planning3DDataset
 from fsd.datasets import map_carla_class_name
+from fsd.utils import one_hot_encoding
 from fsd.registry import DATASETS
 
 
@@ -50,9 +51,9 @@ class CarlaDataset(Planning3DDataset):
         ego['acceleration'] = raw_info['ego_accel'] # [x, y, z]
         
         # TODO: faked data, need to be updated
-        ego['affected_by_lights'] = 0
-        ego['affected_by_stop_sign'] = 0
-        ego['is_at_junction'] = 0
+        ego['affected_by_lights'] = one_hot_encoding(np.array(0), 2)
+        ego['affected_by_stop_sign'] = one_hot_encoding(np.array(0), 2)
+        ego['is_at_junction'] = one_hot_encoding(np.array(0), 2)
         info['ego'] = ego
         
         # sensor info

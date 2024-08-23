@@ -6,7 +6,7 @@ import torch.nn as nn
 from mmdet3d.models import Base3DDetector
 from mmdet.models import (SinePositionalEncoding, \
                             LearnedPositionalEncoding)
-from fsd.utils import ConfigType, OptConfigType
+from fsd.utils import ConfigType, OptConfigType, DataSampleType, OptDataSampleType
 from fsd.registry import NECKS as FSD_NECKS
 from fsd.registry import AGENTS as FSD_AGENTS
 from fsd.registry import BACKBONES as FSD_BACKBONES
@@ -237,21 +237,21 @@ class InterFuser(Base3DDetector):
         img_feats = self.extract_img_feat(imgs, None)
         pts_feats = self.extract_pts_feat(pts, None)
         
-        return dict(imgs=img_feats, pts=pts_feats)
+        return dict(img=img_feats, pts=pts_feats)
     
     def _apply_neck(self, feats):
         """Apply neck for features.
         """
         # apply on image features
         if self.with_img_neck:
-            dim_img = feats['imgs'].dim()
+            dim_img = feats['img'].dim()
             if dim_img == 5:
-                B, N, C, H, W = feats['imgs'].size()
-                feats['imgs'] = feats['imgs'].view(B * N, C, H, W)
-            feats['imgs'] = self.img_neck(feats['imgs'])
+                B, N, C, H, W = feats['img'].size()
+                feats['img'] = feats['img'].view(B * N, C, H, W)
+            feats['img'] = self.img_neck(feats['img'])
             if dim_img == 5:
-                _, Cf, Hf, Wf = feats['imgs'].size()
-                feats['imgs'] = feats['imgs'].view(B, N, Cf, Hf, Wf)
+                _, Cf, Hf, Wf = feats['img'].size()
+                feats['img'] = feats['img'].view(B, N, Cf, Hf, Wf)
         
         # apply on point cloud features -> BEV features      
         if self.with_pts_neck:
@@ -282,9 +282,15 @@ class InterFuser(Base3DDetector):
         Returns:
             torch.Tensor: The output tensor that represents the model output without any post-processing.
         """
+        # get device
+        device = torch.device('cpu')
+        if 'img' in batch_inputs_dict: device = batch_inputs_dict['img'].data.device
+        elif 'pts' in batch_inputs_dict: device = batch_inputs_dict['pts'].data.device
+        
+        # feature extraction
         feats = self.extract_feat(batch_inputs_dict)
         feats = self._apply_neck(feats)
-        img_feats = feats['imgs']
+        img_feats = feats['img']
         pts_feats = feats['pts']
         goal_points = batch_inputs_dict.get('goal_points', None)
         del feats
@@ -306,7 +312,7 @@ class InterFuser(Base3DDetector):
         
 
         # (B, H, W) -> (B, N, dim, H, W) -> (B, NHW, dim)
-        mask = torch.zeros(B, H, W)
+        mask = torch.zeros(B, H, W).to(device)
         # (B, dim, H, W)
         key_pos_encodings = self.positional_encoding(mask=mask)
         # (B, N, dim, H, W)
@@ -314,7 +320,7 @@ class InterFuser(Base3DDetector):
             
         if self.with_multi_view_encoding:
             # (N, dim)
-            sensor_pos_encodings = self.multi_view_encoding(torch.arange(N_img + N_pts))
+            sensor_pos_encodings = self.multi_view_encoding(torch.arange(N_img + N_pts, device=device))
             # (B, N, dim, H, W)
             sensor_pos_encodings = sensor_pos_encodings[None, :, :, None, None].repeat(B, 1, 1, H, W)
             key_pos_encodings += sensor_pos_encodings
@@ -323,10 +329,10 @@ class InterFuser(Base3DDetector):
         
         # query embedding
         # (N, dim) [num_objects_map, num_traffic_info, num_waypoints]
-        query_embed = self.query_embedding(torch.arange(self.num_queries))
+        query_embed = self.query_embedding(torch.arange(self.num_queries, device=device))
         # (N_pos, dim,) -> (N, dim) -> (B, N, dim)
-        query_pos_embed = self.query_positional_encoding(torch.arange(self.query_positional_encoding.num_embeddings))
-        query_pos_embed = torch.cat([torch.zeros(self.num_queries - self.num_queries_waypoints - self.num_queries_traffic_info, self.embed_dims),
+        query_pos_embed = self.query_positional_encoding(torch.arange(self.query_positional_encoding.num_embeddings, device=device))
+        query_pos_embed = torch.cat([torch.zeros(self.num_queries - self.num_queries_waypoints - self.num_queries_traffic_info, self.embed_dims, device=device),
                                      query_pos_embed[:self.num_queries_traffic_info, :], 
                                      query_pos_embed[-self.num_queries_waypoints:, :]], 
                                     dim=0)
@@ -384,10 +390,10 @@ class InterFuser(Base3DDetector):
         
         return output
     
-    def loss(self, batch_inputs_dict, batch_targets_dict, **kwargs):
+    def loss(self, batch_inputs_dict, data_samples, **kwargs):
         goal_points = batch_inputs_dict.get('goal_points', None)
-        output_dec = self._forward_transformer(batch_inputs_dict, batch_targets_dict)
-        losses = self.heads.loss(output_dec, goal_points, batch_targets_dict)
+        output_dec = self._forward_transformer(batch_inputs_dict, data_samples)
+        losses = self.heads.loss(output_dec, goal_points, data_samples)
         
         return losses 
     
@@ -400,7 +406,7 @@ class InterFuser(Base3DDetector):
     
     def forward(self,
                 inputs: Union[dict, List[dict]],
-                batch_targets_dict = None,
+                data_samples: List[OptDataSampleType] = None,
                 mode: str = 'tensor',
                 **kwargs):
         """The unified entry for a forward process in both training and test.
@@ -421,10 +427,11 @@ class InterFuser(Base3DDetector):
             inputs  (dict | list[dict]): When it is a list[dict], the
                 outer list indicate the test time augmentation. Each
                 dict contains batch inputs
-                which include 'points' and 'imgs' keys.
+                which include 'points' and 'img' keys.
 
                 - points (list[torch.Tensor]): Point cloud of each sample.
-                - imgs (torch.Tensor): Image tensor has shape (B, C, H, W).
+                - img (torch.Tensor): Image tensor has shape (B, C, H, W) or 
+                    (B, N, C, H, W).
             batch_targets_dict (dict): The
                 annotation data of every samples. When it is a list[list], the
                 outer list indicate the test time augmentation, and the
@@ -440,12 +447,12 @@ class InterFuser(Base3DDetector):
             - If ``mode="loss"``, return a dict of tensor.
         """
         if mode == 'loss':
-            return self.loss(inputs, batch_targets_dict, **kwargs)
+            return self.loss(inputs, data_samples, **kwargs)
         elif mode == 'predict':
             
-            return self.predict(inputs, batch_targets_dict, **kwargs)
+            return self.predict(inputs, data_samples, **kwargs)
         elif mode == 'tensor':
-            return self._forward(inputs, batch_targets_dict, **kwargs)
+            return self._forward(inputs, data_samples, **kwargs)
         else:
             raise RuntimeError(f'Invalid mode "{mode}". '
                                'Only supports loss, predict and tensor mode')

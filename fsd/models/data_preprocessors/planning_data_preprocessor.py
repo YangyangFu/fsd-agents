@@ -165,7 +165,7 @@ class PlanningDataPreprocessor(BaseDataPreprocessor):
             for aug in self.batch_augments:
                 data = aug(data)
         
-        return data  
+        return {'inputs': data['inputs'], 'data_samples': data['data_samples']} 
 
     def process_images(self, 
                        data : Union[dict, List[dict]], 
@@ -200,7 +200,11 @@ class PlanningDataPreprocessor(BaseDataPreprocessor):
         if 'img' in data['inputs']:
             data['inputs']['img'] = stack_batch(data['inputs']['img'])
         
-        
+        if 'pts' in data['inputs']:
+            processed = stack_batch(data['inputs']['pts'])
+            processed.data = processed.data.float()/255.0
+            data['inputs']['pts'] = processed
+            
         return data
 
 
