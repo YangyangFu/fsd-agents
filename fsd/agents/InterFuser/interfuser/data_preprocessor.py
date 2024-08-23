@@ -1,19 +1,28 @@
 from typing import Union, List
 
 import torch
+import numpy as np
 from fsd.models import PlanningDataPreprocessor
 from fsd.registry import MODELS 
 
 @MODELS.register_module()
 class InterFuserDataPreprocessor(PlanningDataPreprocessor):
     def __init__(self, 
+                 pixels_per_meter=8, 
+                 bev_range=[0, 28, -14, 14],
+                 max_hist_per_pixel=5,
+                 below_threshold=-2.0,
                  *args, 
                  **kwargs):
         """_summary_
 
         """
         super().__init__(*args, **kwargs)
-
+        self.pixels_per_meter = pixels_per_meter
+        self.bev_range = bev_range
+        self.max_hist_per_pixel = max_hist_per_pixel
+        self.below_threshold = below_threshold
+        
     def forward(self,
                 data: Union[dict, List[dict]],
                 training: bool = False) -> Union[dict, List[dict]]:
@@ -33,6 +42,9 @@ class InterFuserDataPreprocessor(PlanningDataPreprocessor):
         # generate goal points for goal-directed tasks
         data = self.get_goal_points(data)
         
+        # generate bin histogram from point cloud
+        data = self.generate_pts_to_hist(data)
+        
         return super().forward(data, training)
 
     def get_goal_points(self, data: dict):
@@ -44,3 +56,39 @@ class InterFuserDataPreprocessor(PlanningDataPreprocessor):
         data['inputs']['goal_points'] = torch.stack(gt_ego_future_traj)
         
         return data
+
+    def generate_pts_to_hist(self, data: dict, view_ego_coord: bool = True):
+        """Generate bin histogram from point cloud
+        """
+        # batched data
+        points = data['inputs']['pts']
+
+        points_ = []
+        for pts in points:
+            below_mask = pts.tensor[:, 2] <= self.below_threshold
+            above_mask = ~below_mask
+            below = pts[below_mask]
+            above = pts[above_mask]
+            below_feat = self._2bin_histogram(below.numpy())
+            above_feat = self._2bin_histogram(above.numpy())
+            total_feat = below_feat + above_feat
+            features = np.stack([below_feat, above_feat, total_feat], axis=0).astype(np.float32) # [C, H, W]
+            
+            # min-max normalization
+            features = features / features.max() 
+        
+            # flip for visualization as image: x front -> -y in image
+            if view_ego_coord:
+                features = np.rot90(features, k=1, axes=(1,2))
+            points_.append(torch.from_numpy(features.copy()))
+
+        data['inputs']['pts'] = points_
+        return data
+
+    def _2bin_histogram(self, points):
+        xbins = np.linspace(self.bev_range[0], self.bev_range[1]+1, (self.bev_range[1]-self.bev_range[0])*self.pixels_per_meter+1)
+        ybins = np.linspace(self.bev_range[2], self.bev_range[3]+1, (self.bev_range[3]-self.bev_range[2])*self.pixels_per_meter+1)
+        hist = np.histogramdd(points[:, :2], bins=(ybins, xbins))[0] # x in lidar -> y in image
+        hist[hist > self.max_hist_per_pixel] = self.max_hist_per_pixel
+        hist = hist / self.max_hist_per_pixel
+        return hist

@@ -201,9 +201,8 @@ class PlanningDataPreprocessor(BaseDataPreprocessor):
             data['inputs']['img'] = stack_batch(data['inputs']['img'])
         
         if 'pts' in data['inputs']:
-            processed = stack_batch(data['inputs']['pts'])
-            processed.data = processed.data.float()/255.0
-            data['inputs']['pts'] = processed
+
+            data['inputs']['pts'] = stack_batch(data['inputs']['pts'])
             
         return data
 

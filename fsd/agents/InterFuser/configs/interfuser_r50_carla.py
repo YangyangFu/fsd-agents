@@ -236,7 +236,7 @@ train_pipeline = [
     dict(type="ResizeMultiviewImage", target_size=[(341, 256), (341, 256), (341, 256), (195, 146)]),
     dict(type="CenterCropMultiviewImage", crop_size=[(224, 224), (224, 224), (224, 224), (128, 128)]),
     dict(type="PadMultiViewImage", size=(224, 224)),
-    dict(type="Points2BinHistogramGenerator", pixels_per_meter=8, bev_range=[0, 28, -14, 14]),
+    #dict(type="Points2BinHistogramGenerator", pixels_per_meter=8, bev_range=[0, 28, -14, 14]),
     dict(type="Collect3D", keys= []), # default keys are in xx_fields
     dict(type="DefaultFormatBundle3D")
 ]
