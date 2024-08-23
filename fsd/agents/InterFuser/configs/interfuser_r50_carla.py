@@ -31,7 +31,6 @@ camera_sensors = [
 lidar_sensors = ['LIDAR_TOP']
 
 EMBED_DIMS = 256
-BATCH_FIRST = True
 PLANNING_STEPS = 10
 
 model = dict(
@@ -89,7 +88,6 @@ model = dict(
                 act_cfg=dict(type='ReLU', inplace=True)
             ),
             operation_order=['self_attn', 'norm', 'ffn', 'norm'],
-            batch_first=BATCH_FIRST
         )
     ),       
     decoder = dict(  # DetrTransformerDecoder
@@ -113,7 +111,6 @@ model = dict(
                 act_cfg=dict(type='ReLU', inplace=True)
             ),
             operation_order=['self_attn', 'norm', 'cross_attn', 'norm', 'ffn', 'norm'],
-            batch_first=BATCH_FIRST
         )
     ),
     heads=dict(
@@ -128,7 +125,7 @@ model = dict(
             hidden_size=64,
             num_layers=1,
             dropout=0.,
-            #batch_first=True,
+            batch_first=False, # seems RNNs prefer batch_first=False
             loss_cfg=dict(
                 type='MaskedSmoothL1Loss',
                 beta=1.0,

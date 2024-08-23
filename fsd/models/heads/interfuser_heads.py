@@ -27,7 +27,7 @@ class GRUWaypointHead(BaseModule):
                  hidden_size: int=64, 
                  num_layers: int = 1, 
                  dropout: float = 0., 
-                 batch_first: bool = True,
+                 batch_first: bool = False,
                  loss_cfg: ConfigType = dict(
                      type='MaskedSmoothL1Loss', 
                      beta=0.5, 
@@ -49,13 +49,9 @@ class GRUWaypointHead(BaseModule):
         self.waypoints_weights = waypoints_weights
         if self.waypoints_weights is not None:
             assert self.num_waypoints == len(self.waypoints_weights)
-            # (L, ) -> (L, 1, 1) or (1, L, 1)
-            self.waypoints_weights = torch.Tensor(self.waypoints_weights)
-            if self.batch_first:
-                self.waypoints_weights = self.waypoints_weights.unsqueeze(0).unsqueeze(-1)
-            else:
-                self.waypoints_weights = self.waypoints_weights.unsqueeze(-1).unsqueeze(-1)
-            
+            # (L, ) -> (1, L, 1)
+            self.waypoints_weights = torch.Tensor(self.waypoints_weights).unsqueeze(0).unsqueeze(-1)
+
     def forward(self, 
                 hidden_states: torch.Tensor, 
                 goal_points: torch.Tensor) -> torch.Tensor:
@@ -67,7 +63,7 @@ class GRUWaypointHead(BaseModule):
             goal_point (torch.Tensor): with shape (B, 2)
 
         Returns:
-            torch.Tensor: with shape (B, L, 2) if batch_first else (L, B, 2)
+            torch.Tensor: with shape (B, L, 2) 
         """
         assert hidden_states.dim() == 3, f"hidden_states must have 3 dimensions, got {hidden_states.dim()}"
         assert goal_points.dim() == 2, f"goal_points must have 2 dimensions, got {goal_points.dim()}"
@@ -78,16 +74,20 @@ class GRUWaypointHead(BaseModule):
         # (B, 2) -> (B, hidden_size) -> (1, B, hidden_size)
         z = self.linear1(goal_points).unsqueeze(0).repeat(self.num_layers, 1, 1)
         # (B, L, hidden_size) or (L, B, hidden_size)
+        if not self.batch_first:
+            hidden_states = hidden_states.permute(1, 0, 2)    
         output, _ = self.gru(hidden_states, z)
+    
         # (B, L, 2) or (L, B, 2)
         output = self.linear2(output)
         
+        if not self.batch_first:
+            output = output.permute(1, 0, 2)
+            
         # accumulate the displacement
-        if self.batch_first:
-            output = torch.cumsum(output, dim=1)
-        else:
-            output = torch.cumsum(output, dim=0)
-        
+        output = torch.cumsum(output, dim=1)
+
+        # (B, L, 2) 
         return output
 
 
@@ -118,15 +118,9 @@ class GRUWaypointHead(BaseModule):
             and target_waypoints_masks.dim() == 3:
                 assert target_waypoints_masks.size(2) == 2, f"target_waypoints_masks must have 2 channels, got {target_waypoints_masks.size(2)}"
         
-        if self.batch_first:
-            B, L, _ = pred_waypoints.size()
-            weight = self.waypoints_weights.repeat(B, 1, 2)
-        else:
-            L, B, _ = pred_waypoints.size()
-            weight = self.waypoints_weights.repeat(1, B, 2)
-            target_waypoints = target_waypoints.permute(1, 0, 2)
-            target_waypoints_masks = target_waypoints_masks.permute(1, 0, 2)
-            
+        B, L, _ = pred_waypoints.size()
+        weight = self.waypoints_weights.repeat(B, 1, 2)
+    
         weight = weight.to(pred_waypoints.device)
         
         return self.loss_fcn(pred_waypoints, 
@@ -134,7 +128,6 @@ class GRUWaypointHead(BaseModule):
                              weight=weight, 
                              mask=target_waypoints_masks)
     
-
 class ObjectDensityLoss(BaseModule):
     """Loss for object density map prediction in InterFuser
 
@@ -157,6 +150,16 @@ class ObjectDensityLoss(BaseModule):
     def forward(self, pred: torch.Tensor, 
                 target: torch.Tensor, 
                 weights: torch.Tensor = torch.Tensor([0.25, 0.25, 0.02])) -> torch.Tensor:
+        """_summary_
+
+        Args:
+            pred (torch.Tensor): (B, L, 7)
+            target (torch.Tensor): (B, L, 7)
+            weights (torch.Tensor, optional): (3, ). Defaults to torch.Tensor([0.25, 0.25, 0.02]).
+
+        Returns:
+            torch.Tensor: _description_
+        """
         target_1_mask = target[:, :, 0].ge(0.01)
         target_0_mask = target[:, :, 0].le(0.01)
         target_prob_1 = torch.masked_select(target[:, :, 0], target_1_mask)
@@ -220,10 +223,10 @@ class ObjectDensityHead(BaseModule):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            x (torch.Tensor): with shape (B, L, input_size) if batch_first else (L, B, input_size)
+            x (torch.Tensor): with shape (B, L, input_size)
 
         Returns:
-            torch.Tensor: with shape (B, L, output_size) if batch_first else (L, B, output_size)
+            torch.Tensor: with shape (B, L, output_size)
         """
         return self.mlp(x)
 
@@ -281,7 +284,6 @@ class InterfuserHead(BaseModule):
                  junction_head: ConfigType,
                  stop_sign_head: ConfigType,
                  traffic_light_head: ConfigType,
-                 batch_first: bool = True,
                  init_cfg: OptConfigType = None):
         super(InterfuserHead, self).__init__(init_cfg=init_cfg)
 
@@ -303,13 +305,7 @@ class InterfuserHead(BaseModule):
         self.stop_sign_head = HEADS.build(stop_sign_head)
         self.traffic_light_head = HEADS.build(traffic_light_head)
 
-        self.batch_first = batch_first
-        # if waypoints_head batch_first is not equal to InterfuserHead batch_first, 
-        # set to InterfuserHead batch_first
-        if not getattr(self.waypoints_head, 'batch_first') or self.waypoints_head.batch_first != self.batch_first:
-            warnings.warn(f"waypoints_head batch_first {self.waypoints_head.batch_first} is not equal to InterfuserHead batch_first {self.batch_first}, and will be set to {self.batch_first}")
-            self.waypoints_head.batch_first = self.batch_first
-     
+
     def forward(self, hidden_states: torch.Tensor,
                 goal_point: torch.Tensor) -> dict:
         """
@@ -325,31 +321,26 @@ class InterfuserHead(BaseModule):
                 - traffic_light (torch.Tensor): with shape (B, 2)
                 - waypoints (torch.Tensor): with shape (B, L, 2)
         """
-        L = hidden_states.size(1) if self.batch_first else hidden_states.size(0)
+        L = hidden_states.size(1)
         assert L == self.num_queries, f"Number of queries {L} must be equal to the number of queries {self.num_queries}"
         
-        if self.batch_first:
-            object_density = self.object_density_head(hidden_states[:, :self.num_object_density_queries, :])
-            junction = self.junction_head(
-                hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :]
-                )
-            stop_sign = self.stop_sign_head(
-                hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :]
-                )
-            traffic_light = self.traffic_light_head(
-                hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :]
-                )
-            waypoints = self.waypoints_head(
-                hidden_states[:, -self.num_waypoints_queries:, :], 
-                goal_point
-                )
-            
-        else:
-            object_density = self.object_density_head(hidden_states[:self.num_object_density_queries, :, :])
-            junction = self.junction_head(hidden_states[self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :, :])
-            stop_sign = self.stop_sign_head(hidden_states[self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :, :])
-            traffic_light = self.traffic_light_head(hidden_states[self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :, :])
-            waypoints = self.waypoints_head(hidden_states[-self.num_waypoints_queries:, :, :], goal_point)
+
+        object_density = self.object_density_head(
+            hidden_states[:, :self.num_object_density_queries, :]
+            )
+        junction = self.junction_head(
+            hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :]
+            )
+        stop_sign = self.stop_sign_head(
+            hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :]
+            )
+        traffic_light = self.traffic_light_head(
+            hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :]
+            )
+        waypoints = self.waypoints_head(
+            hidden_states[:, -self.num_waypoints_queries:, :], 
+            goal_point
+            )
         
         return dict(
             object_density=object_density,
@@ -362,11 +353,19 @@ class InterfuserHead(BaseModule):
     def loss(self, hidden_states: torch.Tensor, 
                 goal_point: torch.Tensor, 
                 targets: DataSampleType) -> dict:
-        
-        L = hidden_states.size(1) if self.batch_first else hidden_states.size(0)
+        """_summary_
+
+        Args:
+            hidden_states (torch.Tensor): (B, L, input_size)
+            goal_point (torch.Tensor): (B, 2)
+            targets (DataSampleType): 
+
+        Returns:
+            dict: _description_
+        """
+        L = hidden_states.size(1) 
         assert L == self.num_queries, f"Number of queries {L} must be equal to the number of queries {self.num_queries}"
         
-        # TODO: better way to switch between batch_first and not batch_first
         gt_grid_density = torch.stack([sample.gt_grids.gt_grid_density for sample in targets], dim=0)
         B, H, W, C = gt_grid_density.size()
         gt_grid_density = gt_grid_density.view(B, H*W, C)
@@ -377,50 +376,27 @@ class InterfuserHead(BaseModule):
         gt_ego_future_waypoints = torch.stack([sample.gt_ego.gt_ego_future_traj.xy for sample in targets], dim=0).squeeze(1).permute(0, 2, 1) # (B, L, 2)
         gt_ego_future_waypoints_masks = torch.stack([sample.gt_ego.gt_ego_future_traj.mask for sample in targets], dim=0).squeeze(1) # (B, L)
         
-        if self.batch_first:
-            loss_density = self.object_density_head.loss(
-                hidden_states[:, :self.num_object_density_queries, :], 
-                gt_grid_density
+        loss_density = self.object_density_head.loss(
+            hidden_states[:, :self.num_object_density_queries, :], 
+            gt_grid_density
             )
-            loss_junction = self.junction_head.loss(
-                hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :], 
-                gt_affected_by_junctions
+        loss_junction = self.junction_head.loss(
+            hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :], 
+            gt_affected_by_junctions
             )
-            loss_stop_sign = self.stop_sign_head.loss(
-                hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :], 
-                gt_affected_by_stopsigns
+        loss_stop_sign = self.stop_sign_head.loss(
+            hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :], 
+            gt_affected_by_stopsigns
             )
-            loss_traffic_light = self.traffic_light_head.loss(
-                hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :], 
-                gt_affected_by_redlights
+        loss_traffic_light = self.traffic_light_head.loss(
+            hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :], 
+            gt_affected_by_redlights
             )
-            loss_waypoints = self.waypoints_head.loss(
-                hidden_states[:, -self.num_waypoints_queries:, :], 
-                goal_point, 
-                gt_ego_future_waypoints,
-                gt_ego_future_waypoints_masks
-            )
-        else:
-            loss_density = self.object_density_head.loss(
-                hidden_states[:self.num_object_density_queries, :, :], 
-                gt_grid_density.permute(1, 0, 2)
-            )
-            loss_junction = self.junction_head.loss(
-                hidden_states[self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :, :], 
-                gt_affected_by_junctions.permute(1, 0, 2)
-            )
-            loss_stop_sign = self.stop_sign_head.loss(
-                hidden_states[self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :, :], 
-                gt_affected_by_stopsigns.permute(1, 0, 2)
-            )
-            loss_traffic_light = self.traffic_light_head.loss(
-                hidden_states[self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :, :], 
-                gt_affected_by_redlights.permute(1, 0, 2)
-            )
-            loss_waypoints = self.waypoints_head.loss(
-                hidden_states[-self.num_waypoints_queries:, :, :], 
-                goal_point, 
-                gt_ego_future_waypoints.permute(1, 0, 2)
+        loss_waypoints = self.waypoints_head.loss(
+            hidden_states[:, -self.num_waypoints_queries:, :], 
+            goal_point, 
+            gt_ego_future_waypoints,
+            gt_ego_future_waypoints_masks
             )
         
         loss = dict(
@@ -429,7 +405,7 @@ class InterfuserHead(BaseModule):
             loss_stop_sign=loss_stop_sign,
             loss_traffic_light=loss_traffic_light,
             loss_waypoints=loss_waypoints
-        )
+            )
         
         return loss
     
