@@ -18,7 +18,7 @@ Full self-driving agents benchmark on closed-loop simulation
 - [x] L1 loss with mask for waypoint loss
 - [x] move pts to histogram into data preprocessor
 - [x] add TASK_UTILS registry
-- [] Interfuser head/nect should rename to generic head/neck or TASKS_UTILS
+- [x] Interfuser head/nect should rename to generic head/neck or TASKS_UTILS
 - [] data time is too long, 80-90% of total time
 - [x] batch first for all data and model inputs. each module/head/neck can have their own batch_first definition to be compatible with called torch modules or control output shape
     - currently batch first is used to when needed by a built-in torch module such as GRU, do we assume batch_first everywhere?

@@ -119,9 +119,6 @@ class InterFuser(Base3DDetector):
         if heads:
             self.heads = TASK_UTILS.build(heads)
             
-        # init weights
-        self.init_weights()
-        
     @property
     def with_pts_backbone(self):
         return hasattr(self, 'pts_backbone') and self.pts_backbone is not None
@@ -153,7 +150,8 @@ class InterFuser(Base3DDetector):
     def init_weights(self):
         super().init_weights()
         # init weights for embeddings using uniform
-        for m in self.query_embedding, self.query_positional_encoding:
+        for m in [self.multi_view_encoding, self.multi_view_mean_encoding, \
+                  self.query_embedding, self.query_positional_encoding]:
             for p in m.parameters():
                 if p.dim() > 1:
                     nn.init.uniform_(p)
