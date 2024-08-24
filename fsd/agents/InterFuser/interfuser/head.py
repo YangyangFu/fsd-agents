@@ -3,13 +3,12 @@
 from typing import List, Optional
 import torch
 import torch.nn as nn
-import warnings 
 
 from mmengine.model import BaseModule
-from fsd.registry import HEADS, MODELS
+from fsd.registry import TASK_UTILS, MODELS
 from fsd.utils import ConfigType, OptConfigType, DataSampleType
 
-@HEADS.register_module('interfuser_gru_waypoint')
+@TASK_UTILS.register_module('interfuser_gru_waypoint')
 class GRUWaypointHead(BaseModule):
     """GRU head for predicting waypoints torwards a goal point.
     The 2D goal point from global planner is first projected to a high-dimension (e.g, 64), which is then used as initial hidden state of GRU.
@@ -194,7 +193,7 @@ class ObjectDensityLoss(BaseModule):
         # (3, ) * (3, ) -> (3, ) -> ()
         return loss_1*weights[0] + loss_2*weights[1] + loss_3*weights[2]
         
-@HEADS.register_module('interfuser_object_density')
+@TASK_UTILS.register_module('interfuser_object_density')
 class ObjectDensityHead(BaseModule):
     """Head to predict density map from the output of transformer.
 
@@ -236,7 +235,7 @@ class ObjectDensityHead(BaseModule):
         return self.loss_fcn(preds, target)
     
 #TODO: No sigmoid in original paper ???
-@HEADS.register_module('interfuser_traffic_rule')
+@TASK_UTILS.register_module('interfuser_traffic_rule')
 class ClassificationHead(BaseModule):
     """Traffic rule head to predict traffic rule from the output of transformer.
 
@@ -273,8 +272,8 @@ class ClassificationHead(BaseModule):
         preds = self(hidden_states)
         return self.loss_fcn(preds, target)
 
-@HEADS.register_module('interfuser_heads')     
-class InterfuserHead(BaseModule):
+@TASK_UTILS.register_module('interfuser_heads')     
+class InterFuserHead(BaseModule):
     def __init__(self,
                  num_waypoints_queries: int, 
                  num_traffic_rule_queries: int,
@@ -285,7 +284,7 @@ class InterfuserHead(BaseModule):
                  stop_sign_head: ConfigType,
                  traffic_light_head: ConfigType,
                  init_cfg: OptConfigType = None):
-        super(InterfuserHead, self).__init__(init_cfg=init_cfg)
+        super(InterFuserHead, self).__init__(init_cfg=init_cfg)
 
         # number of queries
         self.num_waypoints_queries = num_waypoints_queries
@@ -299,11 +298,11 @@ class InterfuserHead(BaseModule):
         
         
         # heads
-        self.waypoints_head = HEADS.build(waypoints_head)
-        self.object_density_head = HEADS.build(object_density_head)
-        self.junction_head = HEADS.build(junction_head)
-        self.stop_sign_head = HEADS.build(stop_sign_head)
-        self.traffic_light_head = HEADS.build(traffic_light_head)
+        self.waypoints_head = TASK_UTILS.build(waypoints_head)
+        self.object_density_head = TASK_UTILS.build(object_density_head)
+        self.junction_head = TASK_UTILS.build(junction_head)
+        self.stop_sign_head = TASK_UTILS.build(stop_sign_head)
+        self.traffic_light_head = TASK_UTILS.build(traffic_light_head)
 
 
     def forward(self, hidden_states: torch.Tensor,

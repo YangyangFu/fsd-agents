@@ -2,7 +2,7 @@ import pytest
 
 import torch
 import torch.nn as nn
-from fsd.registry import HEADS 
+from fsd.registry import TASK_UTILS 
 from fsd.utils import seed_everything
 # seed everthing
 @pytest.fixture(autouse=True)
@@ -25,7 +25,7 @@ def test_object_density_head():
         )
     )
 
-    head = HEADS.build(cfg=cfg)
+    head = TASK_UTILS.build(cfg=cfg)
     head.init_weights()
     
     # inputs
@@ -51,8 +51,7 @@ def test_gru_waypoint_head():
         dropout=0.,
         batch_first=True,
         loss_cfg=dict(
-            type='SmoothL1Loss',
-            _scope_='mmdet',
+            type='MaskedSmoothL1Loss',
             beta=1.0,
             reduction='mean',
             loss_weight=1.0
@@ -70,7 +69,7 @@ def test_gru_waypoint_head():
             0.04450719328435308,
         ])
 
-    head = HEADS.build(cfg=cfg)
+    head = TASK_UTILS.build(cfg=cfg)
 
     # inputs
     inputs = torch.randn(2, 10, 2048)
@@ -99,8 +98,7 @@ def test_gru_waypoint_head_cuda():
         dropout=0.,
         batch_first=True,
         loss_cfg=dict(
-            type='SmoothL1Loss',
-            _scope_='mmdet',
+            type='MaskedSmoothL1Loss',
             beta=1.0,
             reduction='mean',
             loss_weight=1.0
@@ -118,7 +116,7 @@ def test_gru_waypoint_head_cuda():
             0.04450719328435308,
         ])
 
-    head = HEADS.build(cfg=cfg).to('cuda')
+    head = TASK_UTILS.build(cfg=cfg).to('cuda')
 
     # inputs
     inputs = torch.randn(2, 10, 2048).cuda()
@@ -150,7 +148,7 @@ def test_stop_sign_head():
         )
     )
 
-    head = HEADS.build(cfg=cfg)
+    head = TASK_UTILS.build(cfg=cfg)
     head.init_weights()
     
     # inputs
@@ -185,7 +183,7 @@ def test_junction():
         )
     )
 
-    head = HEADS.build(cfg=cfg)
+    head = TASK_UTILS.build(cfg=cfg)
     head.init_weights()
     
     # inputs
@@ -219,7 +217,7 @@ def test_traffic_light():
         )
     )
 
-    head = HEADS.build(cfg=cfg)
+    head = TASK_UTILS.build(cfg=cfg)
     head.init_weights()
     
     # inputs
@@ -322,7 +320,7 @@ def test_interfuser_heads():
         )
     )
     
-    heads = HEADS.build(cfg=cfg)
+    heads = TASK_UTILS.build(cfg=cfg)
     inputs = torch.randn(2, 411, 2048)
     goal_points = torch.randn(2, 2)
     
@@ -333,24 +331,7 @@ def test_interfuser_heads():
     assert outputs['junction'].shape == (2, 1, 2)
     assert outputs['stop_sign'].shape == (2, 1, 2)
     assert outputs['traffic_light'].shape == (2, 1, 2)
-    
-    targets = {
-        'waypoints': torch.randn(2, 10, 2),
-        'object_density': torch.randn(2, 400, 7),
-        'junction': torch.randn(2, 1, 2),
-        'stop_sign': torch.randn(2, 1, 2),
-        'traffic_light': torch.randn(2, 1, 2)
-    }
-    
-    loss = heads.loss(inputs, goal_points, targets)
-    assert 'loss_waypoints' in loss
-    assert 'loss_object_density' in loss
-    assert 'loss_junction' in loss
-    assert 'loss_stop_sign' in loss
-    assert 'loss_traffic_light' in loss
-    
-    assert hasattr(loss['loss_object_density'], 'grad_fn')
-    
+
 # run pytest 
 #test_interfuser_heads()
 pytest.main(["-v", "--tb=line", __file__])

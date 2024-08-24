@@ -51,7 +51,12 @@ train_pipeline = [
     dict(type="ObjectRangeFilter", point_cloud_range=point_cloud_range),
     dict(type="ObjectNameFilter", classes=class_names),
     
-    dict(type="NormalizeMultiviewImage", **img_norm_cfg),
+    dict(type="NormalizeMultiviewImage",
+        mean=img_norm_cfg['mean'], 
+        std=img_norm_cfg['std'], 
+        divider=1.0, 
+        to_rgb=False
+    ),
     dict(type="PadMultiViewImage", size_divisor=32),
     dict(type="ResizeMultiviewImage", target_size=(341, 256)),
     dict(type="CenterCropMultiviewImage", crop_size=(224, 224)),

@@ -4,10 +4,6 @@ from mmengine.config import Config
 from mmengine.registry import init_default_scope
 from mmengine.visualization import Visualizer
 from fsd.runner import Runner
-from fsd.registry import DATASETS, RUNNERS
-# This is required for the following to work
-from fsd.agents import InterFuserDensityMap
-
 
 def test_base_carla_dataset():
 
@@ -17,9 +13,9 @@ def test_base_carla_dataset():
 
     # check samples 
     for sample in dl:
-        for key in ['img_metas', 'img_fields', 'pts_fields', 'ego_fields', \
+        for key in ['img_fields', 'pts_fields', 'ego_fields', \
                         'bbox3d_fields', 'grid_fields', 'pts_seg_fields', 'bbox_fields', \
-                            'box_type_3d', 'box_mode_3d', 'inputs', 'data_sample']:
+                            'box_type_3d', 'box_mode_3d', 'inputs', 'data_samples']:
             assert key in sample, f'{key} not in sample'
         
         break

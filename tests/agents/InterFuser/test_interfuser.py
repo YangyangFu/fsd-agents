@@ -3,12 +3,9 @@ import torch
 
 from mmengine.config import Config
 from mmengine.registry import init_default_scope
-from mmengine.structures import InstanceData, BaseDataElement
 
-from fsd.utils import get_agent_cfg, seed_everything
-from fsd.structures import PlanningDataSample
-from fsd.agents import InterFuserDataPreprocessor
-from fsd.registry import RUNNERS, DATASETS, MODELS, AGENTS
+from fsd.utils import seed_everything
+from fsd.registry import MODELS, AGENTS
 from fsd.runner import Runner
 
 @pytest.fixture(autouse=True)

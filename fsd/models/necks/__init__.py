@@ -1,1 +1,1 @@
-from .interfuser_conv1d import InterFuserNeck
+from .conv1d import Conv1d

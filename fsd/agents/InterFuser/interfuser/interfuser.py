@@ -11,7 +11,7 @@ from fsd.registry import NECKS as FSD_NECKS
 from fsd.registry import AGENTS as FSD_AGENTS
 from fsd.registry import BACKBONES as FSD_BACKBONES
 from fsd.registry import TRANSFORMERS as FSD_TRANSFORMERS
-from fsd.registry import HEADS as FSD_HEADS
+from fsd.registry import TASK_UTILS
 
 # define tying
 INPUT_DATA_TYPE = Dict[AnyStr, torch.Tensor]
@@ -117,7 +117,7 @@ class InterFuser(Base3DDetector):
         # planner head
         #self.planner_head = MODELS.build(planner_head)
         if heads:
-            self.heads = FSD_HEADS.build(heads)
+            self.heads = TASK_UTILS.build(heads)
             
         # init weights
         self.init_weights()

@@ -49,9 +49,7 @@ TRANSFORMS = Registry(
 RUNNERS = Registry('runner', parent=MMENGINE_RUNNERS, locations=['fsd.runner'])
 
 AGENTS = MODELS
-#AGENTS = Registry('agent', parent=MODELS, locations=['fsd.agents'])
-#AGENT_TRANSFORMS = Registry('agent_transform', locations=['fsd.agents'])
-#AGENT_TRANSFORMS = Registry('agent_transform', parent=TRANSFORMS, locations=['fsd.agents'])
+AGENT_TRANSFORMS = TRANSFORMS
 
 TASK_UTILS = Registry('task_util', parent=MMENGINE_TASK_UTILS, locations=['fsd.agents'])
 #count_registered_modules()

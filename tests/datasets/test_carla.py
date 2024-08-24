@@ -10,8 +10,8 @@ dl = Runner.build_dataloader(cfg.train_dataloader)
 vis = Visualizer()
 for sample in dl:
     print(sample.keys())
-    print(sample['inputs']['img'][0].data.shape)
-    vis.set_image(sample['inputs']['img'][0].data[0].numpy().transpose(1, 2, 0))
+    print(sample['inputs']['img'][0][0].shape)
+    vis.set_image(sample['inputs']['img'][0][0].numpy().transpose(1, 2, 0))
     vis.show(backend='cv2')
-    print(sample['data_sample'])
+    print(sample['data_samples'])
     

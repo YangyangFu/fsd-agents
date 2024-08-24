@@ -225,8 +225,8 @@ class PlanningDataPreprocessor(BaseDataPreprocessor):
         if 'img' in data['inputs']:
             data['inputs']['img'] = stack_batch_multiview([stack_batch(img) for img in data['inputs']['img']])
             
-        if 'pts' in data['inputs']:
-            data['inputs']['pts'] = stack_batch(data['inputs']['pts'])
+        # by default, do nothing to point cloud data
+        # a list of LiDARPoints
             
         return data
  

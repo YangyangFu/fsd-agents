@@ -58,12 +58,12 @@ model = dict(
         init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet18')
     ),
     img_neck=dict(
-        type='InterFuserNeck',
+        type='Conv1d',
         in_channels=2048,
         out_channels=EMBED_DIMS
     ),
     pts_neck=dict(
-        type='InterFuserNeck',
+        type='Conv1d',
         in_channels=512,
         out_channels=EMBED_DIMS
     ),

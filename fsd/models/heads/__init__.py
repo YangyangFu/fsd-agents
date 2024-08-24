@@ -1,1 +1,1 @@
-from .interfuser_heads import *  # noqa: F401, F403
+from .waypoint_heads import *  # noqa: F401, F403
