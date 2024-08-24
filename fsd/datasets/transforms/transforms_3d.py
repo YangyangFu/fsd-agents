@@ -1362,7 +1362,7 @@ class PadMultiViewImage(object):
         elif self.size_divisor is not None:
             padded_img = [impad_to_multiple(
                 img, self.size_divisor, pad_val=self.pad_val) for img in results['img']]
-        
+            
         results['ori_shape'] = [img.shape for img in results['img']]
         results['img'] = padded_img
         results['img_shape'] = [img.shape for img in padded_img]
@@ -1390,18 +1390,25 @@ class PadMultiViewImage(object):
 
 @PIPELINES.register_module()
 class NormalizeMultiviewImage(object):
-    """Normalize the image.
+    """Normalize the image. 
+    
+    Expect image as float array or tensor in [0,.1] range.
+    
     Added key is "img_norm_cfg".
     Args:
         mean (sequence): Mean values of 3 channels.
         std (sequence): Std values of 3 channels.
+        divider(float): divier to image before applying mean and std. 
+            If image is in [0, 1] range, divider is 1.0. 
+            If image is in [0, 255] range, divider should be set to 255.0.
         to_rgb (bool): Whether to convert the image from BGR to RGB,
             default is true.
     """
 
-    def __init__(self, mean, std, to_rgb=True):
+    def __init__(self, mean, std, divider = 255., to_rgb=False):
         self.mean = np.array(mean, dtype=np.float32)
         self.std = np.array(std, dtype=np.float32)
+        self.divider = divider
         self.to_rgb = to_rgb
 
 
@@ -1414,7 +1421,7 @@ class NormalizeMultiviewImage(object):
                 result dict.
         """
 
-        results['img'] = [imnormalize(img, self.mean, self.std, self.to_rgb) for img in results['img']]
+        results['img'] = [imnormalize(img / self.divider, self.mean, self.std, self.to_rgb) for img in results['img']]
         results['img_norm_cfg'] = dict(
             mean=self.mean, std=self.std, to_rgb=self.to_rgb)
         return results
@@ -1655,14 +1662,15 @@ class Collect3D(object):
                             'scale_factor', 'flip', 'pcd_horizontal_flip',
                             'pcd_vertical_flip', 'box_mode_3d', 'box_type_3d',
                             'img_norm_cfg', 'pcd_trans', 'sample_idx', 'prev_idx', 'next_idx',
-                            'pcd_scale_factor', 'pcd_rotation', 'pts_filename',
+                            'pcd_scale_factor', 'pcd_rotation',
                             'transformation_3d_flow', 'scene_token',
-                            'can_bus','folder','frame_idx'
+                            'folder','frame_idx', 'img_sensor_name'
                             )):
         # TODO(yzj) bevformer meta_keys has lidar2cam
         self.keys = keys
         self.meta_keys = meta_keys
-
+        self.pts_meta_keys = ('pts_filename', 'pts_sensor_name')
+        
     def __call__(self, results):
         """Call function to collect keys in results. The keys in ``meta_keys``
         will be converted to :obj:`mmcv.DataContainer`.
@@ -1675,19 +1683,26 @@ class Collect3D(object):
         """
        
         data = {}
+        # collect metas
         img_metas = {}
         for key in self.meta_keys:
             if key in results:
                 img_metas[key] = results[key]
-
-        # pass meta
         data['img_metas'] = img_metas
+        
+        pts_metas = {}
+        for key in self.pts_meta_keys:
+            if key in results:
+                pts_metas[key] = results[key]
+        data['pts_metas'] = pts_metas
+        
+        # collect fields
         for key in ['img_fields', 'pts_fields', 'ego_fields', 'bbox3d_fields', 'grid_fields',
                     'pts_seg_fields', 'bbox_fields', 'simg_seg_fields', 
                     'box_type_3d', 'box_mode_3d']:
             if key in results:
                 data[key] = results[key]
-                
+
         # collect default keys: in xx_fields
         data_fields = ['img_fields', 'pts_fields', 'ego_fields', 'bbox3d_fields', 'grid_fields']
         for field in data_fields:

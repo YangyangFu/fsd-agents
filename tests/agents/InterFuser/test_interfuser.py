@@ -59,6 +59,5 @@ def test_agent(cfg):
                            'loss_stop_sign', 
                            'loss_traffic_light', 
                            'loss_waypoints'}
-    
-test_agent(cfgs[0])   
-#pytest.main(['-s', 'tests/agents/InterFuser/test_interfuser.py'])
+     
+pytest.main(['-s', 'tests/agents/InterFuser/test_interfuser.py'])

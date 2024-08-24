@@ -256,7 +256,8 @@ class LoadMultiViewImageFromFiles(object):
         color_type (str): Color type of the file. Defaults to 'unchanged'.
     """
 
-    def __init__(self, to_float32=False, color_type='unchanged'):
+    def __init__(self, channel_order='bgr', to_float32=False, color_type='unchanged'):
+        self.channel_order = channel_order
         self.to_float32 = to_float32
         self.color_type = color_type
 
@@ -279,7 +280,7 @@ class LoadMultiViewImageFromFiles(object):
 
         """
         filename = results['img_filename']
-        imgs = [imread(name, self.color_type) for name in filename]
+        imgs = [imread(name, self.color_type, self.channel_order) for name in filename]
         if self.to_float32:
             imgs = [img.astype(np.float32) for img in imgs]
         results['filename'] = filename

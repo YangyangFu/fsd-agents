@@ -86,8 +86,11 @@ class InterFuser(Base3DDetector):
                 
         # learnable positional encoding for multi-modulity and multi-view sensors
         if multi_view_encoding:
+            # sensor encoding
             self.multi_view_encoding = nn.Embedding(**multi_view_encoding)
-
+            # another sensor encoding
+            self.multi_view_mean_encoding = nn.Embedding(**multi_view_encoding)
+            
         # learnable query embedding
         self.query_embedding = nn.Embedding(self.num_queries, self.embed_dims)
                     
@@ -232,41 +235,61 @@ class InterFuser(Base3DDetector):
         Returns:
             dict: The extracted features.
         """
-        imgs = batch_inputs_dict['img'].data if 'img' in batch_inputs_dict else None
-        pts = batch_inputs_dict['pts'].data if 'pts' in batch_inputs_dict else None
-        img_feats = self.extract_img_feat(imgs, None)
+        imgs = batch_inputs_dict['img'] if 'img' in batch_inputs_dict else None
+        pts = batch_inputs_dict['pts'] if 'pts' in batch_inputs_dict else None
+        # multiview-image
+        img_feats = []
+        for img in imgs:
+            img_feats.append(self.extract_img_feat(img, None))
+        
         pts_feats = self.extract_pts_feat(pts, None)
         
         return dict(img=img_feats, pts=pts_feats)
     
-    def _apply_neck(self, feats):
+    def apply_neck(self, feats):
         """Apply neck for features.
         """
         # apply on image features
-        if self.with_img_neck:
-            dim_img = feats['img'].dim()
-            if dim_img == 5:
-                B, N, C, H, W = feats['img'].size()
-                feats['img'] = feats['img'].view(B * N, C, H, W)
-            feats['img'] = self.img_neck(feats['img'])
-            if dim_img == 5:
-                _, Cf, Hf, Wf = feats['img'].size()
-                feats['img'] = feats['img'].view(B, N, Cf, Hf, Wf)
+        img_feats = []
+        for img in feats['img']:
+            img_feats.append(self._apply_img_neck(img))
+        feats['img'] = img_feats
         
         # apply on point cloud features -> BEV features      
-        if self.with_pts_neck:
-            dim_pts = feats['pts'].dim()
-            if dim_pts == 5:
-                B, N, C, H, W = feats['pts'].size()
-                feats['pts'] = feats['pts'].view(B * N, C, H, W)
-                
-            feats['pts'] = self.pts_neck(feats['pts'])
-            if dim_pts == 5:
-                _, Cf, Hf, Wf = feats['pts'].size()
-                feats['pts'] = feats['pts'].view(B, N, Cf, Hf, Wf)
+        feats['pts'] = self._apply_pts_neck(feats['pts'])
         
         return feats
     
+    def _apply_img_neck(self, img_feats):
+        """Apply neck for image features.
+        """
+        if self.with_img_neck:
+            dim_img = img_feats.dim()
+            if dim_img == 5:
+                B, N, C, H, W = img_feats.size()
+                img_feats = img_feats.view(B * N, C, H, W)
+            img_feats = self.img_neck(img_feats)
+            if dim_img == 5:
+                _, Cf, Hf, Wf = img_feats.size()
+                img_feats = img_feats.view(B, N, Cf, Hf, Wf)
+        
+        return img_feats
+    
+    def _apply_pts_neck(self, pts_feats):
+        """Apply neck for point cloud features.
+        """
+        if self.with_pts_neck:
+            dim_pts = pts_feats.dim()
+            if dim_pts == 5:
+                B, N, C, H, W = pts_feats.size()
+                pts_feats = pts_feats.view(B * N, C, H, W)
+            pts_feats = self.pts_neck(pts_feats)
+            if dim_pts == 5:
+                _, Cf, Hf, Wf = pts_feats.size()
+                pts_feats = pts_feats.view(B, N, Cf, Hf, Wf)
+        
+        return pts_feats
+
     def _forward_transformer(self, batch_inputs_dict, batch_targets_dict):
         """Forward function in tensor mode
         
@@ -282,70 +305,70 @@ class InterFuser(Base3DDetector):
         Returns:
             torch.Tensor: The output tensor that represents the model output without any post-processing.
         """
-        # get device
-        device = torch.device('cpu')
-        if 'img' in batch_inputs_dict: device = batch_inputs_dict['img'].data.device
-        elif 'pts' in batch_inputs_dict: device = batch_inputs_dict['pts'].data.device
-        
+
         # feature extraction
         feats = self.extract_feat(batch_inputs_dict)
-        feats = self._apply_neck(feats)
+        feats = self.apply_neck(feats)
         img_feats = feats['img']
         pts_feats = feats['pts']
         del feats
         
         
-        assert img_feats.dim() in [4, 5], 'img_feats should be 4-dim or 5-dim tensor.'
-        assert pts_feats.dim() in [4, 5], 'img_feats should be 4-dim or 5-dim tensor.'
-        if img_feats.dim() == 4:
-            img_feats = img_feats.unsqueeze(1)
-        if pts_feats.dim() == 4:
-            pts_feats = pts_feats.unsqueeze(1)
+        assert isinstance(img_feats, list), 'multi-view img feats should be in a list.'
+        assert pts_feats.dim() == 4, 'pts_feats should be 4-dim, (B, C, H, W).'
+                
+        N_img = len(img_feats)
+        N_pts = 1
+        B, _, _, _ = pts_feats.size()
+        device = pts_feats.device
         
-        B, N_img, e, H, W = img_feats.size()
-        _, N_pts, _, _, _ = pts_feats.size()
+        #B, N_img, e, H, W = img_feats.size()
+        #_, N_pts, _, _, _ = pts_feats.size()
         
-        ## concatenate and apply positional encoding and multi-view encoding
-        # (B, N, dim, H, W) -> (B, NHW, dim)
-        key_embed = torch.cat([img_feats, pts_feats], dim=1).permute(0, 1, 3, 4, 2).reshape(B, -1, e)
+        # encoder is a standard transformer encoder
+        # decoder is a standard DETR decoder
+        # for encoder inputs, get query/key embeddings + positional encodings + sensor encodings
+        sensor_pos_encodings = self.multi_view_encoding(torch.arange(N_img + N_pts, device=device))
+        sensor_mean_pos_encodings = self.multi_view_mean_encoding(torch.arange(N_img + N_pts, device=device))
+        
+        query_encoder = []
+        # img: (B, C, H, w)
+        for idx, feat in enumerate(img_feats + [pts_feats]):
+            B, C, H, W = feat.size()
+            # (B, C, 1)
+            feat_mean = feat.mean(dim=[2, 3]).unsqueeze(-1)
+            # (B, C, H, W)
+            feat_embed = feat + self.positional_encoding(mask=None, input=feat) + \
+                        sensor_pos_encodings[idx][None, :, None, None].repeat(B, 1, H, W)
+            # (B, C, 1)
+            feat_mean_embed = feat_mean + \
+                        sensor_mean_pos_encodings[idx][None, :, None].repeat(B, 1, 1)
+            query_encoder.extend([feat_embed.view(B, C, -1), feat_mean_embed.view(B, C, -1)])
+        
+        # (B, C, L) -> (B, L, C)
+        query_encoder = torch.cat(query_encoder, dim=-1).permute(0, 2, 1)
         
 
-        # (B, H, W) -> (B, N, dim, H, W) -> (B, NHW, dim)
-        mask = torch.zeros(B, H, W).to(device)
-        # (B, dim, H, W)
-        key_pos_encodings = self.positional_encoding(mask=mask)
-        # (B, N, dim, H, W)
-        key_pos_encodings = key_pos_encodings.unsqueeze(1).repeat(1, N_img + N_pts, 1, 1, 1)
-            
-        if self.with_multi_view_encoding:
-            # (N, dim)
-            sensor_pos_encodings = self.multi_view_encoding(torch.arange(N_img + N_pts, device=device))
-            # (B, N, dim, H, W)
-            sensor_pos_encodings = sensor_pos_encodings[None, :, :, None, None].repeat(B, 1, 1, H, W)
-            key_pos_encodings += sensor_pos_encodings
-        # (B, N, dim, H, W) -> (B, N, H, W, dim) -> (B, NHW, dim)    
-        key_pos_encodings = key_pos_encodings.permute(0, 1, 3, 4, 2).reshape(B, -1, e)
-        
         # query embedding
         # (N, dim) [num_objects_map, num_traffic_info, num_waypoints]
-        query_embed = self.query_embedding(torch.arange(self.num_queries, device=device))
+        query_decoder = self.query_embedding(torch.arange(self.num_queries, device=device))
         # (N_pos, dim,) -> (N, dim) -> (B, N, dim)
-        query_pos_embed = self.query_positional_encoding(torch.arange(self.query_positional_encoding.num_embeddings, device=device))
-        query_pos_embed = torch.cat([torch.zeros(self.num_queries - self.num_queries_waypoints - self.num_queries_traffic_info, self.embed_dims, device=device),
-                                     query_pos_embed[:self.num_queries_traffic_info, :], 
-                                     query_pos_embed[-self.num_queries_waypoints:, :]], 
+        query_pos_decoder = self.query_positional_encoding(torch.arange(self.query_positional_encoding.num_embeddings, device=device))
+        query_pos_decoder = torch.cat([torch.zeros(self.num_queries - self.num_queries_waypoints - self.num_queries_traffic_info, self.embed_dims, device=device),
+                                     query_pos_decoder[:self.num_queries_traffic_info, :], 
+                                     query_pos_decoder[-self.num_queries_waypoints:, :]], 
                                     dim=0)
-        query_pos_embed = query_pos_embed.unsqueeze(0).repeat(B, 1, 1)
+        query_pos_decoder = query_pos_decoder.unsqueeze(0).repeat(B, 1, 1)
         # (B, N, dim) 
-        query_embed = query_embed.unsqueeze(0).repeat(B, 1, 1)
+        query_decoder = query_decoder.unsqueeze(0).repeat(B, 1, 1)
           
         ## encoder
         # [bs, NHW, dim]
         memory = self.encoder(
-            query = key_embed,
-            key = key_embed,
-            value = key_embed,
-            query_pos = key_pos_encodings,
+            query = query_encoder,
+            key = query_encoder,
+            value = query_encoder,
+            query_pos = None, # self attention: query_pos = key_pos
             key_pos = None,
             attn_masks = None,
             query_key_padding_mask = None,
@@ -354,11 +377,11 @@ class InterFuser(Base3DDetector):
         
         ## decoder (bs, num_queries, dim)
         output_dec = self.decoder(
-            query = query_embed,
+            query = query_decoder,
             key = memory,
             value = memory,
-            query_pos = query_pos_embed,
-            key_pos = key_pos_encodings,
+            query_pos = query_pos_decoder,
+            key_pos = None,
             attn_masks = None,
             query_key_padding_mask = None,
             key_padding_mask = None,

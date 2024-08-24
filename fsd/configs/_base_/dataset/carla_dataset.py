@@ -46,10 +46,13 @@ ann_file_val=info_root + f"/b2d_infos_val.pkl"
 ann_file_test=info_root + f"/b2d_infos_val.pkl"
 
 train_pipeline = [
-    dict(type="LoadMultiViewImageFromFiles", to_float32=True),
+    dict(type="LoadMultiViewImageFromFiles", 
+         channel_order = 'bgr', 
+         to_float32=True
+    ),
     dict(type="LoadPointsFromFileCarlaDataset", coord_type="LIDAR", load_dim=3, use_dim=[0, 1, 2]),
     dict(type="PhotoMetricDistortionMultiViewImage"),
-    dict(type="InterFuserDensityMap", bev_range=[0, 20, -10, 10], pixels_per_meter=8),
+    dict(type="InterFuserDensityMap", bev_range=[0, 20, -10, 10], pixels_per_meter=1),
     dict(
         type="LoadAnnotations3DPlanning",
         with_bbox_3d=True,
@@ -64,7 +67,6 @@ train_pipeline = [
     dict(type="ObjectNameFilter", classes=class_names),
     dict(type="NormalizeMultiviewImage", **img_norm_cfg),
     dict(type="PadMultiViewImage", size_divisor=32),
-    dict(type="Points2BinHistogramGenerator", pixels_per_meter=10, bev_range=[0, 20, -10, 10]),
     dict(
         type="Collect3D",
         keys=[],

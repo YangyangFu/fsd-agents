@@ -16,7 +16,7 @@ Full self-driving agents benchmark on closed-loop simulation
     - need remove paddings before extracting features
 - [] address warnings during training, e.g., init_weights()
 - [x] L1 loss with mask for waypoint loss
-- [] move pts to histogram into data preprocessor
+- [x] move pts to histogram into data preprocessor
 - [] add TASK_UTILS registry
 - [] Interfuser head/nect should rename to generic head/neck or TASKS_UTILS
 - [] data time is too long, 80-90% of total time

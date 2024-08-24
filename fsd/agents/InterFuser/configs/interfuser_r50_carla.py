@@ -8,7 +8,7 @@ default_scope='fsd'
 # If point cloud range is changed, the models should also change their point
 # cloud range accordingly
 point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
-img_norm_cfg = dict(mean=[103.530, 116.280, 123.675], std=[1.0, 1.0, 1.0], to_rgb=False)
+img_norm_cfg = dict(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], to_rgb=False)
 class_names = [
 'car','van','truck','bicycle','traffic_sign','traffic_cone','traffic_light','pedestrian','others'
 ]
@@ -216,7 +216,10 @@ ann_file_val=info_root + f"/b2d_infos_val.pkl"
 ann_file_test=info_root + f"/b2d_infos_val.pkl"
 
 train_pipeline = [
-    dict(type="LoadMultiViewImageFromFiles", to_float32=True),
+    dict(type="LoadMultiViewImageFromFiles", 
+         channel_order = 'bgr', 
+         to_float32=True
+    ),
     dict(type="LoadPointsFromFileCarlaDataset", coord_type="LIDAR", load_dim=3, use_dim=[0, 1, 2]),
     dict(type="PhotoMetricDistortionMultiViewImage"),
     dict(type="InterFuserDensityMap", bev_range=[0, 20, -10, 10], pixels_per_meter=1),
@@ -232,11 +235,14 @@ train_pipeline = [
     ),
     dict(type="ObjectRangeFilter", point_cloud_range=point_cloud_range),
     dict(type="ObjectNameFilter", classes=class_names),
-    dict(type="NormalizeMultiviewImage", **img_norm_cfg),
-    dict(type="ResizeMultiviewImage", target_size=[(341, 256), (341, 256), (341, 256), (195, 146)]),
-    dict(type="CenterCropMultiviewImage", crop_size=[(224, 224), (224, 224), (224, 224), (128, 128)]),
-    dict(type="PadMultiViewImage", size=(224, 224)),
-    #dict(type="Points2BinHistogramGenerator", pixels_per_meter=8, bev_range=[0, 28, -14, 14]),
+    dict(type="ResizeMultiviewImage", target_size=[(341, 256), (195, 146), (195, 146), (900, 1600)]),
+    dict(type="CenterCropMultiviewImage", crop_size=[(224, 224), (128, 128), (128, 128), (128, 128)]),
+    dict(type="NormalizeMultiviewImage", 
+        mean=img_norm_cfg['mean'], 
+        std=img_norm_cfg['std'], 
+        divider=255.0, 
+        to_rgb=False
+    ),
     dict(type="Collect3D", keys= []), # default keys are in xx_fields
     dict(type="DefaultFormatBundle3D")
 ]

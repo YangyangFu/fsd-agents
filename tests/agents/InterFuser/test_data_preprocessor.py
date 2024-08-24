@@ -18,9 +18,9 @@ def test_planning_data_preprocessor():
         print(sample.keys())
         sample = data_preprocessor(sample)
         print(sample.keys())
-        print(sample['inputs']['img'].data.shape)
         
-        assert sample['inputs']['img'].data.shape == (2, 6, 3, 928, 1600)
+        assert len(sample['inputs']['img']) == 6
+        assert sample['inputs']['img'][0].shape == (2, 3, 928, 1600)
         assert 'goal_points' in sample['inputs']
         break
 
@@ -32,11 +32,11 @@ def test_build_data_preprocessor():
         print(sample.keys())
         sample = data_preprocessor(sample)
         print(sample.keys())
-        print(sample['inputs']['img'].data.shape)
         
-        assert sample['inputs']['img'].data.shape == (2, 6, 3, 928, 1600)
+        assert len(sample['inputs']['img']) == 6
+        assert sample['inputs']['img'][0].shape == (2, 3, 928, 1600)
         assert 'goal_points' in sample['inputs']
         break        
 
 
-pytest.main(["tests/models/data_preprocessors/test_data_preprocessor.py"])
+pytest.main(["tests/agents/InterFuser/test_data_preprocessor.py"])

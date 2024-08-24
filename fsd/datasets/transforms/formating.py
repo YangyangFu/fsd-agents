@@ -217,7 +217,9 @@ class WrapFieldsToLists:
 #TRANSFORMS._module_dict.pop('DefaultFormatBundle')
 @TRANSFORMS.register_module()
 class DefaultFormatBundle(object):
-    """Default formatting bundle.
+    """Default formatting bundle for image data.
+    
+    If the data is a list, a list of 
 
     It simplifies the pipeline of formatting common fields, including "img",
     "proposals", "gt_bboxes", "gt_labels", "gt_masks" and "gt_semantic_seg".
@@ -248,29 +250,33 @@ class DefaultFormatBundle(object):
         """
         if 'img' in results:
             if isinstance(results['img'], list):
-                # process multiple imgs in single frame
+                # process multiple imgs in single frame: to (C, H, W)
                 imgs = [img.transpose(2, 0, 1) for img in results['img']]
-                imgs = np.ascontiguousarray(np.stack(imgs, axis=0))
-                results['img'] = BaseDataElement(data=to_tensor(imgs))
+                #imgs = np.ascontiguousarray(np.stack(imgs, axis=0))
+                #results['img'] = BaseDataElement(data=to_tensor(imgs))
+                # BaseDataElement with a list in data field cannot use cuda(), to() methods.
+                results['img'] = [to_tensor(img) for img in imgs]
+ 
             else:
                 img = np.ascontiguousarray(results['img'].transpose(2, 0, 1))
-                results['img'] = BaseDataElement(data=to_tensor(img))
+                results['img'] = to_tensor(img)
+        
+        # image gts
         for key in [
                 'proposals', 'gt_bboxes_ignore', 'gt_labels', 'gt_bboxes' 
                 'pts_instance_mask', 'pts_semantic_mask', 'centers2d', 'depths'
         ]:
-            if key not in results:
-                continue
-            if isinstance(results[key], list):
-                results[key] = BaseDataElement(data=[to_tensor(res) for res in results[key]])
-            else:
-                results[key] = BaseDataElement(data=to_tensor(results[key]))
-
+            if key in results:
+                raise NotImplementedError("Supporting 2-D bboxes are not implemented yet")
+        
+        # bundle img
         if 'inputs' not in results:
             results['inputs'] = {}
-            
         results['inputs']['img'] = results['img']
         results.pop('img')
+        if 'img_metas' in results:
+            results['inputs']['img_metas'] = results['img_metas']
+            results.pop('img_metas')
         
         return results
 
@@ -312,8 +318,9 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
         # Format 3D data: points
         if 'pts' in results:
             if not isinstance(results['pts'], BasePoints):
-                results['pts'] = BaseDataElement(data=to_tensor(results['pts']))
-                
+                results['pts'] = to_tensor(results['pts'])
+        
+        # TODO: need work on voxel interface  
         for key in ['voxels', 'coors', 'voxel_centers', 'num_points']:
             if key not in results:
                 continue
@@ -324,6 +331,10 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
             results['inputs'] = {}
         results['inputs']['pts'] = results['pts']
         results.pop('pts')
+        if 'pts_metas' in results:
+            results['inputs']['pts_metas'] = results['pts_metas']
+            results.pop('pts_metas')
+        
         
         # format gt_instances_3d: data related to instances
         gt_instances_3d = InstanceData()

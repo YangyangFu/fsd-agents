@@ -9,6 +9,7 @@ from mmengine.model import BaseDataPreprocessor
 from mmengine.structures import BaseDataElement
 from fsd.structures import TrajectoryData
 from fsd.registry import MODELS
+from torchvision.transforms import functional as F
 
 def stack_batch(data):
     """Stack a sequence of data of the same type/size at the new first dimension
@@ -98,6 +99,27 @@ def stack_batch_data_element(data_element: List[BaseDataElement]) -> BaseDataEle
     
     return stack_
 
+def stack_batch_multiview(imgs: List[torch.Tensor]) -> torch.Tensor:
+    """Stack a list of images to a single tensor.
+        If the input images are of different sizes, pad them to the same size.
+        
+    Args:
+        imgs (List[torch.Tensor]): List of images. 
+            Each image should be a tensor of shape (B, C, H, W)
+
+    Returns:
+        torch.Tensor: Stacked images of shape (B, N, C, H, W)
+    
+    """
+    assert is_seq_of(imgs, torch.Tensor), f"Expecting a list of torch.Tensor, \
+                but got {type(imgs)}."
+    
+    # get the max size
+    max_size = max([img.shape[-2:] for img in imgs])
+    # pad to the same size
+    imgs = [F.pad(img, (0, max_size[1] - img.shape[-1], 0, max_size[0] - img.shape[-2])) for img in imgs]
+    
+    return torch.stack(imgs, dim=1)
 
 @MODELS.register_module()
 class PlanningDataPreprocessor(BaseDataPreprocessor):
@@ -108,7 +130,8 @@ class PlanningDataPreprocessor(BaseDataPreprocessor):
     - Collate and move image and point cloud data to the target device.
 
     - 1) For image data:
-      - Stack images in inputs to batch_imgs.
+      - stack in batch dimension
+      - if multiview, stack multiview images. Pad to the same size if necessary.
       - Do batch augmentations during training.
 
     - 2) For point cloud data:
@@ -156,11 +179,13 @@ class PlanningDataPreprocessor(BaseDataPreprocessor):
         data = self.process_points(data, training)
         
         # process annotation
-        
         # stack
-        data = self.collate_data(data)
-        # cast data
+        data = self.stack_batch_data(data)
         
+        # cast data
+        data = self.cast_data(data)  # type: ignore
+        
+        # any batch augmentations processors
         if self.batch_augments is not None:
             for aug in self.batch_augments:
                 data = aug(data)
@@ -170,8 +195,10 @@ class PlanningDataPreprocessor(BaseDataPreprocessor):
     def process_images(self, 
                        data : Union[dict, List[dict]], 
                        training : bool = False) -> Union[dict, List[dict]]:
-        """ Image related preprocessing
+        """ Stack multiview images in each batch and return a list of stacked images
+        
         """
+
         return data
     
     def process_points(self, 
@@ -181,7 +208,7 @@ class PlanningDataPreprocessor(BaseDataPreprocessor):
         """
         return data
 
-    def collate_data(self, data: dict) -> dict:
+    def stack_batch_data(self, data: dict) -> dict:
         """Copy data to the target device and perform normalization, padding
         and bgr2rgb conversion and stack based on ``BaseDataPreprocessor``.
 
@@ -194,17 +221,12 @@ class PlanningDataPreprocessor(BaseDataPreprocessor):
         Returns:
             dict: Data in the same format as the model input.
         """
-        # TODO: cast data after or before stacking
-        data = self.cast_data(data)  # type: ignore
-
+        # [batched view1, batched view2, ...]
         if 'img' in data['inputs']:
-            data['inputs']['img'] = stack_batch(data['inputs']['img'])
-        
+            data['inputs']['img'] = stack_batch_multiview([stack_batch(img) for img in data['inputs']['img']])
+            
         if 'pts' in data['inputs']:
-
             data['inputs']['pts'] = stack_batch(data['inputs']['pts'])
             
         return data
-
-
  

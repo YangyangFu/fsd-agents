@@ -2,7 +2,7 @@ from typing import Union, List
 
 import torch
 import numpy as np
-from fsd.models import PlanningDataPreprocessor
+from fsd.models import PlanningDataPreprocessor, stack_batch
 from fsd.registry import MODELS 
 
 @MODELS.register_module()
@@ -22,7 +22,7 @@ class InterFuserDataPreprocessor(PlanningDataPreprocessor):
         self.bev_range = bev_range
         self.max_hist_per_pixel = max_hist_per_pixel
         self.below_threshold = below_threshold
-        
+    
     def forward(self,
                 data: Union[dict, List[dict]],
                 training: bool = False) -> Union[dict, List[dict]]:
@@ -92,3 +92,26 @@ class InterFuserDataPreprocessor(PlanningDataPreprocessor):
         hist[hist > self.max_hist_per_pixel] = self.max_hist_per_pixel
         hist = hist / self.max_hist_per_pixel
         return hist
+
+    def stack_batch_data(self, data: dict) -> dict:
+        """
+        Stack batched data for model input.
+        
+        Interfuser uses multi-view images with different sizes as model input. 
+         Here no stack is performed on multi-view dimension.
+
+        Args:
+            data (dict): Data sampled from dataloader.
+
+        Returns:
+            dict: Data in the same format as the model input.
+        """
+        # [batched view1, batched view2, ...]
+        if 'img' in data['inputs']:
+            data['inputs']['img'] = [stack_batch(img) for img in data['inputs']['img']]
+            
+        if 'pts' in data['inputs']:
+            data['inputs']['pts'] = stack_batch(data['inputs']['pts'])
+            
+        return data    
+        
