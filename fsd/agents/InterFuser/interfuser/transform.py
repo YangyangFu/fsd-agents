@@ -1,11 +1,11 @@
 from typing import Mapping, Optional, Sequence, Union, Tuple, List
 from mmcv.image import imresize
 
-from fsd.registry import AGENT_TRANSFORMS
+from fsd.registry import TASK_UTILS
 from fsd.datasets.transforms import center_crop
 from .utils import generate_density_map
 
-@AGENT_TRANSFORMS.register_module()
+@TASK_UTILS.register_module()
 class InterFuserDensityMap(object):
     """Generate object density map data for interfuser model
 

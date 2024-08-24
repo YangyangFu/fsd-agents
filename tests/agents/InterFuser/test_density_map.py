@@ -3,7 +3,7 @@ import pytest
 import torch
 from mmdet3d.structures import LiDARInstance3DBoxes
 from fsd.agents import InterFuserDensityMap
-from fsd.registry import AGENT_TRANSFORMS, TRANSFORMS
+from fsd.registry import TASK_UTILS, TRANSFORMS
 from mmengine.registry import init_default_scope
 
 bboxes = torch.rand(10, 9)
@@ -17,7 +17,7 @@ def test_density_map():
         pixels_per_meter=8
     )
     init_default_scope('fsd')
-    dmap = AGENT_TRANSFORMS.build(dmap_cfg)
+    dmap = TASK_UTILS.build(dmap_cfg)
     
     inputs = {}
     inputs['anno_info'] = {'gt_bboxes_3d': bboxes}
