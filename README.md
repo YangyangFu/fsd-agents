@@ -14,7 +14,7 @@ Full self-driving agents benchmark on closed-loop simulation
 - [x] InterFuser uses focus view from front camera image. the resulting image size is smaller than other images, how to bundle this for stacking images before going into the model
     - focus view is padded to other shapes during pipeline
     - need remove paddings before extracting features
-- [] address warnings during training, e.g., init_weights()
+- [x] address warnings during training, e.g., init_weights()
 - [x] L1 loss with mask for waypoint loss
 - [x] move pts to histogram into data preprocessor
 - [x] add TASK_UTILS registry
@@ -23,4 +23,6 @@ Full self-driving agents benchmark on closed-loop simulation
 - [x] batch first for all data and model inputs. each module/head/neck can have their own batch_first definition to be compatible with called torch modules or control output shape
     - currently batch first is used to when needed by a built-in torch module such as GRU, do we assume batch_first everywhere?
 - [] add base planning module
-- [] check model parameters: trainable/nontrainable. The original has 52935567 in total
+- [x] check model parameters: trainable/nontrainable. The original has 52935567 in total
+    - [x] [here](https://github.com/facebookresearch/detectron2/blob/543fd075e146261c2e2b0770c9b537314bdae572/detectron2/utils/analysis.py#L63-L65) shows the use of dicts in the inputs for complexity analysis. `get_complexity_info` can be used but need support list of tensors as inputs instead of dictionaries.
+    - [] small mismatch of model parameters compared with official models.
