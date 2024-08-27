@@ -167,3 +167,7 @@ data-mini/*
 
 #
 .vscode
+
+# ignore model checkpoints
+*.pth.tar
+*.pth

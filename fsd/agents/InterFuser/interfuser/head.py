@@ -306,11 +306,13 @@ class InterFuserHead(BaseModule):
 
 
     def forward(self, hidden_states: torch.Tensor,
-                goal_point: torch.Tensor) -> dict:
+                goal_point: torch.Tensor,
+                ego_velocity: torch.Tensor) -> dict:
         """
         Args:
             hidden_states (torch.Tensor): with shape (B, L, input_size)
             goal_point (torch.Tensor): with shape (B, 2)
+            ego_velocity (torch.Tensor): with shape (B, 1)
 
         Returns:
             dict: with keys:
@@ -323,10 +325,14 @@ class InterFuserHead(BaseModule):
         L = hidden_states.size(1)
         assert L == self.num_queries, f"Number of queries {L} must be equal to the number of queries {self.num_queries}"
         
-
-        object_density = self.object_density_head(
-            hidden_states[:, :self.num_object_density_queries, :]
-            )
+        # density map inputs construction
+        object_density_inputs = hidden_states[:, :self.num_object_density_queries, :]
+        ego_velocity = ego_velocity.unsqueeze(-1).repeat(1, self.num_object_density_queries, 32)
+        object_density_inputs = torch.cat([object_density_inputs, ego_velocity], dim=-1)
+        
+        object_density = self.object_density_head(object_density_inputs)
+        
+        # junction, stop sign, traffic light inputs construction
         junction = self.junction_head(
             hidden_states[:, self.num_object_density_queries: self.num_object_density_queries+self.num_traffic_rule_queries, :]
             )
@@ -351,6 +357,7 @@ class InterFuserHead(BaseModule):
     
     def loss(self, hidden_states: torch.Tensor, 
                 goal_point: torch.Tensor, 
+                ego_velocity: torch.Tensor,
                 targets: DataSampleType) -> dict:
         """_summary_
 
@@ -374,9 +381,14 @@ class InterFuserHead(BaseModule):
         gt_affected_by_stopsigns = torch.stack([sample.gt_ego.ego_affected_by_stop_sign for sample in targets], dim=0).view(B,-1, 2) # (B, ..., 2)
         gt_ego_future_waypoints = torch.stack([sample.gt_ego.gt_ego_future_traj.xy for sample in targets], dim=0).squeeze(1).permute(0, 2, 1) # (B, L, 2)
         gt_ego_future_waypoints_masks = torch.stack([sample.gt_ego.gt_ego_future_traj.mask for sample in targets], dim=0).squeeze(1) # (B, L)
-        
+
+# density map inputs construction
+        object_density_inputs = hidden_states[:, :self.num_object_density_queries, :]
+        ego_velocity = ego_velocity.unsqueeze(-1).repeat(1, self.num_object_density_queries, 32)
+        object_density_inputs = torch.cat([object_density_inputs, ego_velocity], dim=-1)
+
         loss_density = self.object_density_head.loss(
-            hidden_states[:, :self.num_object_density_queries, :], 
+            object_density_inputs, 
             gt_grid_density
             )
         loss_junction = self.junction_head.loss(
@@ -409,7 +421,8 @@ class InterFuserHead(BaseModule):
         return loss
     
     def predict(self, hidden_states: torch.Tensor, 
-                goal_point: torch.Tensor) -> dict:
+                goal_point: torch.Tensor,
+                ego_velocity: torch.Tensor) -> dict:
         """
         Args:
             hidden_states (torch.Tensor): with shape (B, L, input_size)
@@ -423,4 +436,4 @@ class InterFuserHead(BaseModule):
                 - traffic_light (torch.Tensor): with shape (B, 2)
                 - waypoints (torch.Tensor): with shape (B, L, 2)
         """
-        return self(hidden_states, goal_point)
+        return self(hidden_states, goal_point, ego_velocity)

@@ -109,6 +109,10 @@ class InterFuser(Base3DDetector):
         if decoder:
             self.decoder = FSD_TRANSFORMERS.build(decoder)
         
+        ## decoder output layer norm: the original paper applies 
+        # a second layer norm after the output of the decoder, which seems not necessary
+        self.decoder_norm = nn.LayerNorm(self.embed_dims)
+        
         # train/test config
         self.train_cfg = train_cfg
         self.test_cfg = test_cfg
@@ -384,10 +388,13 @@ class InterFuser(Base3DDetector):
             query_key_padding_mask = None,
             key_padding_mask = None,
         )
-                
+        
+        # norm again
+        output_dec = self.decoder_norm(output_dec)
+          
         return output_dec
     
-    def _forward_heads(self, output_decoder, goal_points):
+    def _forward_heads(self, output_decoder, goal_points, ego_velocity):
         """Forward function for heads in tensor mode
         
         Args:
@@ -398,29 +405,32 @@ class InterFuser(Base3DDetector):
             torch.Tensor: The output tensor that represents the model output without any post-processing.
         """
 
-        output = self.heads(output_decoder, goal_points)
+        output = self.heads(output_decoder, goal_points, ego_velocity)
         
         return output
     
     def _forward(self, batch_inputs_dict, batch_targets_dict) -> Dict[AnyStr, torch.Tensor]:
         
         goal_points = batch_inputs_dict.get('goal_points', None)
+        ego_velocity = batch_inputs_dict.get('ego_velocity', None)
         output_dec = self._forward_transformer(batch_inputs_dict, batch_targets_dict)
-        output = self._forward_heads(output_dec, goal_points)
+        output = self._forward_heads(output_dec, goal_points, ego_velocity)
         
         return output
     
     def loss(self, batch_inputs_dict, data_samples, **kwargs):
         goal_points = batch_inputs_dict.get('goal_points', None)
+        ego_velocity = batch_inputs_dict.get('ego_velocity', None)
         output_dec = self._forward_transformer(batch_inputs_dict, data_samples)
-        losses = self.heads.loss(output_dec, goal_points, data_samples)
+        losses = self.heads.loss(output_dec, goal_points, ego_velocity, data_samples)
         
         return losses 
     
     def predict(self, batch_inputs_dict, batch_targets_dict, **kwargs):
         goal_points = batch_inputs_dict.get('goal_points', None)
+        ego_velocity = batch_inputs_dict.get('ego_velocity', None)
         output_dec = self._forward_transformer(batch_inputs_dict, batch_targets_dict)
-        preds = self.heads.predict(output_dec, goal_points)
+        preds = self.heads.predict(output_dec, goal_points, ego_velocity)
         
         return preds
     

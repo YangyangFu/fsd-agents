@@ -28,6 +28,7 @@ class InterFuserDataPreprocessor(PlanningDataPreprocessor):
                 training: bool = False) -> Union[dict, List[dict]]:
         """Perform data processing before sending to model:
             - cast data to the target device.
+            - prepare model specific input data, such as ego goal points, ego velocity, etc
             - processing image data, such as generating images, etc
             - processing point data, such as generating voxels, 
             - stacking batch data etc.
@@ -41,6 +42,7 @@ class InterFuserDataPreprocessor(PlanningDataPreprocessor):
         """
         # generate goal points for goal-directed tasks
         data = self.get_goal_points(data)
+        data = self.get_ego_velocity(data)
         
         # generate bin histogram from point cloud
         data = self.generate_pts_to_hist(data)
@@ -54,6 +56,20 @@ class InterFuserDataPreprocessor(PlanningDataPreprocessor):
         gt_ego_future_traj = [sample.gt_ego.gt_ego_future_traj.xy[..., -1].squeeze(0) for sample in data['data_samples']]
         
         data['inputs']['goal_points'] = torch.stack(gt_ego_future_traj)
+        
+        return data
+    
+    def get_ego_velocity(self, data: dict):
+        """Generate ego velocity for motion prediction tasks
+        
+        Returns:
+            dict with ego velocity (B, 1)
+        """
+        
+        v = [sample.gt_ego.ego_velocity for sample in data['data_samples']]
+        v = [torch.sqrt(vx**2 + vy**2).unsqueeze(0).to(torch.float32) for vx, vy, _ in v]
+        
+        data['inputs']['ego_velocity'] = torch.stack(v)
         
         return data
 

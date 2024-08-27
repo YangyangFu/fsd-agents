@@ -7,6 +7,8 @@ from mmengine.analysis import get_model_complexity_info
 from fsd.runner import Runner
 from fsd.registry import MODELS, AGENTS 
 
+save_as = False
+
 file_path = os.path.dirname(os.path.realpath(__file__))
 
 cfg = Config.fromfile(os.path.join(os.path.dirname(file_path), 
@@ -32,7 +34,9 @@ inputs_dict = sample['inputs']
 # This will not work as inputs_dict will be flattend before forward call, which 
 inputs_dict= {'img': inputs_dict['img'], 
               'pts': inputs_dict['pts'], 
-              'goal_points': inputs_dict['goal_points']}
+              'goal_points': inputs_dict['goal_points'],
+              'ego_velocity': inputs_dict['ego_velocity']
+            }
 
 inputs = (inputs_dict, None, 'predict')
 #inputs = ((inputs_dict['img'], inputs_dict['pts'], inputs_dict['goal_points']), None, 'predict')
@@ -45,8 +49,11 @@ print(model_complexity_info.keys())
 out = model_complexity_info['out_table']
 model_arch = model_complexity_info['out_arch']
 
-with open(os.path.join(file_path, 'model_complexity.json'), 'w') as f:
-    json.dump(out, f)
+print(model_arch)
 
-with open(os.path.join(file_path, 'model_arch.json'), 'w') as f:
-    json.dump(model_arch, f)
+if save_as:
+    with open(os.path.join(file_path, 'model_complexity.json'), 'w') as f:
+        json.dump(out, f)
+
+    with open(os.path.join(file_path, 'model_arch.json'), 'w') as f:
+        json.dump(model_arch, f)

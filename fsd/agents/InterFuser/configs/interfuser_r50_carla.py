@@ -146,7 +146,7 @@ model = dict(
             ]),
         object_density_head=dict(
             type='interfuser_object_density',
-            input_size=EMBED_DIMS,
+            input_size=EMBED_DIMS + 32,
             hidden_size=64,
             output_size=7,
             loss_cfg=dict(
