@@ -206,14 +206,13 @@ model = dict(
 )
 
 dataset_type = "CarlaDataset"
-data_root = "data-mini/carla/" # v1
-info_root = "data-mini/carla/infos"
-map_root = "data-mini/carla/maps"
-map_file = "data-mini/carla/infos/b2d_map_infos.pkl"
+data_root = "data/carla/" # v1
+info_root = "data/carla/infos"
+map_root = "data/carla/maps"
+map_file = "data/carla/infos/b2d_map_infos.pkl"
 file_client_args = dict(backend="disk")
 ann_file_train=info_root + f"/b2d_infos_train.pkl"
 ann_file_val=info_root + f"/b2d_infos_val.pkl"
-ann_file_test=info_root + f"/b2d_infos_val.pkl"
 
 train_pipeline = [
     dict(type="LoadMultiViewImageFromFiles", 
@@ -247,6 +246,37 @@ train_pipeline = [
     dict(type="DefaultFormatBundle3D")
 ]
 
+val_pipeline = [
+    dict(type="LoadMultiViewImageFromFiles", 
+         channel_order = 'bgr', 
+         to_float32=True
+    ),
+    dict(type="LoadPointsFromFileCarlaDataset", coord_type="LIDAR", load_dim=3, use_dim=[0, 1, 2]),
+    dict(type="PhotoMetricDistortionMultiViewImage"),
+    dict(type="InterFuserDensityMap", bev_range=[0, 20, -10, 10], pixels_per_meter=1),
+    dict(
+        type="LoadAnnotations3DPlanning",
+        with_bbox_3d=True,
+        with_label_3d=True,
+        with_name_3d=True, # class names
+        with_instances_ids=True,  # instance ids 
+        with_instances_future_traj=True, # future
+        with_ego_status=True, # ego status
+        with_grids=True, # density map
+    ),
+    dict(type="ObjectRangeFilter", point_cloud_range=point_cloud_range),
+    dict(type="ObjectNameFilter", classes=class_names),
+    dict(type="ResizeMultiviewImage", target_size=[(341, 256), (195, 146), (195, 146), (900, 1600)]),
+    dict(type="CenterCropMultiviewImage", crop_size=[(224, 224), (128, 128), (128, 128), (128, 128)]),
+    dict(type="NormalizeMultiviewImage", 
+        mean=img_norm_cfg['mean'], 
+        std=img_norm_cfg['std'], 
+        divider=255.0, 
+        to_rgb=False
+    ),
+    dict(type="Collect3D", keys= []), # default keys are in xx_fields
+    dict(type="DefaultFormatBundle3D")
+]
 
 train_dataloader = dict(
     batch_size = 2,
@@ -271,27 +301,50 @@ train_dataloader = dict(
     sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
 )
 
+val_dataloader = dict(
+    batch_size = 2,
+    num_workers = 1,
+    dataset=dict(
+        type=dataset_type,
+        data_root=data_root,
+        ann_file=ann_file_train,
+        pipeline=train_pipeline,
+        classes=class_names,
+        modality=input_modality,
+        camera_sensors=camera_sensors,
+        lidar_sensors=lidar_sensors,
+        box_type_3d="LiDAR",
+        filter_empty_gt = True,
+        past_steps = 0, # past trajectory length
+        prediction_steps = 0, # motion prediction length if any
+        planning_steps = PLANNING_STEPS, # planning length
+        sample_interval = 5, # sample interval # frames skiped per step
+        test_mode = True
+    ),
+    sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
+)
+
 # optimizer
-lr = 0.002  # max learning rate
+lr = 0.0005  # max learning rate
 optim_wrapper = dict(
     type='OptimWrapper',
     _scope_="mmdet",
-    optimizer=dict(type='AdamW', lr=lr, weight_decay=0.),
-    clip_grad=dict(max_norm=35, norm_type=2),
+    optimizer=dict(type='AdamW', lr=lr, weight_decay=0.05),
+    clip_grad=dict(max_norm=10, norm_type=2),
 )
 
 # training schedule for 1x
-train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=80, val_interval=2)
-#val_cfg = dict(type='ValLoop')
-#test_cfg = dict(type='TestLoop')
+train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=25, val_interval=1)
+val_cfg = dict(type='ValLoop')
 
-# learning rate
+# learning rate: different from original paper where a warmup is used
+# TODO: reimplement the learning rate schedule by adding warmup
 param_scheduler = [
     dict(
-        type='MultiStepLR',
-        begin=0,
-        end=80,
-        by_epoch=True,
-        milestones=[45, 60],
-        gamma=0.1)
+        type='CosineAnnealingWarmRestarts',
+        T_0=25,
+        T_mult=1,
+        eta_min=1e-5,
+        last_epoch=-1
+    )
 ]
