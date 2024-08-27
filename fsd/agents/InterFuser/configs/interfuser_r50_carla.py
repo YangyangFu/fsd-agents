@@ -246,6 +246,32 @@ train_pipeline = [
     dict(type="DefaultFormatBundle3D")
 ]
 
+train_dataloader = dict(
+    batch_size = 2,
+    num_workers = 1,
+    dataset=dict(
+        type=dataset_type,
+        data_root=data_root,
+        ann_file=ann_file_train,
+        pipeline=train_pipeline,
+        classes=class_names,
+        modality=input_modality,
+        camera_sensors=camera_sensors,
+        lidar_sensors=lidar_sensors,
+        box_type_3d="LiDAR",
+        filter_empty_gt = True,
+        past_steps = 0, # past trajectory length
+        prediction_steps = 0, # motion prediction length if any
+        planning_steps = PLANNING_STEPS, # planning length
+        sample_interval = 5, # sample interval # frames skiped per step
+        test_mode = False
+    ),
+    sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
+)
+
+train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=25, val_interval=1)
+
+# validataion
 val_pipeline = [
     dict(type="LoadMultiViewImageFromFiles", 
          channel_order = 'bgr', 
@@ -278,29 +304,7 @@ val_pipeline = [
     dict(type="DefaultFormatBundle3D")
 ]
 
-train_dataloader = dict(
-    batch_size = 2,
-    num_workers = 1,
-    dataset=dict(
-        type=dataset_type,
-        data_root=data_root,
-        ann_file=ann_file_train,
-        pipeline=train_pipeline,
-        classes=class_names,
-        modality=input_modality,
-        camera_sensors=camera_sensors,
-        lidar_sensors=lidar_sensors,
-        box_type_3d="LiDAR",
-        filter_empty_gt = True,
-        past_steps = 0, # past trajectory length
-        prediction_steps = 0, # motion prediction length if any
-        planning_steps = PLANNING_STEPS, # planning length
-        sample_interval = 5, # sample interval # frames skiped per step
-        test_mode = False
-    ),
-    sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
-)
-
+"""
 val_dataloader = dict(
     batch_size = 2,
     num_workers = 1,
@@ -324,6 +328,11 @@ val_dataloader = dict(
     sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
 )
 
+val_cfg = dict(type='ValLoop')
+
+val_evaluator = dict()
+"""
+
 # optimizer
 lr = 0.0005  # max learning rate
 optim_wrapper = dict(
@@ -333,18 +342,41 @@ optim_wrapper = dict(
     clip_grad=dict(max_norm=10, norm_type=2),
 )
 
-# training schedule for 1x
-train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=25, val_interval=1)
-val_cfg = dict(type='ValLoop')
-
 # learning rate: different from original paper where a warmup is used
 # TODO: reimplement the learning rate schedule by adding warmup
 param_scheduler = [
     dict(
-        type='CosineAnnealingWarmRestarts',
-        T_0=25,
-        T_mult=1,
+        type='LinearLR',
+        start_factor=1e-06,
+        by_epoch=True,
+        begin=0,
+        end=5), # warmup
+    dict(
+        type='CosineRestartParamScheduler',
+        param_name='lr',
+        periods=[1],
         eta_min=1e-5,
-        last_epoch=-1
-    )
+        begin = 5,
+        end=25,
+        last_step=-1,
+        by_epoch=True
+    ),
 ]
+
+# hooks
+# hooks are advanced usage, try to default when not in need
+default_hooks=dict(
+    # the most commonly used hook for modifying checkpoint saving interval
+    checkpoint=dict(
+        type='CheckpointHook', 
+        interval=1, 
+        by_epoch=True),
+    profiler=dict(
+        type='ProfilerHook',
+        by_epoch=False,
+        profile_times=100,
+        activity_with_cpu=True,
+        activity_with_cuda=True,
+        profile_memory=True
+    ),
+)
