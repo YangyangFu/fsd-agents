@@ -30,8 +30,6 @@ class InterFuser(Base3DDetector):
                  heads: ConfigType = None,
                  positional_encoding: ConfigType = None,
                  multi_view_encoding: ConfigType = None,
-                 train_cfg: ConfigType = None,
-                 test_cfg: ConfigType = None,
                  init_cfg: OptConfigType = None,
                  data_preprocessor: ConfigType = None,
                  **kwargs):
@@ -112,10 +110,6 @@ class InterFuser(Base3DDetector):
         ## decoder output layer norm: the original paper applies 
         # a second layer norm after the output of the decoder, which seems not necessary
         self.decoder_norm = nn.LayerNorm(self.embed_dims)
-        
-        # train/test config
-        self.train_cfg = train_cfg
-        self.test_cfg = test_cfg
         
         # TODO: need better definitions: waypoint prediction, traffic info head, object density head etc
         # planner head
