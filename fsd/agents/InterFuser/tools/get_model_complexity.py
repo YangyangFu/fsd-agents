@@ -9,10 +9,12 @@ from fsd.registry import MODELS, AGENTS
 
 save_as = False
 
-file_path = os.path.dirname(os.path.realpath(__file__))
+file_dir = os.path.dirname(os.path.realpath(__file__))
+agent_dir = os.path.dirname(file_dir)
+checkpoint_dir = os.path.join(agent_dir, 'checkpoints')
+config_path = os.path.join(agent_dir, 'configs/interfuser_r50_carla.py')
+cfg = Config.fromfile(config_path)
 
-cfg = Config.fromfile(os.path.join(os.path.dirname(file_path), 
-                                   "configs/interfuser_r50_carla.py"))
 init_default_scope('fsd')
 
 # separate building
@@ -52,8 +54,8 @@ model_arch = model_complexity_info['out_arch']
 print(model_arch)
 
 if save_as:
-    with open(os.path.join(file_path, 'model_complexity.json'), 'w') as f:
+    with open(os.path.join(agent_dir, 'model_complexity.json'), 'w') as f:
         json.dump(out, f)
 
-    with open(os.path.join(file_path, 'model_arch.json'), 'w') as f:
+    with open(os.path.join(agent, 'model_arch.json'), 'w') as f:
         json.dump(model_arch, f)
