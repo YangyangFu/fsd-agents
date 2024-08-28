@@ -27,3 +27,4 @@ Full self-driving agents benchmark on closed-loop simulation
     - [x] [here](https://github.com/facebookresearch/detectron2/blob/543fd075e146261c2e2b0770c9b537314bdae572/detectron2/utils/analysis.py#L63-L65) shows the use of dicts in the inputs for complexity analysis. `get_complexity_info` can be used but need support list of tensors as inputs instead of dictionaries.
     - [x] small mismatch of model parameters compared with official models.
 - [] how to control data type globally?
+- [] add `goal_points` to standard default dataset

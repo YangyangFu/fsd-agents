@@ -74,7 +74,7 @@ train_pipeline = [
     dict(type="DefaultFormatBundle3D")
 ]
 
-dataloader = dict(
+train_dataloader = dict(
     batch_size = 2,
     num_workers = 1,
     dataset=dict(
@@ -94,10 +94,47 @@ dataloader = dict(
         sample_interval = sample_nterval, # sample interval # frames skiped per step
         test_mode = False
     ),
-    sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
-    #sampler=dict(type="DistributedSampler"),
-    #nonshuffler_sampler=dict(type="DistributedSampler"),
+    sampler=dict(type="DefaultSampler", shuffle=False),
 )
+
+# validataion
+val_pipeline = [
+    dict(type="LoadMultiViewImageFromFiles", 
+         channel_order = 'bgr', 
+         to_float32=True
+    ),
+    dict(type="LoadPointsFromFileCarlaDataset", coord_type="LIDAR", load_dim=3, use_dim=[0, 1, 2]),
+    dict(type="PhotoMetricDistortionMultiViewImage"),
+    dict(type="InterFuserDensityMap", bev_range=[0, 20, -10, 10], pixels_per_meter=1),
+    dict(
+        type="LoadAnnotations3DPlanning",
+        with_bbox_3d=True,
+        with_label_3d=True,
+        with_name_3d=True, # class names
+        with_instances_ids=True,  # instance ids 
+        with_instances_future_traj=True, # future
+        with_ego_status=True, # ego status
+        with_grids=True, # density map
+    ),
+    dict(type="ObjectRangeFilter", point_cloud_range=point_cloud_range),
+    dict(type="ObjectNameFilter", classes=class_names),
+    dict(type="ResizeMultiviewImage", target_size=[(341, 256), (195, 146), (195, 146), (900, 1600)]),
+    dict(type="CenterCropMultiviewImage", crop_size=[(224, 224), (128, 128), (128, 128), (128, 128)]),
+    dict(type="NormalizeMultiviewImage", 
+        mean=img_norm_cfg['mean'], 
+        std=img_norm_cfg['std'], 
+        divider=255.0, 
+        to_rgb=False
+    ),
+    dict(type="Collect3D", keys= []), # default keys are in xx_fields
+    dict(type="DefaultFormatBundle3D")
+]
+
+
+val_pipeline = dict()
+val_dataloader = dict()
+test_pipeline = val_pipeline
+test_dataloader = val_dataloader
 
 
 
