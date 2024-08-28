@@ -30,4 +30,4 @@ Full self-driving agents benchmark on closed-loop simulation
 - [] closed-loop evaluation code on carla sim environment based on carla leaderboard 2.0
 - [] visualize multi-view/lidar data in data set
 - [] visualization of prediction details during closed-loop simulation
-  
+- [] add `goal_points` to standard default dataset

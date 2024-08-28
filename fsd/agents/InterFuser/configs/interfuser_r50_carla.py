@@ -1,9 +1,9 @@
-#_base_ = [
-#    '../../../configs/_base_/datasets/coco_detection.py',
-#    '../../../configs/_base_/default_runtime.py'
-#]
+from mmengine import read_base
+
+with read_base():
+    from fsd.configs._base_.default_runtime import *
+
 work_dir = '.'
-default_scope='fsd'
 
 # If point cloud range is changed, the models should also change their point
 # cloud range accordingly
@@ -362,21 +362,3 @@ param_scheduler = [
         by_epoch=True
     ),
 ]
-
-# hooks
-# hooks are advanced usage, try to default when not in need
-default_hooks=dict(
-    # the most commonly used hook for modifying checkpoint saving interval
-    checkpoint=dict(
-        type='CheckpointHook', 
-        interval=1, 
-        by_epoch=True),
-    profiler=dict(
-        type='ProfilerHook',
-        by_epoch=False,
-        profile_times=100,
-        activity_with_cpu=True,
-        activity_with_cuda=True,
-        profile_memory=True
-    ),
-)
