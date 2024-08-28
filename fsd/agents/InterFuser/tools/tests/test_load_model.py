@@ -7,13 +7,15 @@ from mmengine.registry import init_default_scope
 from fsd.runner import Runner
 from fsd.registry import MODELS, AGENTS 
 
+# paths
 file_path = os.path.dirname(os.path.realpath(__file__))
-
-cfg = Config.fromfile(os.path.join(os.path.dirname(file_path), 
-                                   "configs/interfuser_r50_carla.py"))
-init_default_scope('fsd')
+agent_dir = os.path.dirname(os.path.dirname(file_path))
+checkpoint_dir = os.path.join(agent_dir, 'checkpoints')
+config_path = os.path.join(agent_dir, 'configs/interfuser_r50_carla.py')
+cfg = Config.fromfile(config_path)
 
 # separate building
+init_default_scope('fsd')
 dataloader = Runner.build_dataloader(cfg.train_dataloader)
 data_preprocessor = MODELS.build(cfg.model.data_preprocessor)
 # TODO: data_processor should be part of the model. 
@@ -22,7 +24,7 @@ data_preprocessor = MODELS.build(cfg.model.data_preprocessor)
 agent = AGENTS.build(cfg.model)    
 
 # save model weights
-agent.load_state_dict(torch.load(os.path.join(file_path,'interfuser.pth.tar')))
+agent.load_state_dict(torch.load(os.path.join(checkpoint_dir,'interfuser.pth.tar')))
 
 # get one sample
 for sample in dataloader:

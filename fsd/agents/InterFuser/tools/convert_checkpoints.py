@@ -1,3 +1,12 @@
+"""
+Script to conver the original InterFuser checkpoint to the format used in the FSD codebase.
+To use this script:
+1. Download the original checkpoint from "http://43.159.60.142/s/p2CN" to the `checkpoints` folder
+2. Rename the downloaded checkpoint to `ori_interfuser.pth.tar`
+3. RUn this script, which will save the converted checkpoint as `interfuser.pth.tar` in the same folder
+
+"""
+
 import os
 import torch 
 
@@ -8,15 +17,17 @@ from fsd.registry import MODELS, AGENTS
 
 # create agent model and output model architecture
 file_path = os.path.dirname(os.path.realpath(__file__))
-cfg = Config.fromfile(os.path.join(os.path.dirname(file_path), "configs/interfuser_r50_carla.py"))
+agent_dir = os.path.dirname(file_path)
+checkpoint_dir = os.path.join(agent_dir, 'checkpoints')
+config_path = os.path.join(agent_dir, 'configs/interfuser_r50_carla.py')
+cfg = Config.fromfile(config_path)
 
 init_default_scope('fsd')
 agent = AGENTS.build(cfg.model)
 agent_state = agent.state_dict()
 
-# download original checkpoints from "http://43.159.60.142/s/p2CN" and rename to "ori_interfuser.pth.tar"
-# checkpoint_url = "http://43.159.60.142/s/p2CN" 
-raw_state = torch.load(os.path.join(file_path, "ori_interfuser.pth.tar"))
+# load original interfuser checkpoint
+raw_state = torch.load(os.path.join(checkpoint_dir, "ori_interfuser.pth.tar"))
 raw_state = raw_state['state_dict']
 
 
@@ -111,4 +122,4 @@ for key in converted_state.keys():
         print(converted_state[key].shape)
 
 # save converted weights
-torch.save(converted_state, os.path.join(file_path, 'interfuser.pth.tar'))
+torch.save(converted_state, os.path.join(checkpoint_dir, 'interfuser.pth.tar'))

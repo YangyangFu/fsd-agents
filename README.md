@@ -19,12 +19,15 @@ Full self-driving agents benchmark on closed-loop simulation
 - [x] move pts to histogram into data preprocessor
 - [x] add TASK_UTILS registry
 - [x] Interfuser head/nect should rename to generic head/neck or TASKS_UTILS
-- [] data time is too long, 80-90% of total time
 - [x] batch first for all data and model inputs. each module/head/neck can have their own batch_first definition to be compatible with called torch modules or control output shape
     - currently batch first is used to when needed by a built-in torch module such as GRU, do we assume batch_first everywhere?
-- [] add base planning module
 - [x] check model parameters: trainable/nontrainable. The original has 52935567 in total
     - [x] [here](https://github.com/facebookresearch/detectron2/blob/543fd075e146261c2e2b0770c9b537314bdae572/detectron2/utils/analysis.py#L63-L65) shows the use of dicts in the inputs for complexity analysis. `get_complexity_info` can be used but need support list of tensors as inputs instead of dictionaries.
     - [x] small mismatch of model parameters compared with official models.
 - [] how to control data type globally?
+- [] data time is too long, 80-90% of total time
+- [] add base planning module
+- [] closed-loop evaluation code on carla sim environment based on carla leaderboard 2.0
+- [] visualize multi-view/lidar data in data set
+- [] visualization of prediction details during closed-loop simulation
 - [] add `goal_points` to standard default dataset
