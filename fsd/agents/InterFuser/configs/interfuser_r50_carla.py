@@ -88,6 +88,7 @@ model = dict(
                 act_cfg=dict(type='ReLU', inplace=True)
             ),
             operation_order=['self_attn', 'norm', 'ffn', 'norm'],
+            batch_first=False,
         )
     ),       
     decoder = dict(  # DetrTransformerDecoder
@@ -111,6 +112,7 @@ model = dict(
                 act_cfg=dict(type='ReLU', inplace=True)
             ),
             operation_order=['self_attn', 'norm', 'cross_attn', 'norm', 'ffn', 'norm'],
+            batch_first=False,
         )
     ),
     heads=dict(

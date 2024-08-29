@@ -222,11 +222,8 @@ def test_traffic_light():
     
     # inputs
     inputs = torch.randn(2, 1, 2048)
-    
-    # run forward
     outputs = head(inputs)
 
-    
     targets = torch.randn(2, 1, 2)
     loss = head.loss(inputs, targets)
 
@@ -272,7 +269,7 @@ def test_interfuser_heads():
             ]),
         object_density_head=dict(
             type='interfuser_object_density',
-            input_size=2048,
+            input_size=2048 + 32,
             hidden_size=64,
             output_size=7,
             loss_cfg=dict(
@@ -323,14 +320,15 @@ def test_interfuser_heads():
     heads = TASK_UTILS.build(cfg=cfg)
     inputs = torch.randn(2, 411, 2048)
     goal_points = torch.randn(2, 2)
+    ego_velocity = torch.randn(2, 1)
     
-    outputs = heads(inputs, goal_points) 
+    outputs = heads(inputs, goal_points, ego_velocity) 
     
     assert outputs['waypoints'].shape == (2, 10, 2)
     assert outputs['object_density'].shape == (2, 400, 7)
-    assert outputs['junction'].shape == (2, 1, 2)
-    assert outputs['stop_sign'].shape == (2, 1, 2)
-    assert outputs['traffic_light'].shape == (2, 1, 2)
+    assert outputs['junction'].shape == (2, 2)
+    assert outputs['stop_sign'].shape == (2, 2)
+    assert outputs['traffic_light'].shape == (2, 2)
 
 # run pytest 
 #test_interfuser_heads()

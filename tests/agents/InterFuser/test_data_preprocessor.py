@@ -9,7 +9,7 @@ ds_config = Config.fromfile('fsd/configs/_base_/dataset/carla_dataset.py')
 model_config = Config.fromfile('fsd/configs/_base_/model/interfuser_r50.py')
 
 init_default_scope('fsd')
-dl = Runner.build_dataloader(ds_config.dataloader)
+dl = Runner.build_dataloader(ds_config.train_dataloader)
 
 def test_planning_data_preprocessor():
     data_preprocessor = InterFuserDataPreprocessor()

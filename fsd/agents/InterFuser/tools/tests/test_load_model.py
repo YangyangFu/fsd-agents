@@ -24,7 +24,7 @@ data_preprocessor = MODELS.build(cfg.model.data_preprocessor)
 agent = AGENTS.build(cfg.model)    
 
 # save model weights
-agent.load_state_dict(torch.load(os.path.join(checkpoint_dir,'interfuser.pth.tar')))
+agent.load_state_dict(torch.load(os.path.join(checkpoint_dir,'interfuser.pth.tar'))['state_dict'])
 
 # get one sample
 for sample in dataloader:
