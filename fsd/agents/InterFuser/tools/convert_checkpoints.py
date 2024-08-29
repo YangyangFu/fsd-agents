@@ -18,7 +18,7 @@ from fsd.registry import MODELS, AGENTS
 # create agent model and output model architecture
 file_path = os.path.dirname(os.path.realpath(__file__))
 agent_dir = os.path.dirname(file_path)
-checkpoint_dir = os.path.join(agent_dir, 'checkpoints')
+checkpoint_dir = os.path.join(agent_dir, 'ckpts')
 config_path = os.path.join(agent_dir, 'configs/interfuser_r50_carla.py')
 cfg = Config.fromfile(config_path)
 
@@ -122,4 +122,6 @@ for key in converted_state.keys():
         print(converted_state[key].shape)
 
 # save converted weights
-torch.save(converted_state, os.path.join(checkpoint_dir, 'interfuser.pth.tar'))
+out = {}
+out['state_dict'] = converted_state
+torch.save(out, os.path.join(checkpoint_dir, 'interfuser.pth.tar'))

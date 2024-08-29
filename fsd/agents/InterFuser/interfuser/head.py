@@ -322,7 +322,7 @@ class InterFuserHead(BaseModule):
                 - traffic_light (torch.Tensor): with shape (B, 2)
                 - waypoints (torch.Tensor): with shape (B, L, 2)
         """
-        L = hidden_states.size(1)
+        B, L, _ = hidden_states.size()
         assert L == self.num_queries, f"Number of queries {L} must be equal to the number of queries {self.num_queries}"
         
         # density map inputs construction
@@ -349,9 +349,9 @@ class InterFuserHead(BaseModule):
         
         return dict(
             object_density=object_density,
-            junction=junction,
-            stop_sign=stop_sign,
-            traffic_light=traffic_light,
+            junction=junction.view(B, -1),
+            stop_sign=stop_sign.view(B, -1),
+            traffic_light=traffic_light.view(B, -1),
             waypoints=waypoints
         )
     

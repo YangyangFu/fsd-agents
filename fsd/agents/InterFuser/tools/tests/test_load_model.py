@@ -10,7 +10,7 @@ from fsd.registry import MODELS, AGENTS
 # paths
 file_path = os.path.dirname(os.path.realpath(__file__))
 agent_dir = os.path.dirname(os.path.dirname(file_path))
-checkpoint_dir = os.path.join(agent_dir, 'checkpoints')
+checkpoint_dir = os.path.join(agent_dir, 'ckpts')
 config_path = os.path.join(agent_dir, 'configs/interfuser_r50_carla.py')
 cfg = Config.fromfile(config_path)
 
