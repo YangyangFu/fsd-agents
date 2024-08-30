@@ -5,6 +5,12 @@ with read_base():
 
 work_dir = '.'
 
+# custom imports to trigger registration
+custom_imports = dict(
+    imports=['mmpretrain.models'],
+    allow_failed_imports=False
+)
+
 # If point cloud range is changed, the models should also change their point
 # cloud range accordingly
 point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
@@ -38,26 +44,18 @@ model = dict(
     num_queries=411,
     embed_dims=EMBED_DIMS,
     img_backbone=dict(
-        type='mmdet.ResNet', #resnet50d
-        depth=50,
-        num_stages=4,
-        out_indices=[3],
-        deep_stem=True,
-        avg_down=True,
-        frozen_stages=4,
-        style='pytorch',
-        init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50')
+        type='mmpretrain.TIMMBackbone', #timm model wrapper
+        model_name='resnet50d',
+        features_only=True,
+        pretrained=True,
+        out_indices=[4]
     ),
     pts_backbone=dict(
-        type='mmdet.ResNet',
-        depth=18,
-        num_stages=4,
-        out_indices=[3],
-        deep_stem=True,
-        avg_down=True,
-        frozen_stages=4,
-        style='pytorch',
-        init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet18')
+        type='mmpretrain.TIMMBackbone', #timm model wrapper
+        model_name='resnet18d',
+        features_only=True,
+        pretrained=True,
+        out_indices=[4]
     ),
     img_neck=dict(
         type='Conv1d',
