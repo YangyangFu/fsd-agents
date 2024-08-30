@@ -33,3 +33,5 @@ Full self-driving agents benchmark on closed-loop simulation
 - [] add `goal_points` to standard default dataset
 - [] implement `resnet-d` variants to support interfuser -> add dependency on mmPretrain to reuse timm models
 - [] interfuser seems not work with batch=1
+- [] check where the pretrained model pth is downloaded
+- [] weights mismatch after conversion.

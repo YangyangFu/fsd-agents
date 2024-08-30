@@ -127,7 +127,7 @@ model = dict(
             hidden_size=64,
             num_layers=1,
             dropout=0.,
-            batch_first=False, # seems RNNs prefer batch_first=False
+            batch_first=True, # yeah, original code use batch_first=True here
             loss_cfg=dict(
                 type='MaskedSmoothL1Loss',
                 beta=1.0,

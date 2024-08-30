@@ -95,12 +95,16 @@ def transformer_mapping(query_keys):
 
 transformer_keys = transformer_mapping(agent_state.keys())
 
-# backbone resnet key mapping: no need as pretrained weights are directly used
+# backbone resnet key mapping
 resnet_keys = {}
 for key in agent_state.keys():
-    if key.startswith('img_backbone') or key.startswith('pts_backbone'):
-        resnet_keys[key] = key
-
+    if key.startswith('img_backbone'):
+        key_converted = key.replace('img_backbone.timm_model', 'rgb_backbone')
+        resnet_keys[key] = key_converted
+    elif key.startswith('pts_backbone'):
+        key_converted = key.replace('pts_backbone.timm_model', 'lidar_backbone')
+        resnet_keys[key] = key_converted
+        
 # assemble all mappings
 all_mappings = {**reverse_custom_mapping, **transformer_keys}
 
@@ -108,7 +112,7 @@ converted_state = {}
 for key in all_mappings.keys():
     converted_state[key] = raw_state[all_mappings[key]].to('cpu')
 for key in resnet_keys.keys():
-    converted_state[key] = agent_state[key].to('cpu')
+    converted_state[key] = raw_state[resnet_keys[key]].to('cpu')
 
 # reshape some weights
 for key in converted_state.keys():
