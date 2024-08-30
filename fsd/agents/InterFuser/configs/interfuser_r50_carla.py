@@ -8,7 +8,7 @@ work_dir = '.'
 # If point cloud range is changed, the models should also change their point
 # cloud range accordingly
 point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
-img_norm_cfg = dict(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], to_rgb=False)
+img_norm_cfg = dict(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], to_rgb=True)
 class_names = [
 'car','van','truck','bicycle','traffic_sign','traffic_cone','traffic_light','pedestrian','others'
 ]
@@ -38,11 +38,12 @@ model = dict(
     num_queries=411,
     embed_dims=EMBED_DIMS,
     img_backbone=dict(
-        type='ResNet',
+        type='ResNet', #resnet50d
         depth=50,
         num_stages=4,
         out_indices=[3],
         deep_stem=True,
+        avg_down=True,
         frozen_stages=4,
         style='pytorch',
         init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50')
@@ -53,6 +54,7 @@ model = dict(
         num_stages=4,
         out_indices=[3],
         deep_stem=True,
+        avg_down=True,
         frozen_stages=4,
         style='pytorch',
         init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet18')
@@ -242,7 +244,7 @@ train_pipeline = [
         mean=img_norm_cfg['mean'], 
         std=img_norm_cfg['std'], 
         divider=255.0, 
-        to_rgb=False
+        to_rgb=img_norm_cfg['to_rgb']
     ),
     dict(type="Collect3D", keys= []), # default keys are in xx_fields
     dict(type="DefaultFormatBundle3D")
