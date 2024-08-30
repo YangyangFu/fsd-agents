@@ -38,7 +38,7 @@ model = dict(
     num_queries=411,
     embed_dims=EMBED_DIMS,
     img_backbone=dict(
-        type='ResNet', #resnet50d
+        type='mmdet.ResNet', #resnet50d
         depth=50,
         num_stages=4,
         out_indices=[3],
@@ -49,7 +49,7 @@ model = dict(
         init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50')
     ),
     pts_backbone=dict(
-        type='ResNet',
+        type='mmdet.ResNet',
         depth=18,
         num_stages=4,
         out_indices=[3],
