@@ -31,3 +31,5 @@ Full self-driving agents benchmark on closed-loop simulation
 - [] visualize multi-view/lidar data in data set
 - [] visualization of prediction details during closed-loop simulation
 - [] add `goal_points` to standard default dataset
+- [] implement `resnet-d` variants to support interfuser -> add dependency on mmPretrain to reuse timm models
+- [] interfuser seems not work with batch=1
