@@ -1129,18 +1129,7 @@ class LoadPointsFromFileCarlaDataset:
         points_hom = np.concatenate([points, np.ones((points.shape[0], 1))], axis=1)
         
         # convert to mmdet3d lidar coord: ego2lidar_mmdet @ lefthand_ego2mmdet_ego
-        #points = (np.linalg.inv(lidar2ego) @ left2right @ points_hom.T).T 
-        #points = points[:, :3]
-        
-        
-        # This assumes annotated sensor2ego is nuscenes sensor to nuscenes ego
-        lidar_nuscene2lidar_mmdet = np.array([
-            [0, 1, 0, 0], 
-            [-1, 0, 0, 0], 
-            [0, 0, 1, 0], 
-            [0, 0, 0, 1]]
-        )
-        points = (lidar_nuscene2lidar_mmdet @ np.linalg.inv(lidar2ego) @ left2right @ points_hom.T).T
+        points = (np.linalg.inv(lidar2ego) @ left2right @ points_hom.T).T 
         points = points[:, :3]
         
         # TODO: make it more general

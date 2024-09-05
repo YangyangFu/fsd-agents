@@ -110,12 +110,10 @@ class CarlaDataset(Planning3DDataset):
                 # raw data: lidar2ego is nuscenes lidar's pose in nuscenes ego frame
                 # convert to mmdet3d lidar's pose in mmdet3d ego frame
                 # lidar_mmdet2ego_mmdet = ego_nus2ego_mmdet @ lidar_nus2ego_nus @ lidar_mmdet2lidar_nus
-                #data['sensor2ego'] = raw_info['sensors'][sensor]['lidar2ego'] @ np.linalg.inv(self.TO_LIDAR_MMDET3D)
-                data['sensor2ego'] = raw_info['sensors'][sensor]['lidar2ego']
+                data['sensor2ego'] = raw_info['sensors'][sensor]['lidar2ego'] @ np.linalg.inv(self.TO_LIDAR_MMDET3D)
                 # lidar_mmdet2world_mmdet = world_nus2world_mmdet @ lidar_nus2world_nus @ lidar_mmdet2lidar_nus
-                #data['sensor2world'] = np.linalg.inv(raw_info['sensors'][sensor]['world2lidar']) @ np.linalg.inv(self.TO_LIDAR_MMDET3D)
-                data['sensor2world'] = raw_info['sensors'][sensor]['world2lidar']
-                
+                data['sensor2world'] = np.linalg.inv(raw_info['sensors'][sensor]['world2lidar']) @ np.linalg.inv(self.TO_LIDAR_MMDET3D)
+
                 # the raw data anno does not provide lidar data path
                 dpath = raw_info['sensors'][sensor].get('data_path', None)
                 if dpath is not None:
