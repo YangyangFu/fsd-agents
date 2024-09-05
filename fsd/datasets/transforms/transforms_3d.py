@@ -1657,19 +1657,16 @@ class Collect3D(object):
 
     def __init__(self,
                  keys,
-                 meta_keys=('filename', 'ori_shape', 'img_shape', 'lidar2img',
-                            'depth2img', 'cam2img', 'pad_shape',
-                            'scale_factor', 'flip', 'pcd_horizontal_flip',
-                            'pcd_vertical_flip', 'box_mode_3d', 'box_type_3d',
-                            'img_norm_cfg', 'pcd_trans', 'sample_idx', 'prev_idx', 'next_idx',
-                            'pcd_scale_factor', 'pcd_rotation',
-                            'transformation_3d_flow', 'scene_token',
-                            'folder','frame_idx', 'img_sensor_name'
+                 meta_keys=('filename', 'ori_shape', 'img_shape', 'pad_shape', 'scale_factor',
+                            'img_sensor_name', 'cam_intrinsics', 'cam2world',
+                            'box_mode_3d', 'box_type_3d',
+                            'img_norm_cfg', 'sample_idx', 'prev_idx', 'next_idx',
+                            'scene_token', 'folder','frame_idx'
                             )):
         # TODO(yzj) bevformer meta_keys has lidar2cam
         self.keys = keys
         self.meta_keys = meta_keys
-        self.pts_meta_keys = ('pts_filename', 'pts_sensor_name')
+        self.pts_meta_keys = ('pts_filename', 'pts_sensor_name', 'lidar2world')
         
     def __call__(self, results):
         """Call function to collect keys in results. The keys in ``meta_keys``
