@@ -1008,12 +1008,14 @@ class LoadPointsFromMultiSweeps:
         """str: Return a string that describes the module."""
         return f"{self.__class__.__name__}(sweeps_num={self.sweeps_num})"
 
+#TODO: preprocess the points to be in right-hand ego coordinates before pipeline
 @PIPELINES.register_module()
 class LoadPointsFromFileCarlaDataset:
     """Load Points From File used for carla dataset only.
 
     CarlaDataset save points data in .laz file, and 
-    the points are in left-hand ego coordinates as in Carla.
+    the points are in left-hand UE coordinates(e.g., x forward, y right, z up), and 
+    the points are saved in ego coordinates.
     Here we load the points and convert them to right-hand MMDET3D ego coordinates for consistency.
     
     Load sunrgbd and scannet points from file.
@@ -1097,7 +1099,8 @@ class LoadPointsFromFileCarlaDataset:
         return points
 
     def __call__(self, results):
-        """Call function to load points data from file.
+        """Call function to load points data from file,
+        and convert them to right-hand mmdet3d lidar coordinates
 
         Carladataset left-hand ego coordinates: x-front, y-right, z-up
         MMDET3D right-hand lidar coordinates: x-front, y-left, z-up
@@ -1116,12 +1119,28 @@ class LoadPointsFromFileCarlaDataset:
         points = self._load_points(lidar_path)
         points = points.reshape(-1, self.load_dim)
         
-        # convert from left-hand ego coord to right-hand lidar coord
+        # This assumes the points are originally in lefthand system
+        # and annotated sensor2ego is mmdet sensor to mmdet ego
+        # convert from left-hand ego coord to right-hand mmdet3d lidar coord
         left2right = np.eye(4)
         left2right[1, 1] = -1
+        # mmdet lidar coord to mmdet ego coord
         lidar2ego = results['sensors'][lidar_name]['sensor2ego']
         points_hom = np.concatenate([points, np.ones((points.shape[0], 1))], axis=1)
-        points = (np.linalg.inv(lidar2ego) @ left2right @ points_hom.T).T 
+        
+        # convert to mmdet3d lidar coord: ego2lidar_mmdet @ lefthand_ego2mmdet_ego
+        #points = (np.linalg.inv(lidar2ego) @ left2right @ points_hom.T).T 
+        #points = points[:, :3]
+        
+        
+        # This assumes annotated sensor2ego is nuscenes sensor to nuscenes ego
+        lidar_nuscene2lidar_mmdet = np.array([
+            [0, 1, 0, 0], 
+            [-1, 0, 0, 0], 
+            [0, 0, 1, 0], 
+            [0, 0, 0, 1]]
+        )
+        points = (lidar_nuscene2lidar_mmdet @ np.linalg.inv(lidar2ego) @ left2right @ points_hom.T).T
         points = points[:, :3]
         
         # TODO: make it more general
