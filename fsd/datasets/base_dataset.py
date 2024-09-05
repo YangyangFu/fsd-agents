@@ -9,7 +9,7 @@ from torch.utils.data import Dataset
 from fsd.registry import DATASETS
 
 #from ..core.bbox import get_box_type
-from mmdet3d.structures import get_box_type, LiDARInstance3DBoxes
+from mmdet3d.structures import get_box_type, LiDARInstance3DBoxes, DepthInstance3DBoxes, CameraInstance3DBoxes
 from fsd.datasets.utils import extract_result_dict, get_loading_pipeline
 from mmengine.fileio import load, dump, list_from_file
 from mmengine.dataset import Compose
@@ -42,19 +42,26 @@ class Planning3DDataset(Dataset):
             Defaults to None.
         modality (dict, optional): Modality to specify the sensor data used
             as input. Defaults to None.
-        box_type_3d (str, optional): Type of 3D box of this dataset.
+        box_type_3d_original (str, optional): Type of 3D box of the original annotation file.
+            Defaults to 'Depth'. Available options includes
+            - 'LiDAR': Box in LiDAR coordinates, e.g., x-front, y-left, z-up.
+            - 'Depth': Box in depth coordinates, e.g., x-right, y-front, z-up as in NuScenes.
+            - 'Camera': Box in camera coordinates, e.g., x-right, y-down, z-front.
+        box_type_3d (str, optional): Type of 3D box of the dataset.
             Based on the `box_type_3d`, the dataset will encapsulate the box
             to its original format then converted them to `box_type_3d`.
             Defaults to 'LiDAR'. Available options includes
-
-            - 'LiDAR': Box in LiDAR coordinates.
-            - 'Depth': Box in depth coordinates, usually for indoor dataset.
-            - 'Camera': Box in camera coordinates.
+            - 'LiDAR': Box in LiDAR coordinates, e.g., x-front, y-left, z-up.
+            - 'Depth': Box in depth coordinates, e.g., x-right, y-front, z-up.
+            - 'Camera': Box in camera coordinates, e.g., x-right, y-down, z-front.
         filter_empty_gt (bool, optional): Whether to filter empty GT.
             Defaults to True.
         test_mode (bool, optional): Whether the dataset is in test mode.
             Defaults to False.
     """
+    # transformation matrix from dataset lidar coordinate to mmdet3d lidar
+    # default is identity matrix
+    TO_MMDET3D_LIDAR = np.eye(4)
 
     def __init__(self,
                  data_root,
@@ -64,7 +71,8 @@ class Planning3DDataset(Dataset):
                  modality = None,
                  camera_sensors = ['CAM_FRONT'],
                  lidar_sensors = None,
-                 box_type_3d = 'LiDAR',
+                 box_type_3d_original = 'Depth', # box cooridnate in the original annotation file
+                 box_type_3d = 'LiDAR', # targeted box coordinate for the dataset
                  filter_empty_gt = True,
                  past_steps = 4, # past trajectory length
                  prediction_steps = 6, # motion prediction length if any
@@ -86,8 +94,9 @@ class Planning3DDataset(Dataset):
         self.planning_steps = planning_steps
         self.sample_interval = sample_interval
         
+        self.box_type_3d_original = box_type_3d_original
         self.box_type_3d, self.box_mode_3d = get_box_type(box_type_3d)
-
+        
         self.CLASSES = self.get_classes(classes)
         self.cat2id = {name: i for i, name in enumerate(self.CLASSES)}
         self.data_infos = self.load_anno_files(self.ann_file)
@@ -139,7 +148,7 @@ class Planning3DDataset(Dataset):
         
         # check sensors info
         for sensor in anno_info['sensors'].keys():
-            sensor_keys = ['sensor2ego', 'world2sensor', 'intrinsics', 'data_path']
+            sensor_keys = ['sensor2ego', 'sensor2world', 'intrinsic', 'data_path']
             for key in sensor_keys:
                 if key not in anno_info['sensors'][sensor]:
                     return False
@@ -156,7 +165,7 @@ class Planning3DDataset(Dataset):
             - 'frame_index': frame index
             - 'ego': dict contains ego information
                 - 'size': ego size, 2 times extent of the ego vehicle in x, y, z
-                - 'world2ego': world to ego transformation
+                - 'ego2world': world to ego transformation
                 - 'translation': ego translation
                 - 'rotation': in quaternion
                 - 'yaw': ego yaw
@@ -165,12 +174,12 @@ class Planning3DDataset(Dataset):
             - 'sensors': dict contains sensor information
                 - 'CAM_XX': dict contains camera information
                     - 'sensor2ego': camera to ego transformation
-                    - 'world2sensor': world to camera transformation
-                    - 'intrinsics': camera intrinsics
+                    - 'sensor2world': camera to world transformation
+                    - 'intrinsic': camera intrinsics
                     - 'data_path': camera image path
                 - 'LIDAR_XX': dict contains lidar information
                     - 'sensor2ego': lidar to ego transformation
-                    - 'world2sensor': world to lidar transformation
+                    - 'sensor2world': lidar to world transformation
                     - 'data_path': lidar data path
             - 'gt_bboxes_3d': ground truth boxes in the format of [x, y, z, w, l, h, ry]
             - 'gt_instances_names': ground truth class names
@@ -194,26 +203,35 @@ class Planning3DDataset(Dataset):
         """
         pts_filenames = []
         pts_sensors = []
+        lidar_poses_in_world = []
         for sensor in self.lidar_sensors:
             if 'LIDAR' in sensor and sensor in info['sensors']:
                 pts_datapath = info['sensors'][sensor]['data_path']
                 pts_filenames.append(osp.join(self.data_root, pts_datapath))
                 pts_sensors.append(sensor)
+                
+                # lidar to world 
+                lidar_poses_in_world.append(info['sensors'][sensor]['sensor2world'])
         
         assert len(pts_sensors) <= 1, "Only one lidar sensor is supported."
         
-        return pts_filenames[0], pts_sensors[0]
+        return pts_filenames[0], pts_sensors[0], lidar_poses_in_world[0]
     
     def _get_imgs_info(self, info):
         img_filenames = []
         img_sensors = []
+        cam_intrinsics = []
+        cam_poses_in_world = []
         for sensor in self.camera_sensors:
             if 'CAM' in sensor and sensor in info['sensors']:
                 img_datapath = info['sensors'][sensor]['data_path']
                 img_filenames.append(osp.join(self.data_root, img_datapath))
+                cam_intrinsics.append(info['sensors'][sensor]['intrinsic'])
+                cam_poses_in_world.append(info['sensors'][sensor]['sensor2world'])
+                
                 img_sensors.append(sensor)
                 
-        return img_filenames, img_sensors
+        return img_filenames, img_sensors, cam_intrinsics, cam_poses_in_world
     
     def _get_ann_info(self, info):
         """Get annotation info according to the given index.
@@ -260,7 +278,16 @@ class Planning3DDataset(Dataset):
 
         # the nuscenes box center is [0.5, 0.5, 0.5], we change it to be
         # the same as KITTI (0.5, 0.5, 0)
-        gt_bboxes_3d = LiDARInstance3DBoxes(
+        if self.box_type_3d_original.lower() == 'depth':
+            BoxInstance = DepthInstance3DBoxes
+        elif self.box_type_3d_original.lower() == 'lidar':
+            BoxInstance = LiDARInstance3DBoxes
+        elif self.box_type_3d_original.lower() == 'camera':
+            BoxInstance = CameraInstance3DBoxes
+        else:
+            raise ValueError(f"Unknown box type {self.box_type_3d_original}")
+        
+        gt_bboxes_3d = BoxInstance(#LiDARInstance3DBoxes(
             gt_bboxes_3d,
             box_dim=gt_bboxes_3d.shape[-1],
             origin=info['box_center']).convert_to(self.box_mode_3d)
@@ -307,15 +334,18 @@ class Planning3DDataset(Dataset):
         
         # get lidar data
         if self.modality and self.modality.get('use_lidar', False) and self.lidar_sensors:
-            pts_filenames, pts_sensors = self._get_pts_info(info)
+            pts_filenames, pts_sensors, lidar_poses = self._get_pts_info(info)
             input_dict['pts_filename'] = pts_filenames
             input_dict['pts_sensor_name'] = pts_sensors
+            input_dict['lidar2world'] = lidar_poses
             
         # get camera data file
         if self.modality and self.modality.get('use_camera', False) and self.camera_sensors:
-            img_filenames, img_sensors = self._get_imgs_info(info)
+            img_filenames, img_sensors, cam_intrinsics, cam_poses_in_world = self._get_imgs_info(info)
             input_dict['img_filename'] = img_filenames       
             input_dict['img_sensor_name'] = img_sensors
+            input_dict['cam_intrinsics'] = cam_intrinsics
+            input_dict['cam2world'] = cam_poses_in_world
                     
         # get ego and sensor info
         input_dict['ego'] = info['ego']
@@ -401,7 +431,7 @@ class Planning3DDataset(Dataset):
         """
 
         index_list = range(index - self.past_steps * self.sample_interval, index + self.planning_steps * self.sample_interval, self.sample_interval)
-        world2lidar_curr = curr_info['sensors']['LIDAR_TOP']['world2sensor']
+        world2lidar_curr = np.linalg.inv(curr_info['sensors']['LIDAR_TOP']['sensor2world'])
         xy = np.zeros((1, 2, self.past_steps + 1 + self.planning_steps)) # past + current + future
         mask = np.zeros((1, self.past_steps + 1 + self.planning_steps)) 
 
@@ -420,7 +450,7 @@ class Planning3DDataset(Dataset):
             if curr_info['scene_token'] != adj_info['scene_token']:
                 break
             
-            world2lidar_adj = adj_info['sensors']['LIDAR_TOP']['world2sensor']
+            world2lidar_adj = np.linalg.inv(adj_info['sensors']['LIDAR_TOP']['sensor2world'])
             # T12 = T2^-1 * T1
             adj2curr = world2lidar_curr @ np.linalg.inv(world2lidar_adj)
             xy[0, :, i] = adj2curr[:2, 3]
@@ -448,7 +478,7 @@ class Planning3DDataset(Dataset):
         """
         index_list = range(index - self.past_steps * self.sample_interval, index + self.planning_steps * self.sample_interval, self.sample_interval)
         instances_ids = curr_info['gt_instances_ids']
-        world2lidar_curr = curr_info['sensors']['LIDAR_TOP']['world2sensor']
+        world2lidar_curr = np.linalg.inv(curr_info['sensors']['LIDAR_TOP']['sensor2world'])
         
         xy = np.zeros((len(instances_ids), 2, self.past_steps + 1 + self.planning_steps)) # (N, 2, T)
         mask = np.zeros((len(instances_ids), self.past_steps + 1 + self.planning_steps)) # (N, T)

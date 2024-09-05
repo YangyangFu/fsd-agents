@@ -4,16 +4,54 @@ import numpy as np
 from pyquaternion import Quaternion
 
 from mmengine.fileio import load
-from mmdet3d.structures import CameraInstance3DBoxes, LiDARInstance3DBoxes
+from mmdet3d.structures import limit_period, CameraInstance3DBoxes, LiDARInstance3DBoxes
 from mmdet3d.datasets import Det3DDataset
 from fsd.datasets import Planning3DDataset
 from fsd.datasets import map_carla_class_name
 from fsd.utils import one_hot_encoding
 from fsd.registry import DATASETS
 
+def convert_nuscenes_boxes(boxes):
+    """Convert nuscenes boxes to mmdet3d boxes format.
+    nuScenes boxes: [x, y, z, w, l, h, r] or [x, y, z, dy, dx, dz, r], 
+        and the rotation is the yaw angle around z-axis, with 0 facing x positive direction, 
+        and pi/2 facing y positive direction in the ego coord.
+    
+    Planning boxes: [x, y, z, dx, dy, dz, r].
+    
+    Thus we need swap w and l, and change the rotation angle to face x positive direction.
+    
+    Args:
+        bboxes (np.ndarray): nuscenes boxes in shape (N, >=7)
+        
+    Returns:
+        np.ndarray: mmdet3d boxes in shape (N, 7)
+    """
+    boxes = boxes.copy()
+    
+    # swap w, l (or dy, dx)
+    boxes[:, [3, 4]] = boxes[:, [4, 3]]
+    
+    # change yaw
+    boxes[:, 6] = -boxes[:, 6] - np.pi / 2
+    boxes[:, 6] = limit_period(
+    boxes[:, 6], period=np.pi * 2)
+    
+    return boxes
 
 @DATASETS.register_module()
 class CarlaDataset(Planning3DDataset):
+    
+    # transformation matrix from nuscenes lidar to mmdet3d lidar
+    # nuscenes lidar: x-right, y-front, z-up
+    # mmdet3d lidar: x-front, y-left, z-up
+    TO_LIDAR_MMDET3D = np.array(
+        [[  0, 1, 0, 0],
+        [ -1, 0, 0, 0],
+        [  0, 0, 1, 0],
+        [  0, 0, 0, 1]])
+    
+    
     def __init__(self, 
                  with_velocity: bool = True,
                  *args, 
@@ -28,8 +66,10 @@ class CarlaDataset(Planning3DDataset):
         self.with_velocity = with_velocity
           
     def prepare_planning_info(self, index):
+        """ Prepare data for planning library
         
-        # TODO: do we need convert the velocities to camera frame/ego frame???
+        """
+        
         raw_info = self.data_infos[index]
         
         # process to standard format in planning library
@@ -61,13 +101,21 @@ class CarlaDataset(Planning3DDataset):
         for sensor in raw_info['sensors'].keys():
             data = {}
             if 'cam' in sensor.lower():
+                # camera coordinate in nuscene is same as mmdet3d
                 data['sensor2ego'] = raw_info['sensors'][sensor]['cam2ego']
-                data['world2sensor'] = raw_info['sensors'][sensor]['world2cam']
+                data['sensor2world'] = np.linalg.inv(raw_info['sensors'][sensor]['world2cam'])
                 data['intrinsic'] = raw_info['sensors'][sensor]['intrinsic']
                 data['data_path'] = raw_info['sensors'][sensor]['data_path']
             elif 'lidar' in sensor.lower():
+                # raw data: lidar2ego is nuscenes lidar's pose in nuscenes ego frame
+                # convert to mmdet3d lidar's pose in mmdet3d ego frame
+                # lidar_mmdet2ego_mmdet = ego_nus2ego_mmdet @ lidar_nus2ego_nus @ lidar_mmdet2lidar_nus
+                #data['sensor2ego'] = raw_info['sensors'][sensor]['lidar2ego'] @ np.linalg.inv(self.TO_LIDAR_MMDET3D)
                 data['sensor2ego'] = raw_info['sensors'][sensor]['lidar2ego']
-                data['world2sensor'] = raw_info['sensors'][sensor]['world2lidar']
+                # lidar_mmdet2world_mmdet = world_nus2world_mmdet @ lidar_nus2world_nus @ lidar_mmdet2lidar_nus
+                #data['sensor2world'] = np.linalg.inv(raw_info['sensors'][sensor]['world2lidar']) @ np.linalg.inv(self.TO_LIDAR_MMDET3D)
+                data['sensor2world'] = raw_info['sensors'][sensor]['world2lidar']
+                
                 # the raw data anno does not provide lidar data path
                 dpath = raw_info['sensors'][sensor].get('data_path', None)
                 if dpath is not None:
@@ -80,7 +128,8 @@ class CarlaDataset(Planning3DDataset):
         ## ground truth
         # --------------------------------------------------------------------------------
         info['gt_instances_ids'] = raw_info['gt_ids']
-        info['gt_bboxes_3d'] = raw_info['gt_boxes'][:, :7] # (N, 9) -> (N, 7)
+        # box definition follows nuscenes format: [x, y, z, w, l, h, r]
+        info['gt_bboxes_3d'] = convert_nuscenes_boxes(raw_info['gt_boxes'][:, :7]) # (N, 9) -> (N, 7)
         
         # raw namse are object name in carla, need map to standard class name
         info['gt_instances_names'] = raw_info['gt_names']
