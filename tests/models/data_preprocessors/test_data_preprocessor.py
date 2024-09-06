@@ -6,7 +6,7 @@ from fsd.models import PlanningDataPreprocessor
 
 config = Config.fromfile('fsd/configs/_base_/dataset/carla_dataset.py')
 init_default_scope('fsd')
-dl = Runner.build_dataloader(config.dataloader)
+dl = Runner.build_dataloader(config.train_dataloader)
 
 
 def test_planning_data_preprocessor():

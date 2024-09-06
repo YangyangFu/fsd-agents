@@ -9,7 +9,7 @@ import torch
 from mmengine.structures import BaseDataElement, InstanceData, PixelData
 from mmdet3d.structures import BaseInstance3DBoxes, BasePoints, PointData
 from mmengine.utils import is_str, is_seq_of
-from fsd.structures import PlanningDataSample
+from fsd.structures import PlanningDataSample, Ego, Instances, Grids
 from fsd.registry import TRANSFORMS
 
 def to_tensor(data):
@@ -301,6 +301,7 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
 
     def __init__(self, with_map=False):
         super(DefaultFormatBundle3D, self).__init__()
+        #TODO: add map data support
         self.with_map = with_map
         
     def __call__(self, results):
@@ -337,55 +338,76 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
         
         
         # format gt_instances_3d: data related to instances
-        gt_instances_3d = InstanceData()
+        gt_instances_3d = Instances()
+        
+        instances_key_map = {
+            'gt_bboxes_3d': 'gt_bboxes_3d',
+            'gt_labels_3d': 'gt_labels',
+            'gt_instances_traj': 'gt_traj',
+            'gt_instances_ids': 'gt_ids',
+            'gt_instances_names': 'gt_names',
+        }
         
         for key in results['bbox3d_fields']:
             if key in results:
                 # torch cannot convert str to tensor
                 if key == "gt_instances_names":
-                    gt_instances_3d.set_metainfo({'class_names': results[key]})
+                    gt_instances_3d.set_metainfo({instances_key_map[key]: results[key]})
                 elif isinstance(results[key], BaseDataElement):
-                    gt_instances_3d[key] = results[key].to_tensor()
+                    gt_instances_3d[instances_key_map[key]] = results[key].to_tensor()
                 elif isinstance(results[key], BaseInstance3DBoxes):
-                    gt_instances_3d[key] = results[key]
+                    gt_instances_3d[instances_key_map[key]] = results[key]
                 # [Trajectory, Trajectory, ...]
                 elif is_seq_of(results[key], BaseDataElement):
-                    gt_instances_3d[key] = results[key]
+                    gt_instances_3d[instances_key_map[key]] = results[key]
                 else:
-                    gt_instances_3d[key] = to_tensor(results[key])
+                    gt_instances_3d[instances_key_map[key]] = to_tensor(results[key])
 
                 results.pop(key)
 
         # format gt_ego: data related to ego vehicle
-        gt_ego = BaseDataElement()
+        gt_ego = Ego()
+        ego_key_map = {
+            "gt_ego_traj": "gt_traj",
+            "ego_ego2world": "pose",
+            "ego_velocity": "velocity",
+            "ego_affected_by_lights": "affected_by_lights",
+            "ego_affected_by_stop_sign": "affected_by_stop_sign",
+            "ego_is_at_junction": "is_at_junction",
+        }
+        
         for key in results['ego_fields']:
             if key in results:
                 if isinstance(results[key], BaseDataElement):
-                    gt_ego.set_field(results[key].to_tensor(), key)
+                    gt_ego.set_field(results[key].to_tensor(), ego_key_map[key])
                 elif isinstance(results[key], BaseInstance3DBoxes):
-                    gt_ego.set_field(results[key], key)
+                    gt_ego.set_field(results[key], ego_key_map[key])
                 else:
-                    gt_ego.set_field(to_tensor(results[key]), key)
+                    gt_ego.set_field(to_tensor(results[key]), ego_key_map[key])
 
                 results.pop(key)
         
         # format gt_grids: data related to grids
-        gt_grids = BaseDataElement()
+        gt_grids = Grids()
+        grids_key_map = {
+            'gt_grid_density': 'gt_density',
+            'gt_grid_occupancy': 'gt_occupancy',
+        }
         for key in results['grid_fields']:
             if key in results:
                 if isinstance(results[key], BaseDataElement):
-                    gt_grids.set_field(results[key].to_tensor(), key)
+                    gt_grids.set_field(results[key].to_tensor(), grids_key_map[key])
                 else:
-                    gt_grids.set_field(to_tensor(results[key]), key)
+                    gt_grids.set_field(to_tensor(results[key]), grids_key_map[key])
                 results.pop(key)
         
         # TODO: add map data
         # with map
         
         data_sample = PlanningDataSample()
-        data_sample.gt_instances_3d = gt_instances_3d
-        data_sample.gt_ego = gt_ego
-        data_sample.gt_grids = gt_grids
+        data_sample.instances = gt_instances_3d
+        data_sample.ego = gt_ego
+        data_sample.grids = gt_grids
         
         results['data_samples'] = data_sample
         

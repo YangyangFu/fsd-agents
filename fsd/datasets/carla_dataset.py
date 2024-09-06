@@ -82,7 +82,7 @@ class CarlaDataset(Planning3DDataset):
         # ego info
         ego = dict()
         ego['size'] = raw_info['ego_size'] # [x, y, z]
-        ego['world2ego'] = raw_info['world2ego'] # (4, 4)
+        ego['ego2world'] = np.linalg.inv(raw_info['world2ego']) # (4, 4)
         ego['translation'] = raw_info['ego_translation'] # ? 
         ego_yaw = raw_info['ego_yaw'] # in radian
         rotation = list(Quaternion(axis=[0, 0, 1], radians=ego_yaw))

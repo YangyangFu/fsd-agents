@@ -20,7 +20,7 @@ def test_planning_data_preprocessor():
         print(sample.keys())
         
         assert len(sample['inputs']['img']) == 6
-        assert sample['inputs']['img'][0].shape == (2, 3, 928, 1600)
+        assert sample['inputs']['img'][0].shape == (2, 3, 900, 1600)
         assert 'goal_points' in sample['inputs']
         break
 
@@ -34,7 +34,7 @@ def test_build_data_preprocessor():
         print(sample.keys())
         
         assert len(sample['inputs']['img']) == 6
-        assert sample['inputs']['img'][0].shape == (2, 3, 928, 1600)
+        assert sample['inputs']['img'][0].shape == (2, 3, 900, 1600)
         assert 'goal_points' in sample['inputs']
         break        
 

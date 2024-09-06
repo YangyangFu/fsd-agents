@@ -209,9 +209,7 @@ class PlanningDataPreprocessor(BaseDataPreprocessor):
         return data
 
     def stack_batch_data(self, data: dict) -> dict:
-        """Copy data to the target device and perform normalization, padding
-        and bgr2rgb conversion and stack based on ``BaseDataPreprocessor``.
-
+        """
         Collates the data sampled from dataloader into a list of dict and list
         of labels, and then copies tensor to the target device.
 

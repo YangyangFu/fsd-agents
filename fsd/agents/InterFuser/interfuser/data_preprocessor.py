@@ -53,7 +53,7 @@ class InterFuserDataPreprocessor(PlanningDataPreprocessor):
         """Generate goal points for goal-directed tasks
         """
         
-        gt_ego_future_traj = [sample.gt_ego.gt_ego_future_traj.xy[..., -1].squeeze(0) for sample in data['data_samples']]
+        gt_ego_future_traj = [sample.ego.gt_traj.data[-1, :2].squeeze(0) for sample in data['data_samples']]
         
         data['inputs']['goal_points'] = torch.stack(gt_ego_future_traj)
         
@@ -66,7 +66,7 @@ class InterFuserDataPreprocessor(PlanningDataPreprocessor):
             dict with ego velocity (B, 1)
         """
         
-        v = [sample.gt_ego.ego_velocity for sample in data['data_samples']]
+        v = [sample.ego.velocity for sample in data['data_samples']]
         v = [torch.sqrt(vx**2 + vy**2).unsqueeze(0).to(torch.float32) for vx, vy, _ in v]
         
         data['inputs']['ego_velocity'] = torch.stack(v)

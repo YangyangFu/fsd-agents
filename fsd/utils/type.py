@@ -28,9 +28,9 @@ RangeType = Sequence[Tuple[int, int]]
 # type hinting for data sample
 # avoid circular import with structures
 
-import fsd.structures.fsd_data_sample as fdd
-
-DataSampleType = Union[fdd.PlanningDataSample, dict]
+#import fsd.structures.fsd_data_sample as fdd
+import fsd.structures
+DataSampleType = Union[fsd.structures.fsd_data_sample.PlanningDataSample, dict]
 OptDataSampleType = Optional[DataSampleType]
 DataSampleList = List[DataSampleType]
 OptDataSampleList = Optional[DataSampleList]
