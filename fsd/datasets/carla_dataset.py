@@ -11,6 +11,7 @@ from fsd.datasets import map_carla_class_name
 from fsd.utils import one_hot_encoding
 from fsd.registry import DATASETS
 
+#TODO: why do this to yaw?
 def convert_nuscenes_boxes(boxes):
     """Convert nuscenes boxes to mmdet3d boxes format.
     nuScenes boxes: [x, y, z, w, l, h, r] or [x, y, z, dy, dx, dz, r], 

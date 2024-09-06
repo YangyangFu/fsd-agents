@@ -28,8 +28,16 @@ Agent's pose in world is the transformation from agent to world.
     - bbox: location data is given in world frame
 
 - MMDET3D coordinate
+    - world coord: x forawrd, y left, z up
     - lidar coord: x forward, y left, z up
     - camera coord: x right, y down, z forward
+
+
+standardize data in MMDET3D coordinates
+- lidar data -> current ego frame
+- ego status -> global frame
+- ego trajectory -> current ego frame
+- box -> current ego frame
 
 **TODO**:
 - Nuscence dataset save lidar point data in its own lidar coordination, but MMDET3D Nuscence dataset assumes the point data in MMDET3D lidar coordination without applying transformation, why??? 
@@ -117,53 +125,10 @@ Before going into transformation pipeline, the data are preprocessed to have the
 
 **NOTE:** there is no camera class in `cam_instrinsic` to relate the matrix to correspoinding camera.
 
-```
-- folder
-- scene_token 
-- frame_idx
-- ego_yaw 
-- ego_translation
-- sensors
-- world2lidar
-- gt_ids
-- gt_boxes 
-- gt_names
-- ego_vel
-- ego_accel
-- ego_rotation_rate
-- npc2world
-- gt_lane_labels
-- gt_lane_bboxes
-- gt_lane_masks
-- timestamp
-- img_filename
-- lidar2img
-- cam_intrinsic
-- lidar2cam
-- l2g_r_mat
-- l2g_t
-- ann_info
-- can_bus
-- occ_has_invalid_frame
-- occ_img_is_valid
-- occ_future_ann_infos
-- occ_l2e_r_mats
-- occ_l2e_t_vecs
-- occ_e2g_r_mats
-- occ_e2g_t_vecs
-- sdc_planning
-- sdc_planning_mask
-- command
-- img_fields: store key name related to img. empty in dataset
-- bbox3d_fields
-- pts_mask_fields
-- pts_seg_fields
-- bbox_fields
-- mask_fields
-- seg_fields
-- box_type_3d
-- box_mode_3d
-```
+
+### After Data Pipeline
+After pipeline, the data are bundled into the following format:
+
 
 
 

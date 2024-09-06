@@ -35,3 +35,4 @@ Full self-driving agents benchmark on closed-loop simulation
 - [] interfuser seems not work with batch=1
 - [] check where the pretrained model pth is downloaded
 - [] weights mismatch after conversion.
+- [] direct use `cam2img` instead of `cam_instrinsics`?

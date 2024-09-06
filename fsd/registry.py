@@ -53,5 +53,7 @@ AGENT_TRANSFORMS = TRANSFORMS
 
 TASK_UTILS = Registry('task_util', parent=MMENGINE_TASK_UTILS, locations=['fsd.agents'])
 
+VISUALIZERS = Registry('visualizer', parent=MMENGINE_VISUALIZERS, locations=['fsd.visualization'])
+
 CONTROLLERS = Registry('controller', locations=['fsd.controllers'])
 #count_registered_modules()

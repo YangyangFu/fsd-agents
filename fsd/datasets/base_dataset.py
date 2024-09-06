@@ -400,16 +400,16 @@ class Planning3DDataset(Dataset):
         future_ego_traj = TrajectoryData(metainfo=dict(past_steps=0,
                                             planning_steps=past_future_ego_traj.planning_steps,
                                             sample_interval=past_future_ego_traj.sample_interval),
-                                          xy=past_future_ego_traj.xy[..., -past_future_ego_traj.planning_steps:],
-                                          mask=past_future_ego_traj.mask[..., -past_future_ego_traj.planning_steps:]
+                                          xy=past_future_ego_traj.xy[..., -(1+past_future_ego_traj.planning_steps):],
+                                          mask=past_future_ego_traj.mask[..., -(1+past_future_ego_traj.planning_steps):]
                                         )
         # generate instances past/future trajectory
         past_future_instances_traj = self._generate_past_future_instances_trajectory(index, curr_info)
         future_instances_traj = TrajectoryData(metainfo=dict(past_steps=0,
                                             planning_steps=past_future_instances_traj.planning_steps,
                                             sample_interval=past_future_instances_traj.sample_interval),
-                                          xy=past_future_instances_traj.xy[..., -past_future_instances_traj.planning_steps:],
-                                          mask=past_future_instances_traj.mask[..., -past_future_instances_traj.planning_steps:]
+                                          xy=past_future_instances_traj.xy[..., -(1+past_future_instances_traj.planning_steps):],
+                                          mask=past_future_instances_traj.mask[..., -(1+past_future_instances_traj.planning_steps):]
                                         )
         # add to the current info
         curr_info['gt_ego_past_future_traj'] = past_future_ego_traj
@@ -430,7 +430,7 @@ class Planning3DDataset(Dataset):
             TrajectoryData: Trajectory data for ego vehicle, with a length of (past_steps + 1 + planning_steps)
         """
 
-        index_list = range(index - self.past_steps * self.sample_interval, index + self.planning_steps * self.sample_interval, self.sample_interval)
+        index_list = range(index - self.past_steps * self.sample_interval, index + self.planning_steps * self.sample_interval + 1, self.sample_interval)
         world2lidar_curr = np.linalg.inv(curr_info['sensors']['LIDAR_TOP']['sensor2world'])
         xy = np.zeros((1, 2, self.past_steps + 1 + self.planning_steps)) # past + current + future
         mask = np.zeros((1, self.past_steps + 1 + self.planning_steps)) 
@@ -441,6 +441,7 @@ class Planning3DDataset(Dataset):
         for i, idx in enumerate(index_list):
             # skip the current frame
             if idx == index:
+                mask[0, i] = 1
                 continue
             # check if index is within range
             if idx < 0 or idx >= self.num_samples:
@@ -476,10 +477,13 @@ class Planning3DDataset(Dataset):
         Returns:
             TrajectoryData: Trajectory data for N instances, with a length of (past_steps + 1 + planning_steps)
         """
-        index_list = range(index - self.past_steps * self.sample_interval, index + self.planning_steps * self.sample_interval, self.sample_interval)
+        index_list = range(index - self.past_steps * self.sample_interval, 
+                           index + self.planning_steps * self.sample_interval + 1, 
+                           self.sample_interval)
         instances_ids = curr_info['gt_instances_ids']
         world2lidar_curr = np.linalg.inv(curr_info['sensors']['LIDAR_TOP']['sensor2world'])
         
+        # TODO: should use accumulative points for the trajectory. if no more data, use the last point
         xy = np.zeros((len(instances_ids), 2, self.past_steps + 1 + self.planning_steps)) # (N, 2, T)
         mask = np.zeros((len(instances_ids), self.past_steps + 1 + self.planning_steps)) # (N, T)
         
@@ -493,6 +497,7 @@ class Planning3DDataset(Dataset):
             for j, idx in enumerate(index_list):
                 # skip the current frame
                 if idx == index:
+                    mask[i, j] = 1
                     continue
                 # check if index is within range
                 if idx < 0 or idx >= self.num_samples:
