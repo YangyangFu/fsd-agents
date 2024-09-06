@@ -230,7 +230,7 @@ train_pipeline = [
         with_label_3d=True,
         with_name_3d=True, # class names
         with_instances_ids=True,  # instance ids 
-        with_instances_future_traj=True, # future
+        with_instances_traj=True, # future
         with_ego_status=True, # ego status
         with_grids=True, # density map
     ),
@@ -288,7 +288,7 @@ val_pipeline = [
         with_label_3d=True,
         with_name_3d=True, # class names
         with_instances_ids=True,  # instance ids 
-        with_instances_future_traj=True, # future
+        with_instances_traj=True, # future
         with_ego_status=True, # ego status
         with_grids=True, # density map
     ),

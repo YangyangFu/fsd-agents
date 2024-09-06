@@ -1789,8 +1789,8 @@ class ObjectRangeFilter(object):
         gt_labels_3d = input_dict['gt_labels_3d']
         if 'gt_instances_ids' in input_dict:
             gt_instances_ids = input_dict['gt_instances_ids']
-        if 'gt_instances_future_traj' in input_dict:
-            gt_instances_future_traj = input_dict['gt_instances_future_traj']
+        if 'gt_instances_traj' in input_dict:
+            gt_instances_traj = input_dict['gt_instances_traj']
 
         # Filter by range
         mask = gt_bboxes_3d.in_range_bev(bev_range)
@@ -1803,8 +1803,9 @@ class ObjectRangeFilter(object):
         gt_labels_3d = gt_labels_3d[mask]
         if 'gt_instances_ids' in input_dict:
             gt_instances_ids = gt_instances_ids[mask]
-        if 'gt_instances_future_traj' in input_dict:
-            gt_instances_future_traj = gt_instances_future_traj[mask]
+        if 'gt_instances_traj' in input_dict:
+            gt_instances_traj =[traj for traj, m in zip(gt_instances_traj, mask) if m]
+            #gt_instances_traj = gt_instances_traj[mask]
         
         
         # limit rad to [-pi, pi]
@@ -1813,8 +1814,8 @@ class ObjectRangeFilter(object):
         input_dict['gt_labels_3d'] = gt_labels_3d
         if 'gt_instances_ids' in input_dict:
             input_dict['gt_instances_ids'] = gt_instances_ids
-        if 'gt_instances_future_traj' in input_dict:
-            input_dict['gt_instances_future_traj'] = gt_instances_future_traj
+        if 'gt_instances_traj' in input_dict:
+            input_dict['gt_instances_traj'] = gt_instances_traj
 
         return input_dict
 
@@ -1850,8 +1851,11 @@ class ObjectNameFilter(object):
         input_dict['gt_labels_3d'] = input_dict['gt_labels_3d'][gt_bboxes_mask]
         if 'gt_instances_ids' in input_dict:
             input_dict['gt_instances_ids'] = input_dict['gt_instances_ids'][gt_bboxes_mask]
-        if 'gt_instances_future_traj' in input_dict:
-            input_dict['gt_instances_future_traj'] = input_dict['gt_instances_future_traj'][gt_bboxes_mask]
+        if 'gt_instances_traj' in input_dict:
+            gt_instances_traj = input_dict['gt_instances_traj']
+            gt_instances_traj = [traj for traj, m in zip(gt_instances_traj, gt_bboxes_mask) if m]
+            input_dict['gt_instances_traj'] = gt_instances_traj
+            #input_dict['gt_instances_traj'] = input_dict['gt_instances_traj'][gt_bboxes_mask]
 
         return input_dict
 

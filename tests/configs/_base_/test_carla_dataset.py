@@ -9,7 +9,7 @@ def test_base_carla_dataset():
 
     config = Config.fromfile('fsd/configs/_base_/dataset/carla_dataset.py')
     init_default_scope('fsd')
-    dl = Runner.build_dataloader(config.dataloader)
+    dl = Runner.build_dataloader(config.train_dataloader)
 
     # check samples 
     for sample in dl:

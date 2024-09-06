@@ -78,6 +78,7 @@ class Planning3DDataset(Dataset):
                  prediction_steps = 6, # motion prediction length if any
                  planning_steps = 6, # planning length
                  sample_interval = 5, # sample interval # frames skiped per step
+                 FPS = 10, # frame per second
                  test_mode = False):
         super().__init__()
         self.data_root = data_root
@@ -93,6 +94,7 @@ class Planning3DDataset(Dataset):
         self.prediction_steps = prediction_steps
         self.planning_steps = planning_steps
         self.sample_interval = sample_interval
+        self.FPS = FPS
         
         self.box_type_3d_original = box_type_3d_original
         self.box_type_3d, self.box_mode_3d = get_box_type(box_type_3d)
@@ -293,8 +295,8 @@ class Planning3DDataset(Dataset):
             origin=info['box_center']).convert_to(self.box_mode_3d)
         
         # planning annotations
-        gt_instances_future_traj = info.pop('gt_instances_future_traj')
-        gt_ego_future_traj = info.pop('gt_ego_future_traj')
+        gt_instances_traj = info.pop('gt_instances_traj')
+        gt_ego_traj = info.pop('gt_ego_traj')
         
         anns_results = dict(
             gt_bboxes_3d=gt_bboxes_3d,
@@ -303,8 +305,8 @@ class Planning3DDataset(Dataset):
             gt_instances_names=gt_instances_names,
             gt_instances_ids=gt_instances_ids,
             gt_instances2world=gt_instances2world,
-            gt_instances_future_traj=gt_instances_future_traj,
-            gt_ego_future_traj=gt_ego_future_traj)
+            gt_instances_traj=gt_instances_traj,
+            gt_ego_traj=gt_ego_traj)
         
         return anns_results
     
@@ -355,28 +357,6 @@ class Planning3DDataset(Dataset):
         if not self.test_mode:
             anno_info = self._get_ann_info(info)
             
-            """
-            # To data sample
-            gt_instances_3d = InstanceData()
-            gt_instances_3d.bboxes = anno_info['gt_bboxes_3d']
-            gt_instances_3d.labels = anno_info['gt_labels_3d']
-            gt_instances_3d.ids = anno_info['gt_instances_ids']
-            gt_instances_3d.classes = anno_info['gt_classes']
-            gt_instances_3d.bboxes_mask = anno_info['gt_bboxes_mask']
-            gt_instances_3d.instances2world = anno_info['gt_instances2world']
-            gt_instances_3d.future_traj = info['future_instances_traj']
-            
-            # gt_ego
-            gt_ego = BaseDataElement(**info['ego'])
-            gt_ego.future_traj = info['future_ego_traj']
-            
-            # gt sensors
-            metainfo = info['sensors']
-            
-            data_sample = PlanningDataSample(metainfo=metainfo)
-            data_sample.gt_instances_3d = gt_instances_3d
-            data_sample.gt_ego = gt_ego
-            """
             # save to standard info
             input_dict['anno_info'] = anno_info
 
@@ -397,26 +377,14 @@ class Planning3DDataset(Dataset):
         
         # generate ego past/future trajectory
         past_future_ego_traj = self._generate_past_future_ego_trajectory(index, curr_info)
-        future_ego_traj = TrajectoryData(metainfo=dict(past_steps=0,
-                                            planning_steps=past_future_ego_traj.planning_steps,
-                                            sample_interval=past_future_ego_traj.sample_interval),
-                                          xy=past_future_ego_traj.xy[..., -(1+past_future_ego_traj.planning_steps):],
-                                          mask=past_future_ego_traj.mask[..., -(1+past_future_ego_traj.planning_steps):]
-                                        )
+
         # generate instances past/future trajectory
         past_future_instances_traj = self._generate_past_future_instances_trajectory(index, curr_info)
-        future_instances_traj = TrajectoryData(metainfo=dict(past_steps=0,
-                                            planning_steps=past_future_instances_traj.planning_steps,
-                                            sample_interval=past_future_instances_traj.sample_interval),
-                                          xy=past_future_instances_traj.xy[..., -(1+past_future_instances_traj.planning_steps):],
-                                          mask=past_future_instances_traj.mask[..., -(1+past_future_instances_traj.planning_steps):]
-                                        )
+
         # add to the current info
-        curr_info['gt_ego_past_future_traj'] = past_future_ego_traj
-        curr_info['gt_instances_past_future_traj'] = past_future_instances_traj
-        curr_info['gt_ego_future_traj'] = future_ego_traj
-        curr_info['gt_instances_future_traj'] = future_instances_traj
-        
+        curr_info['gt_ego_traj'] = past_future_ego_traj
+        curr_info['gt_instances_traj'] = past_future_instances_traj
+
         return curr_info
         
     def _generate_past_future_ego_trajectory(self, index, curr_info):
@@ -432,8 +400,8 @@ class Planning3DDataset(Dataset):
 
         index_list = range(index - self.past_steps * self.sample_interval, index + self.planning_steps * self.sample_interval + 1, self.sample_interval)
         world2lidar_curr = np.linalg.inv(curr_info['sensors']['LIDAR_TOP']['sensor2world'])
-        xy = np.zeros((1, 2, self.past_steps + 1 + self.planning_steps)) # past + current + future
-        mask = np.zeros((1, self.past_steps + 1 + self.planning_steps)) 
+        xyr = np.zeros((self.past_steps + 1 + self.planning_steps, 3)) # past + current + future
+        mask = np.zeros((self.past_steps + 1 + self.planning_steps,)) 
 
         # current frame: 0 centered
         
@@ -441,7 +409,7 @@ class Planning3DDataset(Dataset):
         for i, idx in enumerate(index_list):
             # skip the current frame
             if idx == index:
-                mask[0, i] = 1
+                mask[i] = 1
                 continue
             # check if index is within range
             if idx < 0 or idx >= self.num_samples:
@@ -454,16 +422,14 @@ class Planning3DDataset(Dataset):
             world2lidar_adj = np.linalg.inv(adj_info['sensors']['LIDAR_TOP']['sensor2world'])
             # T12 = T2^-1 * T1
             adj2curr = world2lidar_curr @ np.linalg.inv(world2lidar_adj)
-            xy[0, :, i] = adj2curr[:2, 3]
-            mask[0, i] = 1
+            xyr[i, :2] = adj2curr[:2, 3]
+            xyr[i, 2] = np.arctan2(adj2curr[1, 0], adj2curr[0, 0]) # [-pi, pi]
+            mask[i] = 1
             
-            # TODO: add yaw to trajectory
-            yaw = np.arctan2(adj2curr[1, 0], adj2curr[0, 0]) # [-pi, pi]
-            
-        return TrajectoryData(metainfo=dict(past_steps=self.past_steps, 
-                                            planning_steps=self.planning_steps,
-                                            sample_interval=self.sample_interval), 
-                              xy=xy.astype(np.float32), 
+        return TrajectoryData(metainfo=dict(num_past_steps=self.past_steps, 
+                                            num_future_steps=self.planning_steps,
+                                            time_step=self.sample_interval/self.FPS), 
+                              data=xyr.astype(np.float32), 
                               mask=mask.astype(np.uint8))
             
     def _generate_past_future_instances_trajectory(self, index, curr_info):
@@ -483,22 +449,26 @@ class Planning3DDataset(Dataset):
         instances_ids = curr_info['gt_instances_ids']
         world2lidar_curr = np.linalg.inv(curr_info['sensors']['LIDAR_TOP']['sensor2world'])
         
-        # TODO: should use accumulative points for the trajectory. if no more data, use the last point
-        xy = np.zeros((len(instances_ids), 2, self.past_steps + 1 + self.planning_steps)) # (N, 2, T)
-        mask = np.zeros((len(instances_ids), self.past_steps + 1 + self.planning_steps)) # (N, T)
-        
+        # initialize the trajectory data
+        trajs = []
+                
         # for each instance in the current frame, find its past and future trajectory
         for i, instance_id in enumerate(instances_ids):
+            # TODO: should use accumulative points for the trajectory. if no more data, use the last point
+            xyr = np.zeros((self.past_steps + 1 + self.planning_steps, 3)) # (T, 3)
+            mask = np.zeros((self.past_steps + 1 + self.planning_steps,)) # (T,)    
+            
+            # 
             instance2lidar_curr = world2lidar_curr @ curr_info['gt_instances2world'][i]
-            xy_curr = instance2lidar_curr[:2, 3]
-            xy[i, :, self.past_steps] = xy_curr
-            mask[i, self.past_steps] = 1
-
+            xyr[self.past_steps, :2] = instance2lidar_curr[:2, 3]
+            xyr[self.past_steps, 2] = np.arctan2(instance2lidar_curr[1, 0], instance2lidar_curr[0, 0]) # [-pi, pi]
+            
             for j, idx in enumerate(index_list):
                 # skip the current frame
                 if idx == index:
-                    mask[i, j] = 1
+                    mask[j] = 1
                     continue
+                
                 # check if index is within range
                 if idx < 0 or idx >= self.num_samples:
                     break
@@ -518,15 +488,17 @@ class Planning3DDataset(Dataset):
                 # viewing instance in adj frame lidar coords from the current frame's lidar coord
                 adj2curr = world2lidar_curr @ adj_info['gt_instances2world'][adj_idx]
 
-                xy_adj = adj2curr[:2, 3]
-                xy[i, :, j] = xy_adj
-                mask[i, j] = 1
+                xyr[j, :2] = adj2curr[:2, 3]
+                xyr[j, 2] = np.arctan2(adj2curr[1, 0], adj2curr[0, 0]) # [-pi, pi]
+                mask[j] = 1
         
-        return TrajectoryData(metainfo=dict(past_steps=self.past_steps,
-                                            planning_steps=self.planning_steps,
-                                            sample_interval=self.sample_interval),
-                                xy=xy.astype(np.float32),
-                                mask=mask.astype(np.uint8))
+            trajs.append(TrajectoryData(metainfo=dict(num_past_steps=self.past_steps, 
+                                                num_future_steps=self.planning_steps,
+                                                time_step=self.sample_interval/self.FPS), 
+                                    data=xyr.astype(np.float32),
+                                    mask=mask.astype(np.uint8))
+        )
+        return trajs
                 
     def pre_pipeline(self, results):
         """Initialization before data preparation.
@@ -536,7 +508,7 @@ class Planning3DDataset(Dataset):
                 - img_fields (list[str]): Image fields, inlcuding 'img', 'img_filename', etc
                 - pts_fields (list[str]): Point fields, including 'pts', 'pts_filename', etc
                 - ego_fields (list[str]): Ego fields, including 
-                        'gt_ego_future_traj', 'ego_world2ego', 'ego_velocity', 'ego_affected_by_lights', 'ego_affected_by_stop_sign', 'ego_is_at_junction', etc
+                        'gt_ego_traj', 'ego_world2ego', 'ego_velocity', 'ego_affected_by_lights', 'ego_affected_by_stop_sign', 'ego_is_at_junction', etc
                 - bbox3d_fields (list[str]): 3D bbox fields, including 'gt_bboxes_3d', 'gt_labels_3d', 'gt_classes', etc
                 - pts_seg_fields (list[str]): Point cloud segmentation fields.
                 - grid_fields (list[str]): Grid fields, including "gt_grid_density", "gt_grid_occupancy", etc
@@ -544,7 +516,7 @@ class Planning3DDataset(Dataset):
         
         results['img_fields'] = []
         results['pts_fields'] = []
-        results['ego_fields'] = [] # ['gt_ego_future_traj', 'ego_xy', 'ego_yaw']
+        results['ego_fields'] = [] # ['gt_ego_traj']
         results['bbox3d_fields'] = []
         results['pts_seg_fields'] = []
         results['grid_fields'] = [] 
@@ -567,7 +539,7 @@ class Planning3DDataset(Dataset):
         info = self.generate_past_future_info(index, info) 
         # assemble for data pipeline
         input_dict = self.get_data_info(info)
-        if input_dict is None:
+        if not input_dict:
             return None
         self.pre_pipeline(input_dict)
         example = self.pipeline(input_dict)

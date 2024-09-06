@@ -635,7 +635,7 @@ class LoadAnnotations3DPlanning(LoadAnnotations3D):
 
     Args:
     # Planning:
-        with_instances_future_traj (bool, optional): Whether to load future trajectory for instances.
+        with_instances_traj (bool, optional): Whether to load trajectory for instances.
             Defaults to False.
         
     # 3D annotations inherited from LoadAnnotations3D
@@ -671,13 +671,13 @@ class LoadAnnotations3DPlanning(LoadAnnotations3D):
     """
     def __init__(self,
                  with_ego_status=False,
-                 with_instances_future_traj=False,
+                 with_instances_traj=False,
                  with_instances_ids=False,
                  with_grids=False,
                  **kwargs):
         super().__init__(**kwargs)
         self.with_ego_status = with_ego_status
-        self.with_instances_future_traj = with_instances_future_traj
+        self.with_instances_traj = with_instances_traj
         self.with_instances_ids = with_instances_ids
         self.with_grids = with_grids
 
@@ -687,16 +687,16 @@ class LoadAnnotations3DPlanning(LoadAnnotations3D):
         results['bbox3d_fields'].append('gt_instances_ids')
         return results
 
-    def _load_ego_future_traj(self, results):
-        ego_future_traj = results['anno_info']['gt_ego_future_traj']
-        results['gt_ego_future_traj'] = ego_future_traj
-        results['ego_fields'].append('gt_ego_future_traj')
+    def _load_ego_traj(self, results):
+        ego_traj = results['anno_info']['gt_ego_traj']
+        results['gt_ego_traj'] = ego_traj
+        results['ego_fields'].append('gt_ego_traj')
         return results
     
-    def _load_instances_future_traj(self, results):
-        instances_future_traj = results['anno_info']['gt_instances_future_traj']
-        results['gt_instances_future_traj'] = instances_future_traj
-        results['bbox3d_fields'].append('gt_instances_future_traj')
+    def _load_instances_traj(self, results):
+        instances_traj = results['anno_info']['gt_instances_traj']
+        results['gt_instances_traj'] = instances_traj
+        results['bbox3d_fields'].append('gt_instances_traj')
         return results
     
     def _load_ego_status(self, results):
@@ -727,13 +727,13 @@ class LoadAnnotations3DPlanning(LoadAnnotations3D):
         results = super().__call__(results)
         
         # load ego related
-        results = self._load_ego_future_traj(results)
+        results = self._load_ego_traj(results)
         if self.with_ego_status:
             results = self._load_ego_status(results)
               
         # load future trajectory for ego vehicle
-        if self.with_instances_future_traj:
-            results = self._load_instances_future_traj(results)
+        if self.with_instances_traj:
+            results = self._load_instances_traj(results)
         if self.with_instances_ids:
             results = self._load_instances_ids(results)
 
@@ -747,7 +747,7 @@ class LoadAnnotations3DPlanning(LoadAnnotations3D):
         repr_str = super().__repr__()
         indent_str = '    '
         repr_str += f'{indent_str}with_ego_status={self.with_ego_status}, '
-        repr_str += f'{indent_str}with_instances_future_traj={self.with_instances_future_traj}, '
+        repr_str += f'{indent_str}with_instances_traj={self.with_instances_traj}, '
         repr_str += f'{indent_str}with_instances_ids={self.with_instances_ids}, '
         repr_str += f'{indent_str}with_grids={self.with_grids})'
         

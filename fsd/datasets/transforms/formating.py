@@ -8,7 +8,7 @@ import torch
 #from mmcv.core.points import BasePoints
 from mmengine.structures import BaseDataElement, InstanceData, PixelData
 from mmdet3d.structures import BaseInstance3DBoxes, BasePoints, PointData
-from mmengine.utils import is_str
+from mmengine.utils import is_str, is_seq_of
 from fsd.structures import PlanningDataSample
 from fsd.registry import TRANSFORMS
 
@@ -347,6 +347,9 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
                 elif isinstance(results[key], BaseDataElement):
                     gt_instances_3d[key] = results[key].to_tensor()
                 elif isinstance(results[key], BaseInstance3DBoxes):
+                    gt_instances_3d[key] = results[key]
+                # [Trajectory, Trajectory, ...]
+                elif is_seq_of(results[key], BaseDataElement):
                     gt_instances_3d[key] = results[key]
                 else:
                     gt_instances_3d[key] = to_tensor(results[key])
