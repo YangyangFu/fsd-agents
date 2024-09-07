@@ -19,11 +19,11 @@ input_modality = dict(
 )
 
 camera_sensors = [
-    'CAM_FRONT', 
     'CAM_FRONT_LEFT', 
+    'CAM_FRONT', 
     'CAM_FRONT_RIGHT', 
+    'CAM_BACK_LEFT',
     'CAM_BACK', 
-    'CAM_BACK_LEFT', 
     'CAM_BACK_RIGHT'
 ]
 lidar_sensors = ['LIDAR_TOP']
@@ -46,7 +46,8 @@ ann_file_test=info_root + f"/b2d_infos_val.pkl"
 
 train_pipeline = [
     dict(type="LoadMultiViewImageFromFiles", 
-         channel_order = 'bgr', 
+         channel_order = 'rgb', 
+         color_type = 'color',
          to_float32=False
     ),
     dict(type="LoadPointsFromFileCarlaDataset", coord_type="LIDAR", load_dim=3, use_dim=[0, 1, 2]),

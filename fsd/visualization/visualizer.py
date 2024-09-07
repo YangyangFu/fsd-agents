@@ -8,6 +8,7 @@ import warnings
 from typing import List, Optional, Sequence, Tuple, Union
 
 import matplotlib.pyplot as plt
+import cv2
 import mmcv
 import numpy as np
 from matplotlib.collections import PatchCollection, LineCollection
@@ -362,33 +363,78 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         self.ax_save.cla()
         self.ax_save.axis(False)
         self.ax_save.imshow(bev_image, origin='lower')
-        # plot camera view range
-        x1 = np.linspace(0, self.width / 2)
-        x2 = np.linspace(self.width / 2, self.width)
-        self.ax_save.plot(
-            x1,
-            self.width / 2 - x1,
-            ls='--',
-            color='grey',
-            linewidth=1,
-            alpha=0.5)
-        self.ax_save.plot(
-            x2,
-            x2 - self.width / 2,
-            ls='--',
-            color='grey',
-            linewidth=1,
-            alpha=0.5)
-        self.ax_save.plot(
-            self.width / 2,
-            0,
-            marker='+',
-            markersize=16,
-            markeredgecolor='red')
-
+        
     # TODO: Support bev point cloud visualization
     @master_only
     def draw_bev_bboxes(self,
+                        bbox_3d_ego: BaseInstance3DBoxes,
+                        bboxes_3d_instances: BaseInstance3DBoxes,
+                        scale: int = 15,
+                        edge_colors_ego: Union[str, Tuple[int],
+                                           List[Union[str, Tuple[int]]]] = 'r',
+                        edge_colors_instances: Union[str, Tuple[int],
+                                           List[Union[str, Tuple[int]]]] = 'o',
+                        line_styles_ego: Union[str, List[str]] = '-',
+                        line_styles_instances: Union[str, List[str]] = '-',
+                        line_widths: Union[int, float, List[Union[int,
+                                                                  float]]] = 1,
+                        face_colors: Union[str, Tuple[int],
+                                           List[Union[str,
+                                                      Tuple[int]]]] = 'none',
+                        alpha: Union[int, float] = 1) -> MMENGINE_Visualizer:
+        """Draw projected 3D boxes on the image.
+
+        Args:
+            bbox_3d_ego (:obj:`BaseInstance3DBoxes`): 3D bbox of ego vehicle
+            bboxes_3d_instances (:obj:`BaseInstance3DBoxes`): 3D bbox of other agents in the scene,
+                (x, y, z, x_size, y_size, z_size, yaw).
+            scale (dict): Value to scale the bev bboxes for better
+                visualization, i.e., pixels per meter. Defaults to 15.
+            edge_colors (str or Tuple[int] or List[str or Tuple[int]]):
+                The colors of bboxes. ``colors`` can have the same length with
+                lines or just single value. If ``colors`` is single value, all
+                the lines will have the same colors. Refer to `matplotlib.
+                colors` for full list of formats that are accepted.
+                Defaults to 'o'.
+            line_styles (str or List[str]): The linestyle of lines.
+                ``line_styles`` can have the same length with texts or just
+                single value. If ``line_styles`` is single value, all the lines
+                will have the same linestyle. Reference to
+                https://matplotlib.org/stable/api/collections_api.html?highlight=collection#matplotlib.collections.AsteriskPolygonCollection.set_linestyle
+                for more details. Defaults to '-'.
+            line_widths (int or float or List[int or float]): The linewidth of
+                lines. ``line_widths`` can have the same length with lines or
+                just single value. If ``line_widths`` is single value, all the
+                lines will have the same linewidth. Defaults to 2.
+            face_colors (str or Tuple[int] or List[str or Tuple[int]]):
+                The face colors. Defaults to 'none'.
+            alpha (int or float): The transparency of bboxes. Defaults to 1.
+        """
+        
+        if bbox_3d_ego is not None:
+            self = self._draw_bev_bboxes(
+                bboxes_3d=bbox_3d_ego, 
+                scale=scale, 
+                edge_colors=edge_colors_ego, 
+                line_styles=line_styles_ego,
+                line_widths=line_widths, 
+                face_colors=face_colors, 
+                alpha=alpha
+            )
+        
+        if bboxes_3d_instances is not None:
+            self = self._draw_bev_bboxes(
+                bboxes_3d=bboxes_3d_instances, 
+                scale=scale, 
+                edge_colors=edge_colors_instances, 
+                line_styles=line_styles_instances,
+                line_widths=line_widths, 
+                face_colors=face_colors, 
+                alpha=alpha)
+
+        return self
+        
+    def _draw_bev_bboxes(self,
                         bboxes_3d: BaseInstance3DBoxes,
                         scale: int = 15,
                         edge_colors: Union[str, Tuple[int],
@@ -427,7 +473,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 The face colors. Defaults to 'none'.
             alpha (int or float): The transparency of bboxes. Defaults to 1.
         """
-
+        
         check_type('bboxes', bboxes_3d, BaseInstance3DBoxes)
         # Convert to Depth mode for visualization
         if not isinstance(bboxes_3d, DepthInstance3DBoxes):
@@ -445,9 +491,25 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         pt3 = ctr - vec1 - vec2
         pt4 = ctr - vec1 + vec2
         poly = np.stack([pt1, pt2, pt3, pt4], axis=-2)
-        # move the object along x-axis
+
+        # move lidar (0, 0) to the center of the image
         poly[:, :, 0] += self.width / 2
+        poly[:, :, 1] += self.height / 2
         poly = [p for p in poly]
+        
+        # add arrows to indicate the orientation of the boxes
+        # midpoints of the front edge 
+        midpt_front = (pt1 + pt2) / 2
+        direction = np.stack([midpt_front, ctr], axis=-2)
+        direction[..., 0] += self.width / 2
+        direction[..., 1] += self.height / 2
+        
+        self.draw_lines(x_datas=direction[..., 0],
+                        y_datas=direction[..., 1],
+                        colors=edge_colors,
+                        line_styles=line_styles,
+                        line_widths=line_widths) 
+        
         return self.draw_polygons(
             poly,
             alpha=alpha,
@@ -455,7 +517,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             line_styles=line_styles,
             line_widths=line_widths,
             face_colors=face_colors)
-
+ 
     @master_only
     def draw_points_on_image(self,
                              points: Union[np.ndarray, Tensor],
@@ -707,26 +769,50 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         
         return cs[data]
     
-    def draw_trajectory_image(self, ego_traj, ego_traj_mask, instances_traj=None, input_meta={}):
-        """Draw trajectory on image. 
-            At the end of the trajectory, there might be zeros indicating no more data. 
-            Need remove them for plotting.
+    def draw_ego_trajectory_image(self, 
+                              ego_traj: np.ndarray, 
+                              ego_traj_mask: Optional[np.ndarray] = None, 
+                              input_meta: Optional[dict] = None,
+                              cmap: Optional[str] = 'winter',
+                            ):
+        """Draw trajectory on image. The trajectory is assumed to be in the current lidar frame.            
 
         Args:
-            traj (np.ndarray): Trajectory to draw.
-            img_size (tuple): The size of the image.
+            ego_traj (np.ndarray): Trajectory to draw, (T, d) with the first two columns as x, y.
+            ego_traj_mask (np.ndarray): Mask of the trajectory, (T,).
+            input_meta (dict): Meta information for drawing, such as lidar2img, etc.
+            cmap (str): Color map in matplotlib for drawing the trajectory.
+
+        Examples:
+            >>> vis = PlanningVisualizer()
+            >>> img = np.zeros((100, 100, 3), dtype=np.uint8)
+            >>> ego_traj = np.random.rand(10, 3)
+            >>> ego_traj_mask = np.ones((10,))
+            >>> lidar2img = np.eye(4)
+            >>> input_meta = {'lidar2img': lidar2img}
+            >>> vis.set_image(img)
+            >>> vis.draw_trajectory_image(ego_traj, ego_traj_mask, input_meta)
+            >>> img_with_traj = vis.get_image()
+            >>> vis.show()
         """
         
+        assert 'lidar2img' in input_meta, 'lidar2img should be in input_meta'
+        assert isinstance(ego_traj, np.ndarray), 'ego_traj should be a numpy array'
+        if ego_traj_mask is not None:
+            assert isinstance(ego_traj_mask, np.ndarray), 'ego_traj_mask should be a numpy array'
+
         # lidar to image
         # extrack valid trajectory with mask in x-y plane
+        if ego_traj_mask is None:
+            ego_traj_mask = np.ones((ego_traj.shape[0],))
         ego_traj = ego_traj[ego_traj_mask == 1][:, :2]
-        print(ego_traj.shape)
+
         # plot: this requires at least two points
         if ego_traj.shape[0] <= 1:
             return self
         
         ego_traj = np.concatenate((ego_traj, 
-                                   -1.2*np.ones((ego_traj.shape[0], 1)),
+                                   -1.5*np.ones((ego_traj.shape[0], 1)), # close to ground
                                    np.ones((ego_traj.shape[0], 1))), 
                                   axis=1)
         
@@ -749,7 +835,6 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             else:
                 ego_traj_vecs = np.concatenate((ego_traj_vecs, xy), axis=0)            
         
-        cmap='winter'
         y = np.sin(np.linspace(1/2*np.pi, 3/2*np.pi, 301))
         colors = self.color_map(y[:-1], cmap)
         
@@ -760,6 +845,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             linewidths=2,
             cmap=cmap)
         self.ax_save.add_collection(line_collect)
+
         return self
     
     def draw_trajectory_bev(self, traj, scale):
@@ -771,7 +857,51 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         """
         pass 
 
+    # multi-view image
+    def draw_multiviews(self, 
+                        imgs, 
+                        view_names: Optional[List[str]] = None, 
+                        target_size: Optional[Tuple[int]]=(2133, 800), 
+                        arrangement: Optional[Tuple[int]]=(2, 3),
+                        text_colors: Optional[Union[Tuple[int], str]] = (255, 255, 255)
+                    ):
+        """Set multiview images to draw.
+        """
+        assert isinstance(imgs, list), 'imgs should be a list'
+        if view_names is not None:
+            assert len(view_names) == len(imgs), 'view_names should have the same length with imgs'
+        
+        num_views = len(imgs)
+        row, col = arrangement
+        assert row * col >= num_views, 'The product of row and col in ' \
+                                    'the `arrangement` is less than ' \
+                                    'num of views, please set the ' \
+                                    '`arrangement` correctly'
 
+        # add multi-view names to image
+        views = []
+        # default view names of not specified
+        if view_names is None:
+            view_names = [f'View {i+1}' for i in range(num_views)]
+        # draw multi-view images
+        for name, img in zip(view_names, imgs):
+            self.set_image(img)
+            self.draw_texts(name, np.array([10, 10]), font_sizes=20, colors=text_colors)
+            views.append(self.get_image())
+
+        # TODO: support multi-view image with different shapes
+        rows = []
+        for i in range(num_views):
+            if i % col == 0:
+                rows.append([])
+            rows[-1].append(views[i])
+            
+        # stack multi-view images
+        multiview = cv2.vconcat([cv2.hconcat(row) for row in rows])
+        multiview = cv2.resize(multiview, target_size)
+        
+        return multiview
+        
     @master_only
     def draw_seg_mask(self, seg_mask_colors: np.ndarray) -> None:
         """Add segmentation mask to visualizer via per-point colorization.
@@ -1118,177 +1248,3 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         self.flag_next = True
         return False
 
-    # TODO: Support Visualize the 3D results from image and point cloud
-    # respectively
-    @master_only
-    def add_datasample(self,
-                       name: str,
-                       data_input: dict,
-                       data_sample: Optional[Det3DDataSample] = None,
-                       draw_gt: bool = True,
-                       draw_pred: bool = True,
-                       show: bool = False,
-                       wait_time: float = 0,
-                       out_file: Optional[str] = None,
-                       o3d_save_path: Optional[str] = None,
-                       vis_task: str = 'mono_det',
-                       pred_score_thr: float = 0.3,
-                       step: int = 0,
-                       show_pcd_rgb: bool = False) -> None:
-        """Draw datasample and save to all backends.
-
-        - If GT and prediction are plotted at the same time, they are displayed
-          in a stitched image where the left image is the ground truth and the
-          right image is the prediction.
-        - If ``show`` is True, all storage backends are ignored, and the images
-          will be displayed in a local window.
-        - If ``out_file`` is specified, the drawn image will be saved to
-          ``out_file``. It is usually used when the display is not available.
-
-        Args:
-            name (str): The image identifier.
-            data_input (dict): It should include the point clouds or image
-                to draw.
-            data_sample (:obj:`Det3DDataSample`, optional): Prediction
-                Det3DDataSample. Defaults to None.
-            draw_gt (bool): Whether to draw GT Det3DDataSample.
-                Defaults to True.
-            draw_pred (bool): Whether to draw Prediction Det3DDataSample.
-                Defaults to True.
-            show (bool): Whether to display the drawn point clouds and image.
-                Defaults to False.
-            wait_time (float): The interval of show (s). Defaults to 0.
-            out_file (str, optional): Path to output file. Defaults to None.
-            o3d_save_path (str, optional): Path to save open3d visualized
-                results. Defaults to None.
-            vis_task (str): Visualization task. Defaults to 'mono_det'.
-            pred_score_thr (float): The threshold to visualize the bboxes
-                and masks. Defaults to 0.3.
-            step (int): Global step value to record. Defaults to 0.
-            show_pcd_rgb (bool): Whether to show RGB point cloud. Defaults to
-                False.
-        """
-        assert vis_task in (
-            'mono_det', 'multi-view_det', 'lidar_det', 'lidar_seg',
-            'multi-modality_det'), f'got unexpected vis_task {vis_task}.'
-        classes = self.dataset_meta.get('classes', None)
-        # For object detection datasets, no palette is saved
-        palette = self.dataset_meta.get('palette', None)
-        ignore_index = self.dataset_meta.get('ignore_index', None)
-        if vis_task == 'lidar_seg' and ignore_index is not None and 'pts_semantic_mask' in data_sample.gt_pts_seg:  # noqa: E501
-            keep_index = data_sample.gt_pts_seg.pts_semantic_mask != ignore_index  # noqa: E501
-        else:
-            keep_index = None
-
-        gt_data_3d = None
-        pred_data_3d = None
-        gt_img_data = None
-        pred_img_data = None
-
-        if not hasattr(self, 'o3d_vis') and vis_task in [
-                'multi-view_det', 'lidar_det', 'lidar_seg',
-                'multi-modality_det'
-        ]:
-            self.o3d_vis = self._initialize_o3d_vis(show=show)
-
-        if draw_gt and data_sample is not None:
-            if 'gt_instances_3d' in data_sample:
-                gt_data_3d = self._draw_instances_3d(
-                    data_input, data_sample.gt_instances_3d,
-                    data_sample.metainfo, vis_task, show_pcd_rgb, palette)
-            if 'gt_instances' in data_sample:
-                if len(data_sample.gt_instances) > 0:
-                    assert 'img' in data_input
-                    img = data_input['img']
-                    if isinstance(data_input['img'], Tensor):
-                        img = data_input['img'].permute(1, 2, 0).numpy()
-                        img = img[..., [2, 1, 0]]  # bgr to rgb
-                    gt_img_data = self._draw_instances(
-                        img, data_sample.gt_instances, classes, palette)
-            if 'gt_pts_seg' in data_sample and vis_task == 'lidar_seg':
-                assert classes is not None, 'class information is ' \
-                                            'not provided when ' \
-                                            'visualizing semantic ' \
-                                            'segmentation results.'
-                assert 'points' in data_input
-                self._draw_pts_sem_seg(data_input['points'],
-                                       data_sample.gt_pts_seg, palette,
-                                       keep_index)
-
-        if draw_pred and data_sample is not None:
-            if 'pred_instances_3d' in data_sample:
-                pred_instances_3d = data_sample.pred_instances_3d
-                # .cpu can not be used for BaseInstance3DBoxes
-                # so we need to use .to('cpu')
-                pred_instances_3d = pred_instances_3d[
-                    pred_instances_3d.scores_3d > pred_score_thr].to('cpu')
-                pred_data_3d = self._draw_instances_3d(data_input,
-                                                       pred_instances_3d,
-                                                       data_sample.metainfo,
-                                                       vis_task, show_pcd_rgb,
-                                                       palette)
-            if 'pred_instances' in data_sample:
-                if 'img' in data_input and len(data_sample.pred_instances) > 0:
-                    pred_instances = data_sample.pred_instances
-                    pred_instances = pred_instances[
-                        pred_instances.scores > pred_score_thr].cpu()
-                    img = data_input['img']
-                    if isinstance(data_input['img'], Tensor):
-                        img = data_input['img'].permute(1, 2, 0).numpy()
-                        img = img[..., [2, 1, 0]]  # bgr to rgb
-                    pred_img_data = self._draw_instances(
-                        img, pred_instances, classes, palette)
-            if 'pred_pts_seg' in data_sample and vis_task == 'lidar_seg':
-                assert classes is not None, 'class information is ' \
-                                            'not provided when ' \
-                                            'visualizing semantic ' \
-                                            'segmentation results.'
-                assert 'points' in data_input
-                self._draw_pts_sem_seg(data_input['points'],
-                                       data_sample.pred_pts_seg, palette,
-                                       keep_index)
-
-        # monocular 3d object detection image
-        if vis_task in ['mono_det', 'multi-modality_det']:
-            if gt_data_3d is not None and pred_data_3d is not None:
-                drawn_img_3d = np.concatenate(
-                    (gt_data_3d['img'], pred_data_3d['img']), axis=1)
-            elif gt_data_3d is not None:
-                drawn_img_3d = gt_data_3d['img']
-            elif pred_data_3d is not None:
-                drawn_img_3d = pred_data_3d['img']
-            else:  # both instances of gt and pred are empty
-                drawn_img_3d = None
-        else:
-            drawn_img_3d = None
-
-        # 2d object detection image
-        if gt_img_data is not None and pred_img_data is not None:
-            drawn_img = np.concatenate((gt_img_data, pred_img_data), axis=1)
-        elif gt_img_data is not None:
-            drawn_img = gt_img_data
-        elif pred_img_data is not None:
-            drawn_img = pred_img_data
-        else:
-            drawn_img = None
-
-        if show:
-            self.show(
-                o3d_save_path,
-                drawn_img_3d,
-                drawn_img,
-                win_name=name,
-                wait_time=wait_time,
-                vis_task=vis_task)
-
-        if out_file is not None:
-            # check the suffix of the name of image file
-            if not (out_file.endswith('.png') or out_file.endswith('.jpg')):
-                out_file = f'{out_file}.png'
-            if drawn_img_3d is not None:
-                mmcv.imwrite(drawn_img_3d[..., ::-1], out_file)
-            if drawn_img is not None:
-                mmcv.imwrite(drawn_img[..., ::-1],
-                             out_file[:-4] + '_2d' + out_file[-4:])
-        else:
-            self.add_image(name, drawn_img_3d, step)
