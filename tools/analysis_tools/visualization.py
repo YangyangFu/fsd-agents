@@ -25,8 +25,8 @@ for i, item in enumerate(ds):
     data_inputs = item['inputs']
     data_samples = item['data_samples']
     
-    gt_instances = data_samples.gt_instances_3d
-    bboxes_3d = gt_instances.gt_bboxes_3d 
+    instances = data_samples.instances
+    bboxes_3d = instances.gt_bboxes_3d 
 
     
     # display the data
@@ -61,11 +61,11 @@ for i, item in enumerate(ds):
                             input_meta = {'lidar2img': lidar2img},
                             edge_colors='orange',
                             face_colors=None,)
-    gt_ego_traj = data_samples.gt_ego.gt_ego_future_traj
-    gt_ego_traj_xy = gt_ego_traj.xy.numpy().squeeze(0).transpose(1, 0)
-    gt_ego_traj_mask = gt_ego_traj.mask.numpy().squeeze(0)
-    print(f"gt_ego_traj: {gt_ego_traj_xy}")
-    vis.draw_trajectory_image(gt_ego_traj_xy, gt_ego_traj_mask, input_meta = {'lidar2img': lidar2img})
+    gt_ego_traj = data_samples.ego.gt_traj
+    gt_ego_traj_xyr = gt_ego_traj.data.numpy()
+    gt_ego_traj_mask = gt_ego_traj.mask.numpy()
+    print(f"gt_ego_traj: {gt_ego_traj_xyr}")
+    vis.draw_trajectory_image(gt_ego_traj_xyr, gt_ego_traj_mask, input_meta = {'lidar2img': lidar2img})
     
     vis.show()
     

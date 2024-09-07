@@ -718,17 +718,13 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         """
         
         # lidar to image
-        # extrack valid trajectory with mask
-        ego_traj = ego_traj[ego_traj_mask == 1]
+        # extrack valid trajectory with mask in x-y plane
+        ego_traj = ego_traj[ego_traj_mask == 1][:, :2]
         print(ego_traj.shape)
         # plot: this requires at least two points
         if ego_traj.shape[0] <= 1:
             return self
         
-        #ego_traj[0, 0] = 0.3
-        #ego_traj[0, 1] = -0.00001
-        
-        #
         ego_traj = np.concatenate((ego_traj, 
                                    -1.2*np.ones((ego_traj.shape[0], 1)),
                                    np.ones((ego_traj.shape[0], 1))), 
