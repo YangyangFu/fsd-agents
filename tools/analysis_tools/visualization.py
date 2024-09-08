@@ -53,7 +53,17 @@ for i, item in enumerate(ds):
         edge_colors_instances='b',
         face_colors = 'none',
     )
+    bev_img = vis.get_image()
+    #TODO: BEV is now (480, 640, 3), why not (800, 800, 3)?
+    print(bev_img.shape)
     
+    # add trajectory to bev
+    gt_ego_traj = data_samples.ego.gt_traj
+    gt_ego_traj_xyr = gt_ego_traj.data.numpy()
+    gt_ego_traj_mask = gt_ego_traj.mask.numpy()
+    input_meta = {'future_steps': gt_ego_traj.num_future_steps}
+    vis.draw_ego_trajectory_bev(gt_ego_traj_xyr, gt_ego_traj_mask, scale=10, input_meta=input_meta)
+        
     vis.show()
     
     """

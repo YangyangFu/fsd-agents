@@ -769,6 +769,34 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         
         return cs[data]
     
+    def _generate_trajectory_line_collections(
+        self,
+        traj_xy: np.ndarray,
+    ):
+        """_summary_
+
+        Args:
+            traj_xy (np.ndarray): Shape (T, 2)
+
+        Returns:
+            _type_: _description_
+        """
+        traj_xy = np.stack((traj_xy[:-1], traj_xy[1:]), axis=1) # (T-1, 2, 2)
+        
+        traj_vecs = None
+        for i in range(traj_xy.shape[0]):
+            traj_vec_i = traj_xy[i]
+            x_linspace = np.linspace(traj_vec_i[0, 0], traj_vec_i[1, 0], 51)
+            y_linspace = np.linspace(traj_vec_i[0, 1], traj_vec_i[1, 1], 51)
+            xy = np.stack((x_linspace, y_linspace), axis=1)
+            xy = np.stack((xy[:-1], xy[1:]), axis=1)
+            if traj_vecs is None:
+                traj_vecs = xy
+            else:
+                traj_vecs = np.concatenate((traj_vecs, xy), axis=0)  
+        
+        return traj_vecs
+    
     def draw_ego_trajectory_image(self, 
                               ego_traj: np.ndarray, 
                               ego_traj_mask: Optional[np.ndarray] = None, 
@@ -848,6 +876,80 @@ class PlanningVisualizer(MMENGINE_Visualizer):
 
         return self
     
+    def draw_ego_trajectory_bev(self,
+                              traj: np.ndarray, 
+                              mask: Optional[np.ndarray] = None, 
+                              cmap: Optional[str] = 'winter_r',
+                              scale=10,
+                              linewidths=1,
+                              draw_history: bool = True,
+                              cmap_history: Optional[str] = 'summer',
+                              input_meta: Optional[dict] = None
+                            ):
+        if mask is not None:
+            assert isinstance(mask, np.ndarray), 'mask should be a numpy array'
+
+        # lidar to image: bev is in lidar coord, no need to transform
+        if mask is None:
+            mask = np.ones((traj.shape[0],))
+        traj = traj[mask == 1][:, :2]
+
+        # lidar coord to bev (depth coord)
+        xy = np.zeros((traj.shape[0], 2))
+        xy[:, 0] = -traj[:, 1] # x_depth = -y_lidar
+        xy[:, 1] = traj[:, 0] # y_depth = x_lidar
+        
+        # future trajectory
+        future_steps = input_meta['future_steps']
+        xy_future = xy[-(1+future_steps):] # add current step at the beginning
+        # at least two points
+        if xy_future.shape[0] <= 1:
+            return self
+        
+        # generate trajectory line collections
+        vecs = self._generate_trajectory_line_collections(xy_future)      
+        
+        # scale meters to pixels
+        vecs = vecs * scale
+
+        # move center to the middle of the image
+        vecs[..., 0] += self.width / 2
+        vecs[..., 1] += self.height / 2
+        
+        #TODO: hardcoded for now
+        y = np.sin(np.linspace(1/2*np.pi, 3/2*np.pi, 301))
+        colors = self.color_map(y[:-1], cmap)
+        
+        line_collect = LineCollection(
+            vecs.tolist(),
+            colors=colors,
+            linestyles='solid',
+            linewidths=linewidths,
+            cmap=cmap)
+        self.ax_save.add_collection(line_collect)
+
+        
+        # hisotry 
+        if draw_history:
+            xy_history = xy[:-future_steps, :]
+            if xy_history.shape[0] <= 1:
+                return self
+            vecs = self._generate_trajectory_line_collections(xy_history)
+            vecs = vecs * scale
+            vecs[..., 0] += self.width / 2
+            vecs[..., 1] += self.height / 2
+            colors = self.color_map(np.sin(np.linspace(0, 1, vecs.shape[0])), cmap_history)
+            line_collect = LineCollection(
+                vecs.tolist(),
+                colors=colors,
+                linestyles='solid',
+                linewidths=linewidths,
+                cmap=cmap_history,
+                alpha=0.5)
+            self.ax_save.add_collection(line_collect)
+        
+        return self        
+      
     def draw_trajectory_bev(self, traj, scale):
         """Draw trajectory on BEV image.
 
