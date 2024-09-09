@@ -360,10 +360,16 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         self.width, self.height = bev_image.shape[1], bev_image.shape[0]
         self._default_font_size = max(
             np.sqrt(self.height * self.width) // 90, 10)
+    
+        # add a small 1e-2 to avoid precision lost due to matplotlib's
+        # truncation (https://github.com/matplotlib/matplotlib/issues/15363)
+        self.fig_save.set_size_inches(  # type: ignore
+            (self.width + 1e-2) / self.dpi, (self.height + 1e-2) / self.dpi)
+        
         self.ax_save.cla()
         self.ax_save.axis(False)
         self.ax_save.imshow(bev_image, origin='lower')
-        
+
     # TODO: Support bev point cloud visualization
     @master_only
     def draw_bev_bboxes(self,

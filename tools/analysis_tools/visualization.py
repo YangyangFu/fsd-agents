@@ -54,9 +54,7 @@ for i, item in enumerate(ds):
         face_colors = 'none',
     )
     bev_img = vis.get_image()
-    #TODO: BEV is now (480, 640, 3), why not (800, 800, 3)?
-    print(bev_img.shape)
-    
+
     # add trajectory to bev
     gt_ego_traj = data_samples.ego.gt_traj
     gt_ego_traj_xyr = gt_ego_traj.data.numpy()
