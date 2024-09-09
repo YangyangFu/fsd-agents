@@ -916,8 +916,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         vecs[..., 0] += self.width / 2
         vecs[..., 1] += self.height / 2
         
-        #TODO: hardcoded for now
-        y = np.sin(np.linspace(1/2*np.pi, 3/2*np.pi, 301))
+        y = np.sin(np.linspace(1/2*np.pi, 3/2*np.pi, vecs.shape[0]))
         colors = self.color_map(y[:-1], cmap)
         
         line_collect = LineCollection(
@@ -938,7 +937,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             vecs = vecs * scale
             vecs[..., 0] += self.width / 2
             vecs[..., 1] += self.height / 2
-            colors = self.color_map(np.sin(np.linspace(0, 1, vecs.shape[0])), cmap_history)
+            colors = self.color_map(np.sin(np.linspace(1/2*np.pi, 3/2*np.pi, vecs.shape[0])), cmap_history)
             line_collect = LineCollection(
                 vecs.tolist(),
                 colors=colors,
