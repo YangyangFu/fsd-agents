@@ -81,15 +81,12 @@ class CarlaDataset(Planning3DDataset):
         
         # ego info
         ego = dict()
-        ego['size'] = raw_info['ego_size'] # [x, y, z]
-        ego['ego2world'] = np.linalg.inv(raw_info['world2ego']) # (4, 4)
-        ego['translation'] = raw_info['ego_translation'] # ? 
-        ego_yaw = raw_info['ego_yaw'] # in radian
-        rotation = list(Quaternion(axis=[0, 0, 1], radians=ego_yaw))
-        ego['rotation'] = rotation
-        ego['yaw'] = ego_yaw
-        ego['velocity'] = raw_info['ego_vel'] # [x, y, z]
-        ego['acceleration'] = raw_info['ego_accel'] # [x, y, z]
+        ego['size'] = np.array([raw_info['ego_size'][1], 
+                                raw_info['ego_size'][0], 
+                                raw_info['ego_size'][2]]).astype(np.float32) # [x, y, z] in nuscence lidar -> [x, y, z] in mmdet3d ego frame
+        ego['ego2world'] = np.linalg.inv(raw_info['world2ego']).astype(np.float32) # (4, 4)
+        ego['velocity'] = raw_info['ego_vel'].astype(np.float32) # [x, y, z] in ego frame, 
+        ego['acceleration'] = raw_info['ego_accel'].astype(np.float32) # [x, y, z] in ego frame
         
         # TODO: faked data, need to be updated
         ego['affected_by_lights'] = one_hot_encoding(np.array(0), 2)

@@ -38,8 +38,9 @@ for i, item in enumerate(ds):
     pts = data_inputs['pts'].tensor.numpy()
     
     # ego box
+    ego_size = data_samples.ego.size.numpy()
     ego_box = LiDARInstance3DBoxes(
-        torch.tensor([[0, 0, 0, 4, 1.5, 1.2, 0, 0, 0]]),
+        torch.tensor([[0, 0, 0, ego_size[0], ego_size[1], ego_size[2], 0, 0, 0]]),
         box_dim=9,
     )
 

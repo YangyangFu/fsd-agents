@@ -700,7 +700,7 @@ class LoadAnnotations3DPlanning(LoadAnnotations3D):
         return results
     
     def _load_ego_status(self, results):
-        status = ['ego_ego2world', 'ego_velocity', 'ego_affected_by_lights', \
+        status = ['ego_ego2world', 'ego_size', 'ego_velocity', 'ego_affected_by_lights', \
             'ego_affected_by_stop_sign', 'ego_is_at_junction']
         
         for key in status:

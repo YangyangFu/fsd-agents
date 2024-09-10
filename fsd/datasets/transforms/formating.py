@@ -374,6 +374,7 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
             "ego_affected_by_lights": "affected_by_lights",
             "ego_affected_by_stop_sign": "affected_by_stop_sign",
             "ego_is_at_junction": "is_at_junction",
+            "ego_size": "size",
         }
         
         for key in results['ego_fields']:
