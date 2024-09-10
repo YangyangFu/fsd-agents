@@ -354,7 +354,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             bev_shape (int): The bev image shape. Defaults to 900.
         """
         if bev_image is None:
-            bev_image = np.zeros((bev_shape, bev_shape, 3), np.uint8)
+            bev_image = 255 * np.ones((bev_shape, bev_shape, 3), np.uint8)
 
         self._image = bev_image
         self.width, self.height = bev_image.shape[1], bev_image.shape[0]
@@ -372,22 +372,23 @@ class PlanningVisualizer(MMENGINE_Visualizer):
 
     # TODO: Support bev point cloud visualization
     @master_only
-    def draw_bev_bboxes(self,
-                        bbox_3d_ego: BaseInstance3DBoxes,
-                        bboxes_3d_instances: BaseInstance3DBoxes,
-                        scale: int = 15,
-                        edge_colors_ego: Union[str, Tuple[int],
-                                           List[Union[str, Tuple[int]]]] = 'r',
-                        edge_colors_instances: Union[str, Tuple[int],
-                                           List[Union[str, Tuple[int]]]] = 'o',
-                        line_styles_ego: Union[str, List[str]] = '-',
-                        line_styles_instances: Union[str, List[str]] = '-',
-                        line_widths: Union[int, float, List[Union[int,
-                                                                  float]]] = 1,
-                        face_colors: Union[str, Tuple[int],
-                                           List[Union[str,
-                                                      Tuple[int]]]] = 'none',
-                        alpha: Union[int, float] = 1) -> MMENGINE_Visualizer:
+    def draw_bev_bboxes(
+        self,
+        bbox_3d_ego: BaseInstance3DBoxes,
+        bboxes_3d_instances: BaseInstance3DBoxes,
+        scale: int = 15,
+        edge_colors_ego: Union[str, Tuple[int],
+                            List[Union[str, Tuple[int]]]] = 'r',
+        edge_colors_instances: Union[str, Tuple[int],
+                            List[Union[str, Tuple[int]]]] = 'o',
+        line_styles_ego: Union[str, List[str]] = '-',
+        line_styles_instances: Union[str, List[str]] = '-',
+        line_widths: Union[int, float, List[Union[int,
+                                                    float]]] = 1,
+        face_colors: Union[str, Tuple[int],
+                            List[Union[str,
+                                        Tuple[int]]]] = 'none',
+        alpha: Union[int, float] = 1) -> MMENGINE_Visualizer:
         """Draw projected 3D boxes on the image.
 
         Args:
@@ -440,18 +441,19 @@ class PlanningVisualizer(MMENGINE_Visualizer):
 
         return self
         
-    def _draw_bev_bboxes(self,
-                        bboxes_3d: BaseInstance3DBoxes,
-                        scale: int = 15,
-                        edge_colors: Union[str, Tuple[int],
-                                           List[Union[str, Tuple[int]]]] = 'o',
-                        line_styles: Union[str, List[str]] = '-',
-                        line_widths: Union[int, float, List[Union[int,
-                                                                  float]]] = 1,
-                        face_colors: Union[str, Tuple[int],
-                                           List[Union[str,
-                                                      Tuple[int]]]] = 'none',
-                        alpha: Union[int, float] = 1) -> MMENGINE_Visualizer:
+    def _draw_bev_bboxes(
+        self,
+        bboxes_3d: BaseInstance3DBoxes,
+        scale: int = 15,
+        edge_colors: Union[str, Tuple[int],
+                            List[Union[str, Tuple[int]]]] = 'o',
+        line_styles: Union[str, List[str]] = '-',
+        line_widths: Union[int, float, List[Union[int,
+                                                    float]]] = 1,
+        face_colors: Union[str, Tuple[int],
+                            List[Union[str,
+                                        Tuple[int]]]] = 'none',
+        alpha: Union[int, float] = 1) -> MMENGINE_Visualizer:
         """Draw projected 3D boxes on the image.
 
         Args:
@@ -663,70 +665,6 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             line_widths=line_widths,
             face_colors=edge_colors)
 
-    # draw trajectory
-    @master_only
-    def draw_lines(
-        self,
-        x_datas: Union[np.ndarray, torch.Tensor],
-        y_datas: Union[np.ndarray, torch.Tensor],
-        colors: Union[str, tuple, List[str], List[tuple]] = 'g',
-        line_styles: Union[str, List[str]] = '-',
-        line_widths: Union[Union[int, float], List[Union[int, float]]] = 2
-    ) -> 'Visualizer':
-        """Draw single or multiple line segments.
-
-        Args:
-            x_datas (Union[np.ndarray, torch.Tensor]): The x coordinate of
-                each line' start and end points.
-            y_datas (Union[np.ndarray, torch.Tensor]): The y coordinate of
-                each line' start and end points.
-            colors (Union[str, tuple, List[str], List[tuple]]): The colors of
-                lines. ``colors`` can have the same length with lines or just
-                single value. If ``colors`` is single value, all the lines
-                will have the same colors. Reference to
-                https://matplotlib.org/stable/gallery/color/named_colors.html
-                for more details. Defaults to 'g'.
-            line_styles (Union[str, List[str]]): The linestyle
-                of lines. ``line_styles`` can have the same length with
-                texts or just single value. If ``line_styles`` is single
-                value, all the lines will have the same linestyle.
-                Reference to
-                https://matplotlib.org/stable/api/collections_api.html?highlight=collection#matplotlib.collections.AsteriskPolygonCollection.set_linestyle
-                for more details. Defaults to '-'.
-            line_widths (Union[Union[int, float], List[Union[int, float]]]):
-                The linewidth of lines. ``line_widths`` can have
-                the same length with lines or just single value.
-                If ``line_widths`` is single value, all the lines will
-                have the same linewidth. Defaults to 2.
-        """
-        from matplotlib.collections import LineCollection
-        check_type('x_datas', x_datas, (np.ndarray, torch.Tensor))
-        x_datas = tensor2ndarray(x_datas)
-        check_type('y_datas', y_datas, (np.ndarray, torch.Tensor))
-        y_datas = tensor2ndarray(y_datas)
-        assert x_datas.shape == y_datas.shape, (
-            '`x_datas` and `y_datas` should have the same shape')
-        assert x_datas.shape[-1] == 2, (
-            f'The shape of `x_datas` should be (N, 2), but got {x_datas.shape}'
-        )
-        if len(x_datas.shape) == 1:
-            x_datas = x_datas[None]
-            y_datas = y_datas[None]
-        colors = color_val_matplotlib(colors)  # type: ignore
-        lines = np.concatenate(
-            (x_datas.reshape(-1, 2, 1), y_datas.reshape(-1, 2, 1)), axis=-1)
-        if not self._is_posion_valid(lines):
-            warnings.warn(
-                'Warning: The line is out of bounds,'
-                ' the drawn line may not be in the image', UserWarning)
-        line_collect = LineCollection(
-            lines.tolist(),
-            colors=colors,
-            linestyles=line_styles,
-            linewidths=line_widths)
-        self.ax_save.add_collection(line_collect)
-        return self
-    
     def _transform_trajectory(self, ego_traj, instances_traj, input_meta):
         """Transform the trajectory to lidar coordinate for drawing.
 
@@ -803,6 +741,8 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         
         return traj_vecs
     
+    # TODO: support drawing instances trajectory on images 
+    @master_only
     def draw_ego_trajectory_image(self, 
                               ego_traj: np.ndarray, 
                               ego_traj_mask: Optional[np.ndarray] = None, 
@@ -882,39 +822,41 @@ class PlanningVisualizer(MMENGINE_Visualizer):
 
         return self
     
-    def draw_ego_trajectory_bev(self,
-                              traj: np.ndarray, 
-                              mask: Optional[np.ndarray] = None, 
-                              cmap: Optional[str] = 'winter_r',
-                              scale=10,
-                              linewidths=1,
-                              draw_history: bool = True,
-                              cmap_history: Optional[str] = 'summer',
-                              input_meta: Optional[dict] = None
-                            ):
-        if mask is not None:
-            assert isinstance(mask, np.ndarray), 'mask should be a numpy array'
-
-        # lidar to image: bev is in lidar coord, no need to transform
-        if mask is None:
-            mask = np.ones((traj.shape[0],))
-        traj = traj[mask == 1][:, :2]
-
-        # lidar coord to bev (depth coord)
-        xy = np.zeros((traj.shape[0], 2))
-        xy[:, 0] = -traj[:, 1] # x_depth = -y_lidar
-        xy[:, 1] = traj[:, 0] # y_depth = x_lidar
+    def _draw_one_trajectory(
+        self, 
+        traj: np.ndarray,
+        mask: Optional[np.ndarray] = None,
+        cmap: Optional[str] = 'autumn_r',
+        scale=10,
+        linewidths=1
+    ):
+        # check dimensions
+        assert isinstance(traj, np.ndarray) and traj.ndim == 2, 'traj should be a 2D numpy array'
+        T, _ = traj.shape
         
-        # future trajectory
-        future_steps = input_meta['future_steps']
-        xy_future = xy[-(1+future_steps):] # add current step at the beginning
-        # at least two points
-        if xy_future.shape[0] <= 1:
-            return self
+        # filter out invalid trajectory
+        traj = traj[mask == 1][..., :2]
+        # traj may be empty after masking
+        if traj.shape[0] == 0:
+            return
+        
+        # lidar coord to bev (depth coord)
+        xy = np.zeros_like(traj)
+        xy[..., 0] = -traj[..., 1] # x_depth = -y_lidar
+        xy[..., 1] = traj[..., 0] # y_depth = x_lidar
+        
+        # at least 1 valid step
+        if xy.shape[0] <= 1:
+            return
+        
+        # setup colors: each line segment has a color
+        # every two steps are connected by a line
+        segments_per_line = 50
+        y = np.sin(np.linspace(1/2*np.pi, 3/2*np.pi, T*segments_per_line))
+        colors = self.color_map(y, cmap)
         
         # generate trajectory line collections
-        vecs = self._generate_trajectory_line_collections(xy_future)      
-        
+        vecs = self._generate_trajectory_line_collections(xy)      
         # scale meters to pixels
         vecs = vecs * scale
 
@@ -922,9 +864,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         vecs[..., 0] += self.width / 2
         vecs[..., 1] += self.height / 2
         
-        y = np.sin(np.linspace(1/2*np.pi, 3/2*np.pi, vecs.shape[0]))
-        colors = self.color_map(y[:-1], cmap)
-        
+        # line collection
         line_collect = LineCollection(
             vecs.tolist(),
             colors=colors,
@@ -932,39 +872,75 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             linewidths=linewidths,
             cmap=cmap)
         self.ax_save.add_collection(line_collect)
-
         
-        # hisotry 
-        if draw_history:
-            xy_history = xy[:-future_steps, :]
-            if xy_history.shape[0] <= 1:
-                return self
-            vecs = self._generate_trajectory_line_collections(xy_history)
-            vecs = vecs * scale
-            vecs[..., 0] += self.width / 2
-            vecs[..., 1] += self.height / 2
-            colors = self.color_map(np.sin(np.linspace(1/2*np.pi, 3/2*np.pi, vecs.shape[0])), cmap_history)
-            line_collect = LineCollection(
-                vecs.tolist(),
-                colors=colors,
-                linestyles='solid',
-                linewidths=linewidths,
-                cmap=cmap_history,
-                alpha=0.5)
-            self.ax_save.add_collection(line_collect)
-        
-        return self        
-      
-    def draw_trajectory_bev(self, traj, scale):
+    @master_only                                 
+    def draw_trajectory_bev(
+        self,
+        traj: np.ndarray,
+        mask: Optional[np.ndarray] = None,
+        cmap: Optional[str] = 'autumn_r',
+        scale=10,
+        linewidths=1,
+        draw_history: bool = False,
+        cmap_history: Optional[str] = 'summer',
+        input_meta: Optional[dict] = None
+    ):
         """Draw trajectory on BEV image.
-
+            
+        
         Args:
-            traj (np.ndarray): Trajectory to draw.
+            trajs (np.ndarray): Trajectory to draw.
+                TrajectoryData: single trajectory for one agent
+                list[TrajectoryData]: one trajectory for each agent                
             scale (int): The scale of the BEV image.
         """
-        pass 
+       # assertions
+        # traj: (N, T, d)
+        assert isinstance(traj, np.ndarray), 'traj should be a numpy array'
+        assert isinstance(mask, np.ndarray), 'mask should be a numpy array'
+        if traj.ndim == 2:
+            traj = traj[None, ...]
+        if mask is not None and mask.ndim == 1:
+            mask = mask[None, ...]
+        assert traj.ndim == 3, 'traj should be a 3D numpy array for instances'
+        N, T , _ = traj.shape
+        # mask out invalid trajectory
+        if mask is None:
+            mask = np.ones((N, T))
+            
+        # lidar to image: bev is in lidar coord, no need to transform
+        # future trajectory
+        future_steps = input_meta['future_steps']
 
+        for i in range(N):
+            # future trajectory by default            
+            traj_i = traj[i][-(1+future_steps):] # add current step at the beginning
+            mask_i = mask[i][-(1+future_steps):]
+            self._draw_one_trajectory(
+                traj = traj_i, 
+                mask = mask_i, 
+                cmap = cmap, 
+                scale = scale, 
+                linewidths = linewidths)
+
+        
+            # hisotry trajectory if needed 
+            if draw_history:
+                traj_i = traj[i][:-future_steps]
+                mask_i = mask[i][:-future_steps]
+                
+                self._draw_one_trajectory(
+                    traj = traj_i, 
+                    mask = mask_i, 
+                    cmap = cmap_history, 
+                    scale = scale, 
+                    linewidths = linewidths)
+    @master_only    
+    def draw_multimodal_trajectory_bev(self):
+        raise NotImplementedError('draw multimodal trajectory on BEV image is not implemented yet') 
+        
     # multi-view image
+    @master_only
     def draw_multiviews(self, 
                         imgs, 
                         view_names: Optional[List[str]] = None, 

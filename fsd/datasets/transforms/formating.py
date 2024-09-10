@@ -359,7 +359,7 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
                     gt_instances_3d[instances_key_map[key]] = results[key]
                 # [Trajectory, Trajectory, ...]
                 elif is_seq_of(results[key], BaseDataElement):
-                    gt_instances_3d[instances_key_map[key]] = results[key]
+                    gt_instances_3d[instances_key_map[key]] = [de.to_tensor() for de in results[key]]
                 else:
                     gt_instances_3d[instances_key_map[key]] = to_tensor(results[key])
 

@@ -60,8 +60,36 @@ for i, item in enumerate(ds):
     gt_ego_traj_xyr = gt_ego_traj.data.numpy()
     gt_ego_traj_mask = gt_ego_traj.mask.numpy()
     input_meta = {'future_steps': gt_ego_traj.num_future_steps}
-    vis.draw_ego_trajectory_bev(gt_ego_traj_xyr, gt_ego_traj_mask, scale=10, input_meta=input_meta)
-        
+    vis.draw_trajectory_bev(gt_ego_traj_xyr, 
+                                gt_ego_traj_mask, 
+                                scale=10,
+                                cmap='Reds',
+                                draw_history=False, 
+                                input_meta=input_meta)
+    gt_instances_traj = data_samples.instances.gt_traj
+    gt_instances_traj_xyr = [traj.data.numpy() for traj in gt_instances_traj]    
+    gt_instances_traj_mask = [traj.mask.numpy() for traj in gt_instances_traj]
+    gt_instances_names = data_samples.instances.gt_names
+    # only care about vehicle, pedestrian, cyclist
+    moving = ['car', 'pedestrian', 'bicycle', 'van', 'truck']
+    
+    gt_instances_traj = []
+    gt_instances_mask = []
+    for i, name in enumerate(gt_instances_names):
+        if name in moving:
+            gt_instances_traj.append(gt_instances_traj_xyr[i])
+            gt_instances_mask.append(gt_instances_traj_mask[i])
+
+    if len(gt_instances_traj) > 0:
+        gt_instances_traj = np.stack(gt_instances_traj)
+        gt_instances_mask = np.stack(gt_instances_mask)
+        vis.draw_trajectory_bev(gt_instances_traj, 
+                                    gt_instances_mask, 
+                                    cmap='Blues',
+                                    scale=10,
+                                    draw_history=False, 
+                                    input_meta=input_meta)
+            
     vis.show()
     
     """
