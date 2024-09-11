@@ -1,40 +1,38 @@
 from collections.abc import Sized
 from typing import Any, List, Union
-from fsd.utils.type import Array 
+import warnings
 
 import torch
 import numpy as np 
-import itertools
 
 from mmengine.structures import BaseDataElement, InstanceData
+from mmdet3d.structures import BaseInstance3DBoxes
 
+Array = Union[torch.Tensor, np.ndarray]
 BoolTypeTensor: Union[Any]
 LongTypeTensor: Union[Any]
-
 IndexType: Union[Any] = Union[str, slice, int, list, np.ndarray]
 
-#TODO: add rotation info/timestamps
-#TODO: add mask update support for data pipeline, e.g., TrajectoryData.merge_mask(mask)
-#TODO: better support for timestams. considering distinguish between timestamps and timestamps_diff
-
+#TODO: (1) May need better implementaion to support concatenation of TrajectoryData,
+# invoving the merging of different timestamps, num_past_steps, etc.
+# (2) assertion of consistency among the data, mask and meta
 class TrajectoryData(BaseDataElement):
-    """ Data structure for trajectory annotations or predictions
+    """ Data structure for trajectory annotations or predictions for one agent
     
-    For one frame, the trajectory data can be used to store annotations or predictions for all instances in the frame.
-    This typically lead to a 2D tensor with shape (2, N) for xy coordinates, a 1D tensor with shape (N,) for mask, 
-    and a 1D tensor with shape (N,) for timestamps, where N represents the number of instances in the frame.
-    To encode the temporal information, multiple trajectory can be stacked along the last dimension, leading to 
-    a 3D tensor with shape (N, 2, T) for xy coordinates, a 2D tensor with shape (N, T) for mask, and a 2D tensor with shape (N, T) for timestamps.
+    For one frame, the trajectory data can be used to store annotations or predictions for each in the frame.
+    This typically lead to a 2D tensor with shape (T, d), a 1D tensor with shape (T,) for mask.
+    Attributes are:
+        - time: float, the timestamp of current step
+        - time_step: float, the time step between two steps
+        - past_steps: int, the number of past steps in the trajectory
+        - future_steps: int, the number of future steps in the trajectory
+        - data (torch.Tensor): The data coordinates of the trajectory. Shape (T, 4).
+        - mask (torch.Tensor): mask with 1 for valid points and 0 for invalid points. Shape (T,).
     
     Subclass of :class:`BaseDataElement`. All data items in `data_fields` should have the same length (use the last dimension here).
     TrajectoryData also supports slicing, indexing and arithmetic addition and subtraction.
     
-    Attributes:
-        xy (torch.Tensor): The xy coordinates of the trajectory. Shape (2, N).
-        mask (torch.Tensor): mask with 1 for valid points and 0 for invalid points. Shape (N,).
-    
     """
-    
     def __setattr__(self, name: str, value: Union[torch.Tensor, np.ndarray]):
         """setattr is only used to set data.
 
@@ -166,257 +164,90 @@ class TrajectoryData(BaseDataElement):
     
     ### ----------------------------------------------
     ### Properties
-    @property 
-    def num_steps(self) -> int:
-        """The number of steps in the trajectory
-        
-        Returns:
-            int: The number of steps in the trajectory
-        """
-        if len(self) > 0:
-            if self.xy.dim() == 3:
-                return self.xy.shape[2]
-            elif self.xy.dim() == 2:
-                return 1
-        return 0
-        
     @property
-    def num_instances(self) -> int:
-        """The number of instances in the trajectory
+    def data(self) -> Array:
+        if hasattr(self, '_data'):
+            return self._data
         
-        Returns:
-            int: The number of instances in the trajectory
-        """
-        return len(self)
-    
-    @property
-    def xy(self) -> Array:
-        return self._xy
-    
-    @xy.setter
-    def xy(self, value: Array):
-        """xy coordinates of the trajectory
+        return None
+        
+    @data.setter
+    def data(self, value: Array):
+        """ Trajectory data
         
         Args:
-            value (torch.Tensor): The xy coordinates of the trajectory with a dim of 2 or 3. 
-                Shape (N, 2, ...). 
-                if dim == 2, then shape is (N, 2). 
-                if dim == 3, then shape is (N, 2, T).
-                if dim == 4, then shape is (B, N, 2, T).
+            value (torch.Tensor): The data coordinates of the trajectory has to be a 2D tensor/array.
+                Shape (T, d). 
         """
         if isinstance(value, (torch.Tensor, np.ndarray)) and (value.ndim == 1):
             value = value[None, ...]
             
-        assert isinstance(value, (torch.Tensor, np.ndarray)) and (value.ndim == 2 or value.ndim == 3 or value.ndim==4), \
-            "xy coordinates should be a 2D or 3D or 3D tensor"
-        if value.ndim == 2:
-            assert value.shape[1] == 2, "The last dimension of xy should be 2"
-        elif value.ndim > 2:
-            assert value.shape[-2] == 2, "The second last dimension of xy should be 2"
-            
-        if hasattr(self, 'mask'):
-            assert value.ndim - self.mask.ndim == 1, "xy dimension has to be greater than mask dimension"
-            
-        self.set_field(value, '_xy', dtype=type(value))
+        assert isinstance(value, (torch.Tensor, np.ndarray)) and (value.ndim == 2), \
+            "data coordinates should be 2D"
         
-    @xy.deleter
-    def xy(self):
-        del self._xy
+        # TODO: avoid checking with meta info as slicing/indexing will lead to inconsistency
+        # assertion on length
+        #if hasattr(self, 'num_past_steps') or hasattr(self, 'num_future_steps'):
+        #    npast = self.num_past_steps if hasattr(self, 'num_past_steps') else 0
+        #    nfuture = self.num_future_steps if hasattr(self, 'num_future_steps') else 0
+        #    nsteps = npast + nfuture + 1
+        #    assert value.shape[0] == nsteps, \
+        #        "The trajectory steps in the data coordinates is not consistent with the meta info"
+        
+        self.set_field(value, '_data', dtype=type(value))
+        
+    @data.deleter
+    def data(self):
+        del self._data
     
     @property
     def mask(self) -> torch.Tensor:
         """ mask with 1 for valid points and 0 for invalid points 
         """
-        return self._mask
+        if hasattr(self, '_mask'):
+            return self._mask
+        return np.ones(len(self))
+    
     @mask.setter
     def mask(self, value: torch.Tensor):
-        """mask of the trajectory
+        """mask of the trajectory.
+        
+        Mask can be 1D or 2D tensor.
+            if 1D tensor, the mask is applied to the first dimension of the trajectory.
+            if 2D tensor, the mask is applied to the first two dimension of the trajectory.
         
         Args:
-            value (torch.Tensor): The mask of the trajectory with a dim of 1 or 2 or 3.
-                Shape (N, ...). 
-                If dim == 1, then shape is (N,). 
-                If dim == 2, then shape is (N, T).
-                if dim == 3, then shape is (B, N, T).
+            value (torch.Tensor): The mask of the trajectory with a dim of 1 or 2.
+
         """
-        assert isinstance(value, (torch.Tensor, np.ndarray)) and (value.ndim == 1 or value.ndim == 2 or value.ndim == 3), \
-            "mask should be a 1D or 2D or 3D tensor"
-        if hasattr(self, 'xy'):
-            assert self.xy.ndim - value.ndim == 1, "mask dimension has to be less than xy dimension"
+        assert isinstance(value, (torch.Tensor, np.ndarray)) and (value.ndim == 1 or value.ndim == 2), \
+            "mask should be a 1D or 2D tensor"
+        
+        # assertion on length
+        #if hasattr(self, 'num_past_steps') or hasattr(self, 'num_future_steps'):
+        #    npast = self.num_past_steps if hasattr(self, 'num_past_steps') else 0
+        #    nfuture = self.num_future_steps if hasattr(self, 'num_future_steps') else 0
+        #    nsteps = npast + nfuture + 1
+        #    assert value.shape[0] == nsteps, \
+        #        "The trajectory steps in the data coordinates is not consistent with the meta info"
         
         self.set_field(value, '_mask', dtype=type(value))
+        
     @mask.deleter
     def mask(self):
         del self._mask
     
     ### ----------------------------------------------
-    ### overloaded operators
-    def __add__(self, other: 'TrajectoryData') -> 'TrajectoryData':
-        """Add two TrajectoryData objects
-        
-        Args:
-            other (TrajectoryData): Another TrajectoryData object
-        
-        Returns:
-            TrajectoryData: A new TrajectoryData object with the added data.
-        """
-        raise NotImplementedError("Addition of TrajectoryData objects is not supported")
-     
-    def __sub__(self, other: 'TrajectoryData') -> 'TrajectoryData':
-        """Subtract two TrajectoryData objects
-        
-        Args:
-            other (TrajectoryData): Another TrajectoryData object
-        
-        Returns:
-            TrajectoryData: A new TrajectoryData object with the subtracted data.
-        """
-        # at least one of them has a length of 1 or same length
-        assert len(self) == 1 or len(other) == 1 or (len(self) == len(other)), \
-            "At least one of the TrajectoryData objects should have a length of 1, or \
-                they should have the same length"
-                
-        # subtract the data
-        xy = self.xy - other.xy 
-        # merge mask
-        mask = self.mask * other.mask
-        
-        return TrajectoryData(xy=xy, mask=mask)
-    
-    ### ----------------------------------------------
     ### Methods   
     @staticmethod
     def cat(trajectory_list: List['TrajectoryData']) -> 'TrajectoryData':
-        """Concat the instances of all :obj:`TrajectoryData`.
-
-        Note: To ensure that cat returns as expected, make sure that
-        all elements in the list must have exactly the same keys.
-
-        Args:
-            instances_list (list[:obj:`TrajectoryData`]): A list
-                of :obj:`TrajectoryData`.
+        """Concat a list of TrajectoryData
 
         Returns:
             :obj:`TrajectoryData`
         """
-        if type(trajectory_list) is not list:
-            raise TypeError('Input must be a list')
-                
-        assert all(
-            isinstance(results, TrajectoryData) for results in trajectory_list)
-        assert len(trajectory_list) > 0
-        
-        if len(trajectory_list) == 1:
-            return trajectory_list[0]
+        NotImplementedError("Concatenation of TrajectoryData is not supported")
 
-        # metainfo and data_fields must be exactly the
-        # same for each element to avoid exceptions.
-        field_keys_list = [
-            instances.all_keys() for instances in trajectory_list
-        ]
-        assert len({len(field_keys) for field_keys in field_keys_list}) \
-               == 1 and len(set(itertools.chain(*field_keys_list))) \
-               == len(field_keys_list[0]), 'There are different keys in ' \
-                                           '`trajectory_list`, which may ' \
-                                           'cause the cat operation ' \
-                                           'to fail. Please make sure all ' \
-                                           'elements in `trajectory_list` ' \
-                                           'have the exact same key.'
-        # must have the same steps in temporal dimension
-        assert all(trajectory_list[0].num_steps == trajectory.num_steps \
-                for trajectory in trajectory_list), \
-                    "All TrajectoryData objects should have the same number of steps"
-        
-        new_data = trajectory_list[0].__class__(
-            metainfo=trajectory_list[0].metainfo)
-        for k in trajectory_list[0].keys():
-            values = [results[k] for results in trajectory_list]
-            v0 = values[0]
-            if isinstance(v0, torch.Tensor):
-                new_values = torch.cat(values, dim=0)
-            elif isinstance(v0, np.ndarray):
-                new_values = np.concatenate(values, axis=0)
-            elif isinstance(v0, (str, list, tuple)):
-                new_values = v0[:]
-                for v in values[1:]:
-                    new_values += v
-            else:
-                raise ValueError(
-                    f'The type of `{k}` is `{type(v0)}` which has no '
-                    'attribute of `cat`')
-            new_data[k] = new_values
-        return new_data
-
-    @staticmethod
-    def stack(trajectory_list: List['TrajectoryData']) -> 'TrajectoryData':
-        """Concat the instances of all :obj:`TrajectoryData`along temporal dimension.
-        
-
-        Note: To ensure that cat returns as expected, make sure that
-        all elements in the list must have exactly the same keys.
-
-        Args:
-            instances_list (list[:obj:`TrajectoryData`]): A list
-                of :obj:`TrajectoryData`.
-
-        Returns:
-            :obj:`TrajectoryData`
-        """
-        if type(trajectory_list) is not list:
-            raise TypeError('Input must be a list')
-                
-        assert all(
-            isinstance(results, TrajectoryData) for results in trajectory_list)
-        assert len(trajectory_list) > 0
-        
-        if len(trajectory_list) == 1:
-            return trajectory_list[0]
-
-        # metainfo and data_fields must be exactly the
-        # same for each element to avoid exceptions.
-        field_keys_list = [
-            instances.all_keys() for instances in trajectory_list
-        ]
-        assert len({len(field_keys) for field_keys in field_keys_list}) \
-               == 1 and len(set(itertools.chain(*field_keys_list))) \
-               == len(field_keys_list[0]), 'There are different keys in ' \
-                                           '`trajectory_list`, which may ' \
-                                           'cause the cat operation ' \
-                                           'to fail. Please make sure all ' \
-                                           'elements in `trajectory_list` ' \
-                                           'have the exact same key.'
-        # must have the same number of instances
-        assert all(len(trajectory_list[0]) == len(traj) for traj in trajectory_list), \
-            "All TrajectoryData objects should have the same number of instances"
-            
-        new_data = trajectory_list[0].__class__(
-            metainfo=trajectory_list[0].metainfo)
-        for k in trajectory_list[0].keys():
-            values = [results[k] for results in trajectory_list]
-            v0 = values[0]
-            if isinstance(v0, torch.Tensor):
-                if trajectory_list[0].num_steps == 1: # no temporal dimension
-                    new_values = torch.stack(values, dim=-1)
-                else:
-                    new_values = torch.cat(values, dim=-1)
-                    
-            elif isinstance(v0, np.ndarray):
-                if trajectory_list[0].num_steps == 1:
-                    new_values = np.stack(values, axis=-1)
-                else:    
-                    new_values = np.concatenate(values, axis=-1)
-                    
-            elif isinstance(v0, (str, list, tuple)):
-                new_values = v0[:]
-                for v in values[1:]:
-                    new_values += v
-            else:
-                raise ValueError(
-                    f'The type of `{k}` is `{type(v0)}` which has no '
-                    'attribute of `cat`')
-            new_data[k] = new_values
-        return new_data
-    
     @classmethod
     def interpolate(self, timestamps)-> 'TrajectoryData':
         """Interpolate the trajectory data to the given timestamps
@@ -428,3 +259,751 @@ class TrajectoryData(BaseDataElement):
             TrajectoryData: The interpolated trajectory data.
         """
         raise NotImplementedError("Interpolation of TrajectoryData is not supported")
+
+
+class MultiModalTrajectoryData(TrajectoryData):
+    """Multi-modal trajectory data structure to support multiple trajectories for one instance
+    
+    Shape of the trajectory data is (T, M, 4) for [x,y,z, yaw], and (T, M) for mask.
+
+    Args:
+        TrajectoryData (_type_): _description_
+    """
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+    
+    @property
+    def num_modalities(self) -> int:
+        """The number of modalities in the trajectory
+        
+        Returns:
+            int: The number of modalities in the trajectory
+        """
+        if hasattr(self, '_data'):
+            if self._data.ndim == 3:
+                return self._data.shape[1]
+            elif self._data.ndim == 2:
+                return 1
+        warnings.warn("No data in the TrajectoryData object for inferring the number of modalities")
+        return 0
+        
+    @num_modalities.setter
+    def num_modalities(self, value: int):
+        
+        if hasattr(self, '_data'):
+            if self._data.ndim == 3:
+                assert value == self._data.shape[1], "The number of modalities is not consistent with the data coordinates"
+            elif self._data.ndim == 2:
+                assert value == 1, "The number of modalities is not consistent with the data coordinates"
+        
+        self.set_field(value, '_num_modalities', dtype=int)
+    
+    @property
+    def data(self) -> Array:
+        if hasattr(self, '_data'):
+            return self._data
+        
+        return None
+        
+    @data.setter
+    def data(self, value: Array):
+        """ Multi-modal trajectory data
+        
+        Args:
+            value (torch.Tensor): The data coordinates of the trajectory has to be a 3D tensor/array.
+                Shape (T, M, d). 
+        """
+        if isinstance(value, (torch.Tensor, np.ndarray)) and (value.ndim == 1):
+            value = value[None, None, ...]
+        if isinstance(value, (torch.Tensor, np.ndarray)) and (value.ndim == 2):
+            value = value[None, ...]
+            
+        assert isinstance(value, (torch.Tensor, np.ndarray)) and (value.ndim == 3), \
+            "data coordinates should be 3D"
+            
+        if value.ndim == 3:
+            if hasattr(self, '_num_modalities'):
+                assert value.shape[1] == self.num_modalities, "The number of modalities is not consistent with the data coordinates"
+            
+        self.set_field(value, '_data', dtype=type(value))
+        
+    @data.deleter
+    def data(self):
+        del self._data
+    
+    @property
+    def mask(self) -> torch.Tensor:
+        """ mask with 1 for valid points and 0 for invalid points 
+        """
+        if hasattr(self, '_mask'):
+            return self._mask
+        return np.ones(len(self))
+    
+    @mask.setter
+    def mask(self, value: torch.Tensor):
+        """mask of the trajectory.
+        
+        Mask can be 1D or 2D tensor.
+            if 1D tensor, the mask is applied to the first dimension of the trajectory.
+            if 2D tensor, the mask is applied to the first two dimension of the trajectory.
+            if 3D tensor, the mask is applied to the first three dimension of the trajectory.
+        
+        Args:
+            value (torch.Tensor): The mask of the trajectory with a dim of 1 or 2 or 3.
+
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)) and (value.ndim == 1 or value.ndim == 2 or value.ndim==3), \
+            "mask should be a 1D or 2D or 3D tensor"
+        
+        self.set_field(value, '_mask', dtype=type(value))
+        
+    @mask.deleter
+    def mask(self):
+        del self._mask
+    
+    @property
+    def scores(self) -> torch.Tensor:
+        """The scores of the trajectory
+        
+        Returns:
+            torch.Tensor: The scores of the trajectory
+        """
+        if hasattr(self, '_scores'):
+            return self._scores
+        return None
+    
+    @scores.setter
+    def scores(self, value: torch.Tensor):
+        """Scores of the trajectory
+        
+        Args:
+            value (torch.Tensor): The scores of the trajectory
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)), \
+            "Scores should be a tensor"
+        
+        assert value.ndim == 1, "Scores should be a 1D tensor"
+        assert value.shape[0] == self.num_modalities, \
+            "The number of scores are not consistent with the number of modalities in the trajectory"
+        
+        self.set_field(value, '_scores', dtype=type(value))
+    
+    @scores.deleter
+    def scores(self):
+        del self._scores
+
+class Ego(BaseDataElement):
+    """ Data structure for ego vehicle information
+    
+    Attributes:
+        - goal_point (torch.Tensor): The goal point of the ego vehicle.
+        - ego2world (torch.Tensor): The transformation matrix from ego to world coordinates.
+        - gt_traj (TrajectoryData): The ground truth trajectory of the ego vehicle.
+        - pred_traj (TrajectoryData): The predicted trajectory of the ego vehicle.
+    """
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+    
+    @property
+    def goal_point(self) -> torch.Tensor:
+        """The goal point of the ego vehicle
+        
+        Returns:
+            torch.Tensor: The goal point of the ego vehicle
+        """
+        if hasattr(self, '_goal_point'):
+            return self._goal_point
+        return None
+    
+    @goal_point.setter
+    def goal_point(self, value: torch.Tensor):
+        """Goal point of the ego vehicle
+        
+        Args:
+            value (torch.Tensor): The goal point of the ego vehicle
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)), \
+            "Goal point should be a tensor"
+        
+        assert value.ndim == 1, "Goal point should be a 1D tensor"        
+        self.set_field(value, '_goal_point', dtype=type(value))
+    
+    @goal_point.deleter
+    def goal_point(self):
+        del self._goal_point
+    
+    @property
+    def pose(self) -> torch.Tensor:
+        """The transformation matrix from ego to world coordinates
+        
+        Returns:
+            torch.Tensor: The transformation matrix from ego to world coordinates
+        """
+        if hasattr(self, '_pose'):
+            return self._pose
+        return None
+    
+    @pose.setter
+    def pose(self, value: torch.Tensor):
+        """The transformation matrix from ego to world coordinates
+        
+        Args:
+            value (torch.Tensor): The transformation matrix from ego to world coordinates
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)), \
+            "Transformation matrix should be a tensor"
+        
+        assert value.ndim == 2, "Transformation matrix should be a 2D tensor"
+        assert value.shape[0] == 4 and value.shape[1] == 4, "Transformation matrix should be a 4x4 tensor"
+        
+        self.set_field(value, '_pose', dtype=type(value))
+    
+    @pose.deleter
+    def pose(self):
+        del self._pose
+    
+    # trajectories
+    @property
+    def gt_traj(self) -> TrajectoryData:
+        """The ground truth trajectory of the ego vehicle
+        
+        Returns:
+            TrajectoryData: The ground truth trajectory of the ego vehicle
+        """
+        if hasattr(self, '_gt_traj'):
+            return self._gt_traj
+        return None
+    
+    @gt_traj.setter
+    def gt_traj(self, value: Union[TrajectoryData, MultiModalTrajectoryData]):
+        """The ground truth trajectory of the ego vehicle
+        
+        Args:
+            value (TrajectoryData): The ground truth trajectory of the ego vehicle
+        """
+        assert isinstance(value, TrajectoryData), \
+            "Ground truth trajectory should be a TrajectoryData object"
+        
+        self.set_field(value, '_gt_traj', dtype=type(value))
+    
+    @gt_traj.deleter
+    def gt_traj(self):
+        del self._gt_traj
+    
+    @property
+    def pred_traj(self) -> TrajectoryData:
+        """The predicted trajectory of the ego vehicle
+        
+        Returns:
+            TrajectoryData: The predicted trajectory of the ego vehicle
+        """
+        if hasattr(self, '_pred_traj'):
+            return self._pred_traj
+        return None
+    
+    @pred_traj.setter
+    def pred_traj(self, value: Union[TrajectoryData, MultiModalTrajectoryData]):
+        """The predicted trajectory of the ego vehicle
+        
+        Args:
+            value (TrajectoryData): The predicted trajectory of the ego vehicle
+        """
+        assert isinstance(value, TrajectoryData), \
+            "Predicted trajectory should be a TrajectoryData object"
+        
+        self.set_field(value, '_pred_traj', dtype=type(value))
+        
+    @pred_traj.deleter
+    def pred_traj(self):
+        del self._pred_traj
+        
+class Instances(InstanceData):
+    """ Data structure for instance annotations
+    
+    Attributes:
+        - ids (torch.Tensor): The instance ids of the instances.
+        - bboxes_mask (torch.Tensor): mask of the instances to be ignored.
+        - pose (torch.Tensor): The transformation matrix from the instances to world coordinates.
+        
+        - gt_bboxes_3d (torch.Tensor): The bounding boxes of the instances, typically in lidary coord
+        - pred_bboxes_3d (torch.Tensor): The predicted bounding boxes of the instances, typically in lidar coord
+        - gt_labels (torch.Tensor): The class labels of the instances.
+        - pred_labels (torch.Tensor): The predicted class labels of the instances.
+        - pred_scores (torch.Tensor): The predicted scores of the instances.
+        - gt_traj (TrajectoryData): The past trajectory of the instances, typically in lidar coord
+        - pred_traj (TrajectoryData): The future trajectory of the instances, typicall in lidar coord
+    """
+
+    @property
+    def ids(self) -> torch.Tensor:
+        """The instance ids of the instances
+        
+        Returns:
+            torch.Tensor: The instance ids of the instances
+        """
+        if hasattr(self, '_ids'):
+            return self._ids
+        return None
+    
+    @ids.setter
+    def ids(self, value: torch.Tensor):
+        """The instance ids of the instances
+        
+        Args:
+            value (torch.Tensor): The instance ids of the instances
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)), \
+            "Instance ids should be a tensor"
+        
+        assert value.ndim == 1, "Instance ids should be a 1D tensor"
+        
+        self.set_field(value, '_ids', dtype=type(value))
+    
+    @ids.deleter
+    def ids(self):
+        del self._ids
+    
+    @property
+    def bboxes_mask(self) -> torch.Tensor:
+        """The mask of the instances
+        
+        Returns:
+            torch.Tensor: The mask of the instances
+        """
+        if hasattr(self, '_bboxes_mask'):
+            return self._bboxes_mask
+        return None
+    
+    @bboxes_mask.setter
+    def bboxes_mask(self, value: torch.Tensor):
+        """The mask of the instances
+        
+        Args:
+            value (torch.Tensor): The mask of the instances
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)), \
+            "Mask should be a tensor"
+        
+        assert value.ndim == 1, "Mask should be a 1D tensor"
+        
+        self.set_field(value, '_bboxes_mask', dtype=type(value))
+    
+    @bboxes_mask.deleter
+    def bboxes_mask(self):
+        del self._bboxes_mask
+    
+    @property
+    def pose(self) -> torch.Tensor:
+        """The transformation matrix from the instances to world coordinates
+        
+        Returns:
+            torch.Tensor: The transformation matrix from the instances to world coordinates
+        """
+        if hasattr(self, '_pose'):
+            return self._pose
+        return None
+
+    @pose.setter
+    def pose(self, value: torch.Tensor):
+        """The transformation matrix from the instances to world coordinates
+        
+        Args:
+            value (torch.Tensor): The transformation matrix from the instances to world coordinates
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)), \
+            "Transformation matrix should be a tensor"
+        
+        assert value.ndim == 2, "Transformation matrix should be a 2D tensor"
+        assert value.shape[0] == 4 and value.shape[1] == 4, "Transformation matrix should be a 4x4 tensor"
+        
+        self.set_field(value, '_pose', dtype=type(value))
+    
+    @pose.deleter
+    def pose(self):
+        del self._pose
+    
+    @property
+    def gt_bboxes_3d(self) -> torch.Tensor:
+        """The bounding boxes of the instances
+        
+        Returns:
+            torch.Tensor: The bounding boxes of the instances
+        """
+        if hasattr(self, '_gt_bboxes_3d'):
+            return self._gt_bboxes_3d
+        return None
+    
+    @gt_bboxes_3d.setter
+    def gt_bboxes_3d(self, value: torch.Tensor):
+        """The bounding boxes of the instances
+        
+        Args:
+            value (torch.Tensor): The bounding boxes of the instances
+        """
+        assert isinstance(value, BaseInstance3DBoxes), \
+            "Bounding boxes should be a tensor"
+        
+        self.set_field(value, '_gt_bboxes_3d', dtype=type(value))
+    
+    @gt_bboxes_3d.deleter
+    def gt_bboxes_3d(self):
+        del self._gt_bboxes_3d
+    
+    
+    @property
+    def pred_bboxes_3d(self) -> torch.Tensor:
+        """The predicted bounding boxes of the instances
+        
+        Returns:
+            torch.Tensor: The predicted bounding boxes of the instances
+        """
+        if hasattr(self, '_pred_bboxes_3d'):
+            return self._pred_bboxes_3d
+        return None
+    
+    @pred_bboxes_3d.setter
+    def pred_bboxes_3d(self, value: torch.Tensor):
+        """The predicted bounding boxes of the instances
+        
+        Args:
+            value (torch.Tensor): The predicted bounding boxes of the instances
+        """
+        assert isinstance(value, BaseInstance3DBoxes), \
+            "Bounding boxes should be a tensor"
+        
+        assert value.tensor.shape == self.gt_bboxes_3d.tensor.shape, \
+            "The shape of the predicted bounding boxes is not consistent with the ground truth"
+        
+        self.set_field(value, '_pred_bboxes_3d', dtype=type(value))
+    
+    @pred_bboxes_3d.deleter
+    def pred_bboxes_3d(self):
+        del self._pred_bboxes_3d
+    
+    # gt labels
+    @property
+    def gt_labels(self) -> torch.Tensor:
+        """The class labels of the instances
+        
+        Returns:
+            torch.Tensor: The class labels of the instances
+        """
+        if hasattr(self, '_gt_labels'):
+            return self._gt_labels
+        return None
+
+    @gt_labels.setter
+    def gt_labels(self, value: torch.Tensor):
+        """The class labels of the instances
+        
+        Args:
+            value (torch.Tensor): The class labels of the instances
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)), \
+            "Class labels should be a tensor"
+        
+        assert value.ndim == 1, "Class labels should be a 1D tensor"
+        
+        self.set_field(value, '_gt_labels', dtype=type(value))
+    
+    @gt_labels.deleter
+    def gt_labels(self):
+        del self._gt_labels
+    
+    # pred labels
+    @property
+    def pred_labels(self) -> torch.Tensor:
+        """The predicted class labels of the instances
+        
+        Returns:
+            torch.Tensor: The predicted class labels of the instances
+        """
+        if hasattr(self, '_pred_labels'):
+            return self._pred_labels
+        return None
+
+    @pred_labels.setter
+    def pred_labels(self, value: torch.Tensor):
+        """The predicted class labels of the instances
+        
+        Args:
+            value (torch.Tensor): The predicted class labels of the instances
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)), \
+            "Class labels should be a tensor"
+        
+        assert value.shape == self.gt_labels.shape, \
+            "The shape of the predicted class labels is not consistent with the ground truth"
+        
+        self.set_field(value, '_pred_labels', dtype=type(value))
+    
+    @pred_labels.deleter
+    def pred_labels(self):
+        del self._pred_labels
+    
+    # pred scores of the labels
+    @property
+    def pred_scores(self) -> torch.Tensor:
+        """The predicted scores of the instances
+        
+        Returns:
+            torch.Tensor: The predicted scores of the instances
+        """
+        if hasattr(self, '_pred_scores'):
+            return self._pred_scores
+        return None
+    
+    @pred_scores.setter
+    def pred_scores(self, value: torch.Tensor):
+        """The predicted scores of the instances
+        
+        Args:
+            value (torch.Tensor): The predicted scores of the instances
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)), \
+            "Scores should be a tensor"
+                
+        self.set_field(value, '_pred_scores', dtype=type(value))
+    
+    @pred_scores.deleter
+    def pred_scores(self):
+        del self._pred_scores
+    
+    
+    # trajectories
+    @property
+    def gt_traj(self) -> TrajectoryData:
+        """The ground truth trajectory of the instances
+        
+        Returns:
+            TrajectoryData: The ground truth trajectory of the instances
+        """
+        if hasattr(self, '_gt_traj'):
+            return self._gt_traj
+        return None
+
+    @gt_traj.setter
+    def gt_traj(self, value: Union[TrajectoryData, MultiModalTrajectoryData]):
+        """The ground truth trajectory of the instances
+        
+        Args:
+            value (TrajectoryData): The ground truth trajectory of the instances
+        """
+        assert isinstance(value, list) and isinstance(value[0], TrajectoryData), \
+            "Ground truth trajectory should be a TrajectoryData object"
+        
+        self.set_field(value, '_gt_traj', dtype=type(value))
+    
+    @gt_traj.deleter
+    def gt_traj(self):
+        del self._gt_traj
+    
+    @property
+    def pred_traj(self) -> TrajectoryData:
+        """The predicted trajectory of the instances
+        
+        Returns:
+            TrajectoryData: The predicted trajectory of the instances
+        """
+        if hasattr(self, '_pred_traj'):
+            return self._pred_traj
+        return None
+    
+    @pred_traj.setter
+    def pred_traj(self, value: Union[TrajectoryData, MultiModalTrajectoryData]):
+        """The predicted trajectory of the instances
+        
+        Args:
+            value (TrajectoryData): The predicted trajectory of the instances
+        """
+        assert isinstance(value, TrajectoryData), \
+            "Predicted trajectory should be a TrajectoryData object"
+        
+        self.set_field(value, '_pred_traj', dtype=type(value))
+    
+    @pred_traj.deleter
+    def pred_traj(self):
+        del self._pred_traj
+        
+class Grids(BaseDataElement):
+    """Data structure for grid-map like data annontation
+    
+    Attributes:
+        - occupancy_mask (torch.Tensor): The mask of the occupancy grid map.
+        - density_mask (torch.Tensor): The mask of the density grid map.
+        - gt_occupancy (torch.Tensor): The ground truth occupancy of the grid map.
+        - pred_occupancy (torch.Tensor): The predicted occupancy of the grid map.
+        - gt_density (torch.Tensor): The ground truth density of the grid map.
+        - pred_density (torch.Tensor): The predicted density of the grid map.
+    """
+    
+    @property
+    def occupancy_mask(self) -> torch.Tensor:
+        """The mask of the occupancy grid map
+        
+        Returns:
+            torch.Tensor: The mask of the occupancy grid map
+        """
+        if hasattr(self, '_occupancy_mask'):
+            return self._occupancy_mask
+        return None
+    
+    @occupancy_mask.setter
+    def occupancy_mask(self, value: torch.Tensor):
+        """The mask of the occupancy grid map
+        
+        Args:
+            value (torch.Tensor): The mask of the occupancy grid map
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)), \
+            "Mask should be a tensor"
+                
+        self.set_field(value, '_occupancy_mask', dtype=type(value))
+    
+    @occupancy_mask.deleter
+    def occupancy_mask(self):
+        del self._occupancy_mask
+    
+    @property
+    def density_mask(self) -> torch.Tensor:
+        """The mask of the density grid map
+        
+        Returns:
+            torch.Tensor: The mask of the density grid map
+        """
+        if hasattr(self, '_density_mask'):
+            return self._density_mask
+        return None
+
+    @density_mask.setter
+    def density_mask(self, value: torch.Tensor):
+        """The mask of the density grid map
+        
+        Args:
+            value (torch.Tensor): The mask of the density grid map
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)), \
+            "Mask should be a tensor"
+                
+        self.set_field(value, '_density_mask', dtype=type(value))
+    
+    @density_mask.deleter
+    def density_mask(self):
+        del self._density_mask
+    
+    @property
+    def gt_occupancy(self) -> torch.Tensor:
+        """The ground truth occupancy of the grid map
+        
+        Returns:
+            torch.Tensor: The ground truth occupancy of the grid map
+        """
+        if hasattr(self, '_gt_occupancy'):
+            return self._gt_occupancy
+        return None
+
+    @gt_occupancy.setter
+    def gt_occupancy(self, value: torch.Tensor):
+        """The ground truth occupancy of the grid map
+        
+        Args:
+            value (torch.Tensor): The ground truth occupancy of the grid map
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)), \
+            "Occupancy should be a tensor"
+                
+        self.set_field(value, '_gt_occupancy', dtype=type(value))
+    
+    @gt_occupancy.deleter
+    def gt_occupancy(self):
+        del self._gt_occupancy
+        
+    @property
+    def pred_occupancy(self) -> torch.Tensor:
+        """The predicted occupancy of the grid map
+        
+        Returns:
+            torch.Tensor: The predicted occupancy of the grid map
+        """
+        if hasattr(self, '_pred_occupancy'):
+            return self._pred_occupancy
+        return None
+    
+    @pred_occupancy.setter
+    def pred_occupancy(self, value: torch.Tensor):
+        """The predicted occupancy of the grid map
+        
+        Args:
+            value (torch.Tensor): The predicted occupancy of the grid map
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)), \
+            "Occupancy should be a tensor"
+        
+        assert value.shape == self.gt_occupancy.shape, \
+            "The shape of the predicted occupancy is not consistent with the ground truth occupancy"
+            
+        self.set_field(value, '_pred_occupancy', dtype=type(value))
+    
+    @pred_occupancy.deleter
+    def pred_occupancy(self):
+        del self._pred_occupancy
+    
+    @property
+    def gt_density(self) -> torch.Tensor:
+        """The ground truth density of the grid map
+        
+        Returns:
+            torch.Tensor: The ground truth density of the grid map
+        """
+        if hasattr(self, '_gt_density'):
+            return self._gt_density
+        return None
+    
+    @gt_density.setter
+    def gt_density(self, value: torch.Tensor):
+        """The ground truth density of the grid map
+        
+        Args:
+            value (torch.Tensor): The ground truth density of the grid map
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)), \
+            "Density should be a tensor"
+                
+        self.set_field(value, '_gt_density', dtype=type(value))
+    
+    @gt_density.deleter
+    def gt_density(self):
+        del self._gt_density
+    
+    @property
+    def pred_density(self) -> torch.Tensor:
+        """The predicted density of the grid map
+        
+        Returns:
+            torch.Tensor: The predicted density of the grid map
+        """
+        if hasattr(self, '_pred_density'):
+            return self._pred_density
+        return None
+
+    @pred_density.setter
+    def pred_density(self, value: torch.Tensor):
+        """The predicted density of the grid map
+        
+        Args:
+            value (torch.Tensor): The predicted density of the grid map
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)), \
+            "Density should be a tensor"
+        
+        assert value.shape == self.gt_density.shape, \
+            "The shape of the predicted density is not consistent with the ground truth density"
+            
+        self.set_field(value, '_pred_density', dtype=type(value))
+    
+    @pred_density.deleter
+    def pred_density(self):
+        del self._pred_density

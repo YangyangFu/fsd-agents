@@ -1,74 +1,36 @@
 # Dataset
 Agent's pose in world is the transformation from agent to world.
 
-## Carla Dataset
-- Carla Coordinate - lefthand
-    - world: x forward, y right, z up
-    - ego: same
-    - lidar:
-        - coord: same as world
-        - data: processed into ego frame
+## Coordinate Systems 
+The following figure summarizes different coordinates used in different dataset.
 
-    - camera: x facing forward, y right, z up
-    - bboxes:
-        - location is in ego coordinate
-        - vertice is in world coordinate
+![coordinate](./assets/coordinates.png)
 
-- Nuscene Coordinate - righthand
-    - world: x forward, y left, z up
-    - ego: x forward, y left, z up
-    - lidar top: x right, y forward, z up
-    - front camera: x right, y down, z forward
-    - other cameras: front camera with some yaws
-    - sensors 
-        - data: in corresponding sensor frame
-        - locations: xyz are in ego frame
+## CARLA Dataset
 
-    - ego-pose: with respect to world frame
-    - bbox: location data is given in world frame
+### Raw Data in Hugging Face
+The original data in hugging face are recorded in CARLA coordinates, which is a left-hand system.
+The data are stored in different frames during collection. 
 
-- MMDET3D coordinate
-    - lidar coord: x forward, y left, z up
-    - camera coord: x right, y down, z forward
+```
+- point cloud
+  - lidar points from the simulator are originally in CARLA lidar frame, and saved in CARLA ego frame using transformations between ego and lidar.
 
-**TODO**:
-- Nuscence dataset save lidar point data in its own lidar coordination, but MMDET3D Nuscence dataset assumes the point data in MMDET3D lidar coordination without applying transformation, why??? 
-    - this seems not affecting the algorithm, as long as the designer knows the correct coordinate
+- annotations:
+    - bounding_bboxes
+        - agent xx
+            - class/type/id, ...
+            - location: x,y,z in Carla/UE4 world coordinate
+            - rotation: in Carla/UE4 world
+            - bbox_loc: x, y, z in ego coordinate
+            - center: center point in Carla world coordinate
+            - extent: extension length (half of size) in Carla world coordinate
+            - world2ego: Carla world to ego transformation
+            - ...
+```
 
-### Collected Data
-
-The data are stored in different coordinates during collection.
-
-data
-- lidar points are stored in Carla `ego` coordinate. When load data in the Dataset, need convert this coordinate
-
-annotations:
-- sensors
-    - CAM_XXX
-        - cam2ego
-        - instrinsic
-        - world2cam
-        - data_path
-
-    - LIDAR_TOP
-        - lidar2ego
-        - world2lidar
-
-- bounding_bboxes
-    - agent xx
-        - class/type/id, ...
-        - location: x,y,z in Carla/UE4 world coordinate
-        - rotation: in Carla/UE4 world
-        - bbox_loc: x, y, z in ego coordinate
-        - center: center point in Carla world coordinate
-        - extent: extension length (half of size) in Carla world coordinate
-        - world2ego: Carla world to ego transformation
-        - ...
-
-In the dataset, we need process the annotation file to get the desired annotations for the algorithms.
-
-### Annotation 
-The second round of processing the data is performed using `prepare_B2D.py`, which annotate the above data into `right hand system or Nuscene system`
+### Convert to Nuscene Coordinate
+The second round of processing the data is performed using `prepare_B2D.py`, which annotate the above data into `right hand Nuscene coordinates`
 
 
 The following keys are stored in the annotation file as `*.pkl`
@@ -111,61 +73,21 @@ The following keys are stored in the annotation file as `*.pkl`
 ```
 
 
-
-### Before Data Pipepline
-Before going into transformation pipeline, the data are preprocessed to have the following fields:
-
-**NOTE:** there is no camera class in `cam_instrinsic` to relate the matrix to correspoinding camera.
-
-```
-- folder
-- scene_token 
-- frame_idx
-- ego_yaw 
-- ego_translation
-- sensors
-- world2lidar
-- gt_ids
-- gt_boxes 
-- gt_names
-- ego_vel
-- ego_accel
-- ego_rotation_rate
-- npc2world
-- gt_lane_labels
-- gt_lane_bboxes
-- gt_lane_masks
-- timestamp
-- img_filename
-- lidar2img
-- cam_intrinsic
-- lidar2cam
-- l2g_r_mat
-- l2g_t
-- ann_info
-- can_bus
-- occ_has_invalid_frame
-- occ_img_is_valid
-- occ_future_ann_infos
-- occ_l2e_r_mats
-- occ_l2e_t_vecs
-- occ_e2g_r_mats
-- occ_e2g_t_vecs
-- sdc_planning
-- sdc_planning_mask
-- command
-- img_fields: store key name related to img. empty in dataset
-- bbox3d_fields
-- pts_mask_fields
-- pts_seg_fields
-- bbox_fields
-- mask_fields
-- seg_fields
-- box_type_3d
-- box_mode_3d
-```
+### Convert to Planning Coordinate
+When constructing the dataset/dataloader, before entering the data pipeline, the data are processed into Planning/MMDET3D coordinates to keep consisent during the whole training and testing process.
 
 
+## Nuscenes Dataset
+
+### Raw Nuscences Dataset
+
+### Convert to Planning Coordinate
+
+## Waymo Dataset
+
+### Raw Nuscences Dataset
+
+### Convert to Planning Coordinate
 
 ## QUESTIONS
 

@@ -322,7 +322,7 @@ class InterFuserHead(BaseModule):
                 - traffic_light (torch.Tensor): with shape (B, 2)
                 - waypoints (torch.Tensor): with shape (B, L, 2)
         """
-        L = hidden_states.size(1)
+        B, L, _ = hidden_states.size()
         assert L == self.num_queries, f"Number of queries {L} must be equal to the number of queries {self.num_queries}"
         
         # density map inputs construction
@@ -349,9 +349,9 @@ class InterFuserHead(BaseModule):
         
         return dict(
             object_density=object_density,
-            junction=junction,
-            stop_sign=stop_sign,
-            traffic_light=traffic_light,
+            junction=junction.view(B, -1),
+            stop_sign=stop_sign.view(B, -1),
+            traffic_light=traffic_light.view(B, -1),
             waypoints=waypoints
         )
     
@@ -372,15 +372,15 @@ class InterFuserHead(BaseModule):
         L = hidden_states.size(1) 
         assert L == self.num_queries, f"Number of queries {L} must be equal to the number of queries {self.num_queries}"
         
-        gt_grid_density = torch.stack([sample.gt_grids.gt_grid_density for sample in targets], dim=0)
+        gt_grid_density = torch.stack([sample.grids.gt_density for sample in targets], dim=0)
         B, H, W, C = gt_grid_density.size()
         gt_grid_density = gt_grid_density.view(B, H*W, C)
         
-        gt_affected_by_junctions = torch.stack([sample.gt_ego.ego_is_at_junction for sample in targets], dim=0).view(B,-1, 2) # (B, ..., 2)
-        gt_affected_by_redlights = torch.stack([sample.gt_ego.ego_affected_by_lights for sample in targets], dim=0).view(B,-1, 2) # (B, ..., 2)
-        gt_affected_by_stopsigns = torch.stack([sample.gt_ego.ego_affected_by_stop_sign for sample in targets], dim=0).view(B,-1, 2) # (B, ..., 2)
-        gt_ego_future_waypoints = torch.stack([sample.gt_ego.gt_ego_future_traj.xy for sample in targets], dim=0).squeeze(1).permute(0, 2, 1) # (B, L, 2)
-        gt_ego_future_waypoints_masks = torch.stack([sample.gt_ego.gt_ego_future_traj.mask for sample in targets], dim=0).squeeze(1) # (B, L)
+        gt_affected_by_junctions = torch.stack([sample.ego.is_at_junction for sample in targets], dim=0).view(B,-1, 2) # (B, ..., 2)
+        gt_affected_by_redlights = torch.stack([sample.ego.affected_by_lights for sample in targets], dim=0).view(B,-1, 2) # (B, ..., 2)
+        gt_affected_by_stopsigns = torch.stack([sample.ego.affected_by_stop_sign for sample in targets], dim=0).view(B,-1, 2) # (B, ..., 2)
+        gt_ego_future_waypoints = torch.stack([sample.ego.gt_traj.data[..., :2] for sample in targets], dim=0)[:, 1:, :] # (B, 10, 2)
+        gt_ego_future_waypoints_masks = torch.stack([sample.ego.gt_traj.mask for sample in targets], dim=0)[:, 1:] # (B, 10)
 
 # density map inputs construction
         object_density_inputs = hidden_states[:, :self.num_object_density_queries, :]

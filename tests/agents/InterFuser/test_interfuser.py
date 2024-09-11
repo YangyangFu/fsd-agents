@@ -43,9 +43,9 @@ def test_agent(cfg):
 
     # check the output shapes
     assert object_density.shape == (2, 400, 7)
-    assert stop_sign.shape == (2, 1, 2)
-    assert junction.shape == (2, 1, 2)
-    assert traffic_light.shape == (2, 1, 2)
+    assert stop_sign.shape == (2, 2)
+    assert junction.shape == (2, 2)
+    assert traffic_light.shape == (2, 2)
     assert waypoints.shape == (2, 10, 2)
 
 

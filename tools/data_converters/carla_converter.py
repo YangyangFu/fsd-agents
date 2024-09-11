@@ -309,6 +309,7 @@ def preprocess(folder_list,idx,tmp_dir,train_or_val):
             # right-hand lidar 2 right-hand ego = left2right @ left lidar 2 left ego @ right lidar 2 left lidar
             # right lidar 2 left lidar = right ego 2 left lidar @ right lidar 2 right ego = right2left @ right lidar 2 right ego
             sensor_infos['LIDAR_TOP']['lidar2ego'] = left2right @ np.array(anno['sensors']['LIDAR_TOP']['lidar2ego']) @ left2right @ lidar_to_righthand_ego
+            # righthand world 2 righthand lidar = lefthand lidar 2 righthand lidar @ lefthand world 2 lefthand lidar @ righthand world 2 lefthand world
             world2lidar = lefthand_ego_to_lidar @ np.array(anno['sensors']['LIDAR_TOP']['world2lidar']) @ left2right
             sensor_infos['LIDAR_TOP']['world2lidar'] = world2lidar
             frame_data['sensors'] = sensor_infos

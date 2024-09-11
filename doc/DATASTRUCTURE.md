@@ -1,19 +1,82 @@
 # Data Structure
 The underlying data structure designed for automoumous motion planning and control tasks.
 
+## TrajectoryData
+
+```mermaid
+classDiagram
+    direction RL
+    class TrajectoryData{
+        +float: time
+        +float: time_step
+        +int: num_steps
+        +int: past_steps
+        +int: future_steps
+        +Array: xyzr
+        +Array: mask
+    }
+    class MultiModalTrajectoryData{
+        +int: num_modalities
+        +Array: scores
+    }
+    MultiModalTrajectoryData <|-- TrajectoryData
+```
+
+## PlanningDataSample
+All annotations are in lidar coord
+
+```mermaid
+classDiagram
+    direction RL
+
+    class PlanningDataSample{
+        +dict: metainfo
+        +Ego: ego
+        +Instances: instances
+        +Grids: grids
+        +VectorMap: map
+    }
+    class Ego{
+        +dict: metainfo
+        +Array: command
+        +Array: goal_point
+        +TrajectoryData: gt_traj
+        +TrajectoryData: pred_traj
+    }
+    class Instances{
+        +dict: metainfo
+        +ArrayLike: ids
+        +LiDAR3DBoxes: gt_bboxes_3d
+        +LiDAR3DBoxes: pred_bboxes_3d
+        +ArrayLike: gt_labels
+        +ArrayLike: pred_labels
+        +List[TrajectoryData]: gt_traj
+        +List[TrajectoryData]: pred_traj
+    }
+    class VectorMap{
+
+    }
+    class Grids{
+
+    }
+    class BaseDataElement{
+
+    }
+    class InstanceData{
+
+    }
+    Ego <|.. BaseDataElement
+    Instances <|.. InstanceData
+    VectorMap <|.. BaseDataElement
+    Grids <|.. BaseDataElement
+    PlanningDataSample --o Ego
+    PlanningDataSample --o Instances
+    PlanningDataSample --o VectorMap
+    PlanningDataSample --o Grids
+```
+
+
 ```python
-
-class Trajectory(BaseDataElement):
-    timestamp:
-    loc:
-    mask:
-
-class Trajectories(BaseDataElement):
-    """Catenated trajectory"""
-    timestamp: float
-    data: tensor
-    mask: 
-
 class PlanningDataSample(BaseDataElement):
     """
     Planning is usually performed with multi-modal sensors. The resulting annotation usually contains 3D bounding boxes from lidar annotation, which can then be transformed to various camera sensors if needed. 

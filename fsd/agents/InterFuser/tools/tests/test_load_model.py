@@ -10,7 +10,7 @@ from fsd.registry import MODELS, AGENTS
 # paths
 file_path = os.path.dirname(os.path.realpath(__file__))
 agent_dir = os.path.dirname(os.path.dirname(file_path))
-checkpoint_dir = os.path.join(agent_dir, 'checkpoints')
+checkpoint_dir = os.path.join(agent_dir, 'ckpts')
 config_path = os.path.join(agent_dir, 'configs/interfuser_r50_carla.py')
 cfg = Config.fromfile(config_path)
 
@@ -24,7 +24,7 @@ data_preprocessor = MODELS.build(cfg.model.data_preprocessor)
 agent = AGENTS.build(cfg.model)    
 
 # save model weights
-agent.load_state_dict(torch.load(os.path.join(checkpoint_dir,'interfuser.pth.tar')))
+agent.load_state_dict(torch.load(os.path.join(checkpoint_dir,'interfuser.pth.tar'))['state_dict'])
 
 # get one sample
 for sample in dataloader:

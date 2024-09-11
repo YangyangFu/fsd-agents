@@ -635,7 +635,7 @@ class LoadAnnotations3DPlanning(LoadAnnotations3D):
 
     Args:
     # Planning:
-        with_instances_future_traj (bool, optional): Whether to load future trajectory for instances.
+        with_instances_traj (bool, optional): Whether to load trajectory for instances.
             Defaults to False.
         
     # 3D annotations inherited from LoadAnnotations3D
@@ -671,13 +671,13 @@ class LoadAnnotations3DPlanning(LoadAnnotations3D):
     """
     def __init__(self,
                  with_ego_status=False,
-                 with_instances_future_traj=False,
+                 with_instances_traj=False,
                  with_instances_ids=False,
                  with_grids=False,
                  **kwargs):
         super().__init__(**kwargs)
         self.with_ego_status = with_ego_status
-        self.with_instances_future_traj = with_instances_future_traj
+        self.with_instances_traj = with_instances_traj
         self.with_instances_ids = with_instances_ids
         self.with_grids = with_grids
 
@@ -687,20 +687,20 @@ class LoadAnnotations3DPlanning(LoadAnnotations3D):
         results['bbox3d_fields'].append('gt_instances_ids')
         return results
 
-    def _load_ego_future_traj(self, results):
-        ego_future_traj = results['anno_info']['gt_ego_future_traj']
-        results['gt_ego_future_traj'] = ego_future_traj
-        results['ego_fields'].append('gt_ego_future_traj')
+    def _load_ego_traj(self, results):
+        ego_traj = results['anno_info']['gt_ego_traj']
+        results['gt_ego_traj'] = ego_traj
+        results['ego_fields'].append('gt_ego_traj')
         return results
     
-    def _load_instances_future_traj(self, results):
-        instances_future_traj = results['anno_info']['gt_instances_future_traj']
-        results['gt_instances_future_traj'] = instances_future_traj
-        results['bbox3d_fields'].append('gt_instances_future_traj')
+    def _load_instances_traj(self, results):
+        instances_traj = results['anno_info']['gt_instances_traj']
+        results['gt_instances_traj'] = instances_traj
+        results['bbox3d_fields'].append('gt_instances_traj')
         return results
     
     def _load_ego_status(self, results):
-        status = ['ego_world2ego', 'ego_velocity', 'ego_affected_by_lights', \
+        status = ['ego_ego2world', 'ego_size', 'ego_velocity', 'ego_affected_by_lights', \
             'ego_affected_by_stop_sign', 'ego_is_at_junction']
         
         for key in status:
@@ -727,13 +727,13 @@ class LoadAnnotations3DPlanning(LoadAnnotations3D):
         results = super().__call__(results)
         
         # load ego related
-        results = self._load_ego_future_traj(results)
+        results = self._load_ego_traj(results)
         if self.with_ego_status:
             results = self._load_ego_status(results)
               
         # load future trajectory for ego vehicle
-        if self.with_instances_future_traj:
-            results = self._load_instances_future_traj(results)
+        if self.with_instances_traj:
+            results = self._load_instances_traj(results)
         if self.with_instances_ids:
             results = self._load_instances_ids(results)
 
@@ -747,7 +747,7 @@ class LoadAnnotations3DPlanning(LoadAnnotations3D):
         repr_str = super().__repr__()
         indent_str = '    '
         repr_str += f'{indent_str}with_ego_status={self.with_ego_status}, '
-        repr_str += f'{indent_str}with_instances_future_traj={self.with_instances_future_traj}, '
+        repr_str += f'{indent_str}with_instances_traj={self.with_instances_traj}, '
         repr_str += f'{indent_str}with_instances_ids={self.with_instances_ids}, '
         repr_str += f'{indent_str}with_grids={self.with_grids})'
         
@@ -1008,12 +1008,14 @@ class LoadPointsFromMultiSweeps:
         """str: Return a string that describes the module."""
         return f"{self.__class__.__name__}(sweeps_num={self.sweeps_num})"
 
+#TODO: preprocess the points to be in right-hand ego coordinates before pipeline
 @PIPELINES.register_module()
 class LoadPointsFromFileCarlaDataset:
     """Load Points From File used for carla dataset only.
 
     CarlaDataset save points data in .laz file, and 
-    the points are in left-hand ego coordinates as in Carla.
+    the points are in left-hand UE coordinates(e.g., x forward, y right, z up), and 
+    the points are saved in ego coordinates.
     Here we load the points and convert them to right-hand MMDET3D ego coordinates for consistency.
     
     Load sunrgbd and scannet points from file.
@@ -1097,7 +1099,8 @@ class LoadPointsFromFileCarlaDataset:
         return points
 
     def __call__(self, results):
-        """Call function to load points data from file.
+        """Call function to load points data from file,
+        and convert them to right-hand mmdet3d lidar coordinates
 
         Carladataset left-hand ego coordinates: x-front, y-right, z-up
         MMDET3D right-hand lidar coordinates: x-front, y-left, z-up
@@ -1116,11 +1119,16 @@ class LoadPointsFromFileCarlaDataset:
         points = self._load_points(lidar_path)
         points = points.reshape(-1, self.load_dim)
         
-        # convert from left-hand ego coord to right-hand lidar coord
+        # This assumes the points are originally in lefthand system
+        # and annotated sensor2ego is mmdet sensor to mmdet ego
+        # convert from left-hand ego coord to right-hand mmdet3d lidar coord
         left2right = np.eye(4)
         left2right[1, 1] = -1
+        # mmdet lidar coord to mmdet ego coord
         lidar2ego = results['sensors'][lidar_name]['sensor2ego']
         points_hom = np.concatenate([points, np.ones((points.shape[0], 1))], axis=1)
+        
+        # convert to mmdet3d lidar coord: ego2lidar_mmdet @ lefthand_ego2mmdet_ego
         points = (np.linalg.inv(lidar2ego) @ left2right @ points_hom.T).T 
         points = points[:, :3]
         

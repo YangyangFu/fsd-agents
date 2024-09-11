@@ -27,7 +27,16 @@ Full self-driving agents benchmark on closed-loop simulation
 - [] how to control data type globally?
 - [] data time is too long, 80-90% of total time
 - [] add base planning module
-- [] closed-loop evaluation code on carla sim environment based on carla leaderboard 2.0
-- [] visualize multi-view/lidar data in data set
+- [x] closed-loop evaluation code on carla sim environment based on carla leaderboard 2.0
+- [x] visualize multi-view/lidar data in data set
 - [] visualization of prediction details during closed-loop simulation
 - [] add `goal_points` to standard default dataset
+- [x] implement `resnet-d` variants to support interfuser -> add dependency on mmPretrain to reuse timm models
+- [] interfuser seems not work with batch=1
+- [x] check where the pretrained model pth is downloaded
+- [x] weights mismatch after conversion.
+- [x] direct use `cam2img` instead of `cam_instrinsics`?
+- [ ] `vis.set_bev_image()` reset the image shape to (480, 640, 3) when set the shape to (800, 800).
+- [ ] add bev plot for instance trajectory
+- [ ] add bev plot for multi-modal trajectory
+- [ ] add map visualization

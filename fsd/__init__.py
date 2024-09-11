@@ -5,5 +5,5 @@ from . import datasets
 from . import metrics
 from . import runner 
 from . import structures
-from . import utils
 from . import visualization
+from . import utils

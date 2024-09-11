@@ -1657,19 +1657,16 @@ class Collect3D(object):
 
     def __init__(self,
                  keys,
-                 meta_keys=('filename', 'ori_shape', 'img_shape', 'lidar2img',
-                            'depth2img', 'cam2img', 'pad_shape',
-                            'scale_factor', 'flip', 'pcd_horizontal_flip',
-                            'pcd_vertical_flip', 'box_mode_3d', 'box_type_3d',
-                            'img_norm_cfg', 'pcd_trans', 'sample_idx', 'prev_idx', 'next_idx',
-                            'pcd_scale_factor', 'pcd_rotation',
-                            'transformation_3d_flow', 'scene_token',
-                            'folder','frame_idx', 'img_sensor_name'
+                 meta_keys=('filename', 'ori_shape', 'img_shape', 'pad_shape', 'scale_factor',
+                            'img_sensor_name', 'cam_intrinsics', 'cam2world',
+                            'box_mode_3d', 'box_type_3d',
+                            'img_norm_cfg', 'sample_idx', 'prev_idx', 'next_idx',
+                            'scene_token', 'folder','frame_idx'
                             )):
         # TODO(yzj) bevformer meta_keys has lidar2cam
         self.keys = keys
         self.meta_keys = meta_keys
-        self.pts_meta_keys = ('pts_filename', 'pts_sensor_name')
+        self.pts_meta_keys = ('pts_filename', 'pts_sensor_name', 'lidar2world')
         
     def __call__(self, results):
         """Call function to collect keys in results. The keys in ``meta_keys``
@@ -1792,8 +1789,8 @@ class ObjectRangeFilter(object):
         gt_labels_3d = input_dict['gt_labels_3d']
         if 'gt_instances_ids' in input_dict:
             gt_instances_ids = input_dict['gt_instances_ids']
-        if 'gt_instances_future_traj' in input_dict:
-            gt_instances_future_traj = input_dict['gt_instances_future_traj']
+        if 'gt_instances_traj' in input_dict:
+            gt_instances_traj = input_dict['gt_instances_traj']
 
         # Filter by range
         mask = gt_bboxes_3d.in_range_bev(bev_range)
@@ -1806,8 +1803,9 @@ class ObjectRangeFilter(object):
         gt_labels_3d = gt_labels_3d[mask]
         if 'gt_instances_ids' in input_dict:
             gt_instances_ids = gt_instances_ids[mask]
-        if 'gt_instances_future_traj' in input_dict:
-            gt_instances_future_traj = gt_instances_future_traj[mask]
+        if 'gt_instances_traj' in input_dict:
+            gt_instances_traj =[traj for traj, m in zip(gt_instances_traj, mask) if m]
+            #gt_instances_traj = gt_instances_traj[mask]
         
         
         # limit rad to [-pi, pi]
@@ -1816,8 +1814,8 @@ class ObjectRangeFilter(object):
         input_dict['gt_labels_3d'] = gt_labels_3d
         if 'gt_instances_ids' in input_dict:
             input_dict['gt_instances_ids'] = gt_instances_ids
-        if 'gt_instances_future_traj' in input_dict:
-            input_dict['gt_instances_future_traj'] = gt_instances_future_traj
+        if 'gt_instances_traj' in input_dict:
+            input_dict['gt_instances_traj'] = gt_instances_traj
 
         return input_dict
 
@@ -1853,8 +1851,11 @@ class ObjectNameFilter(object):
         input_dict['gt_labels_3d'] = input_dict['gt_labels_3d'][gt_bboxes_mask]
         if 'gt_instances_ids' in input_dict:
             input_dict['gt_instances_ids'] = input_dict['gt_instances_ids'][gt_bboxes_mask]
-        if 'gt_instances_future_traj' in input_dict:
-            input_dict['gt_instances_future_traj'] = input_dict['gt_instances_future_traj'][gt_bboxes_mask]
+        if 'gt_instances_traj' in input_dict:
+            gt_instances_traj = input_dict['gt_instances_traj']
+            gt_instances_traj = [traj for traj, m in zip(gt_instances_traj, gt_bboxes_mask) if m]
+            input_dict['gt_instances_traj'] = gt_instances_traj
+            #input_dict['gt_instances_traj'] = input_dict['gt_instances_traj'][gt_bboxes_mask]
 
         return input_dict
 

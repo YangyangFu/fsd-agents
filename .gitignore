@@ -162,7 +162,7 @@ cython_debug/
 #.idea/
 
 # dataset
-data/*
+data*
 data-mini/*
 
 #

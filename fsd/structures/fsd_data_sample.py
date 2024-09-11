@@ -1,7 +1,8 @@
 from typing import Dict, Union
 
 import torch
-from mmengine.structures import BaseDataElement, InstanceData, PixelData
+from mmengine.structures import BaseDataElement
+from fsd.structures.fsd_data import Ego, Instances, Grids
 
 class PlanningDataSample(BaseDataElement):
     """A data structure interface between different components in fsd planning.
@@ -43,31 +44,31 @@ class PlanningDataSample(BaseDataElement):
 
     # properties
     @property
-    def gt_ego(self) -> BaseDataElement:
-        return self._gt_ego
-    @gt_ego.setter 
-    def gt_ego(self, value: BaseDataElement) -> None:
-        self.set_field(value, "_gt_ego", dtype=BaseDataElement)
-    @gt_ego.deleter
-    def gt_ego(self) -> None:
-        del self._gt_ego
+    def ego(self) -> Ego:
+        return self._ego
+    @ego.setter 
+    def ego(self, value: Ego) -> None:
+        self.set_field(value, "_ego", dtype=Ego)
+    @ego.deleter
+    def ego(self) -> None:
+        del self._ego
     
     @property
-    def gt_instances_3d(self) -> InstanceData:
-        return self._gt_instances_3d
-    @gt_instances_3d.setter
-    def gt_instances_3d(self, value: InstanceData):
-        self.set_field(value, "_gt_instances_3d", dtype=InstanceData)
-    @gt_instances_3d.deleter
-    def gt_instances_3d(self) -> None:
-        del self._gt_instances_3d
+    def instances(self) -> Instances:
+        return self._instances
+    @instances.setter
+    def instances(self, value: Instances):
+        self.set_field(value, "_instances", dtype=Instances)
+    @instances.deleter
+    def instances(self) -> None:
+        del self._instances
         
     @property
-    def gt_pts_seg(self) -> PixelData:
-        return self._gt_pts_seg
-    @gt_pts_seg.setter
-    def gt_pts_seg(self, value: PixelData):
-        self.set_field(value, "_gt_pts_seg", dtype=PixelData)
-    @gt_pts_seg.deleter
-    def gt_pts_seg(self) -> None:
-        del self._gt_pts_seg
+    def grids(self) -> Grids:
+        return self._grids
+    @grids.setter
+    def grids(self, value: Grids):
+        self.set_field(value, "_grids", dtype=Grids)
+    @grids.deleter
+    def grids(self) -> None:
+        del self._grids

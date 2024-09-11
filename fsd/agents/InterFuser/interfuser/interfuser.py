@@ -1,5 +1,6 @@
 # Wrapper for naive transformer model
 from typing import List, Dict, Tuple, Union, Sequence, AnyStr, TypedDict
+import math
 import torch
 import torch.nn as nn
 
@@ -346,20 +347,35 @@ class InterFuser(Base3DDetector):
         
 
         # query embedding
-        # (N, dim) [num_objects_map, num_traffic_info, num_waypoints]
-        query_decoder = self.query_embedding(torch.arange(self.num_queries, device=device))
-        # (N_pos, dim,) -> (N, dim) -> (B, N, dim)
-        query_pos_decoder = self.query_positional_encoding(torch.arange(self.query_positional_encoding.num_embeddings, device=device))
-        query_pos_decoder = torch.cat([torch.zeros(self.num_queries - self.num_queries_waypoints - self.num_queries_traffic_info, self.embed_dims, device=device),
-                                     query_pos_decoder[:self.num_queries_traffic_info, :], 
-                                     query_pos_decoder[-self.num_queries_waypoints:, :]], 
-                                    dim=0)
-        query_pos_decoder = query_pos_decoder.unsqueeze(0).repeat(B, 1, 1)
-        # (B, N, dim) 
+        # (N, dim) [num_objects_map, num_traffic_info, num_waypoints] -> (B, N, E)
+        query_decoder = self.query_embedding(torch.arange(self.num_queries, device=device)) 
         query_decoder = query_decoder.unsqueeze(0).repeat(B, 1, 1)
-          
-        ## encoder
-        # [bs, NHW, dim]
+        
+        # query positional embedding
+        # density map position -> fixed positional encoding -> (B, E, sqrt(num_grids), sqrt(num_grids)) -> (B, E, num_grids) -> (B, N, E)
+        num_grids = self.num_queries - self.num_queries_waypoints - self.num_queries_traffic_info
+        assert math.isqrt(num_grids), 'num_grids should be a square number.'
+        sqrt_num_grids = int(torch.sqrt(torch.tensor(num_grids)))
+        query_pos_decoder_1 = self.positional_encoding(
+            mask=None, 
+            input=torch.ones((B, 1, sqrt_num_grids, sqrt_num_grids), device=device))
+        query_pos_decoder_1 = query_pos_decoder_1.view(B, -1, num_grids).permute(0, 2, 1)
+        
+        # traffic info + waypoints -> learnable positional encoding
+        # (N_pos, E,) -> (N, E) -> (B, N, E)
+        query_pos_decoder_2 = self.query_positional_encoding(torch.arange(self.query_positional_encoding.num_embeddings, device=device))
+        query_pos_decoder_2 = query_pos_decoder_2.unsqueeze(0).repeat(B, 1, 1)
+        
+        # combine: (B, N, E)
+        query_pos_decoder = torch.cat([query_pos_decoder_1, query_pos_decoder_2], dim=1)
+
+        ## transformer
+        if not self.encoder.layers[0].batch_first:
+            query_encoder = query_encoder.permute(1, 0, 2) # (L, B, E)
+            query_decoder = query_decoder.permute(1, 0, 2) # (N, B, E)
+            query_pos_decoder = query_pos_decoder.permute(1, 0, 2) # (N, B, E)
+            
+        # encoder 
         memory = self.encoder(
             query = query_encoder,
             key = query_encoder,
@@ -371,7 +387,7 @@ class InterFuser(Base3DDetector):
             key_padding_mask = None,
         )
         
-        ## decoder (bs, num_queries, dim)
+        # decoder
         output_dec = self.decoder(
             query = query_decoder,
             key = memory,
@@ -382,10 +398,12 @@ class InterFuser(Base3DDetector):
             query_key_padding_mask = None,
             key_padding_mask = None,
         )
-        
-        # norm again
         output_dec = self.decoder_norm(output_dec)
-          
+        
+        if not self.decoder.layers[0].batch_first:
+            output_dec = output_dec.permute(1, 0, 2) # (B, N, E)
+        
+        # output_dec: (B, N, E)
         return output_dec
     
     def _forward_heads(self, output_decoder, goal_points, ego_velocity):
