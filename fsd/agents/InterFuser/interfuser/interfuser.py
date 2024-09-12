@@ -7,6 +7,7 @@ import torch.nn as nn
 from mmdet3d.models import Base3DDetector
 from mmdet.models import (SinePositionalEncoding, \
                             LearnedPositionalEncoding)
+from fsd.structures import TrajectoryData
 from fsd.utils import ConfigType, OptConfigType, DataSampleType, OptDataSampleType
 from fsd.registry import NECKS as FSD_NECKS
 from fsd.registry import AGENTS as FSD_AGENTS
@@ -287,7 +288,7 @@ class InterFuser(Base3DDetector):
         
         return pts_feats
 
-    def _forward_transformer(self, batch_inputs_dict, batch_targets_dict):
+    def _forward_transformer(self, batch_inputs_dict, data_samples=None):
         """Forward function in tensor mode
         
         Args:
@@ -297,7 +298,7 @@ class InterFuser(Base3DDetector):
                 - img (torch.Tensor): Image of each sample.
                 - pts (torch.Tensor): Point cloud BEV of each sample.
                 
-            batch_targets_dict (dict): The data samples dict.
+            data_samples (dict): The data samples dict.
         
         Returns:
             torch.Tensor: The output tensor that represents the model output without any post-processing.
@@ -438,13 +439,33 @@ class InterFuser(Base3DDetector):
         
         return losses 
     
-    def predict(self, batch_inputs_dict, batch_targets_dict, **kwargs):
+    def predict(self, batch_inputs_dict, data_samples, **kwargs):
         goal_points = batch_inputs_dict.get('goal_points', None)
         ego_velocity = batch_inputs_dict.get('ego_velocity', None)
-        output_dec = self._forward_transformer(batch_inputs_dict, batch_targets_dict)
+        output_dec = self._forward_transformer(batch_inputs_dict, data_samples)
         preds = self.heads.predict(output_dec, goal_points, ego_velocity)
         
-        return preds
+        # post processing
+        B = len(data_samples)
+        preds_dict = {}
+        preds_dict['instances'] = {}
+        preds_dict['ego'] = {}
+        preds_dict['grids'] = {}
+        
+        preds_dict['ego']['pred_traffic_light'] = preds['traffic_light']
+        preds_dict['ego']['pred_stop_sign'] = preds['stop_sign']
+        preds_dict['ego']['pred_at_junction'] = preds['junction']
+        trajmeta = {'num_past_steps': 0, 'num_future_steps': self.num_queries_waypoints}
+        
+        trajs = []
+        for b in range(B):
+            trajs.append(TrajectoryData(metainfo=trajmeta, data=preds['waypoints'][b]))
+        preds_dict['ego']['pred_traj'] = trajs 
+        preds_dict['grids']['pred_density'] = preds['object_density'].view(B, 20, 20, 7)
+        
+        data_samples = self.add_pred_to_datasample(data_samples, preds_dict)
+        
+        return data_samples
     
     def forward(self,
                 inputs: Union[dict, List[dict]],
@@ -474,7 +495,7 @@ class InterFuser(Base3DDetector):
                 - points (list[torch.Tensor]): Point cloud of each sample.
                 - img (torch.Tensor): Image tensor has shape (B, C, H, W) or 
                     (B, N, C, H, W).
-            batch_targets_dict (dict): The
+            data_samples (dict): The
                 annotation data of every samples. When it is a list[list], the
                 outer list indicate the test time augmentation, and the
                 inter list indicate the batch. Otherwise, the list simply
@@ -498,3 +519,66 @@ class InterFuser(Base3DDetector):
         else:
             raise RuntimeError(f'Invalid mode "{mode}". '
                                'Only supports loss, predict and tensor mode')
+
+    def add_pred_to_datasample(
+        self,
+        data_samples: List[DataSampleType],
+        results_dict: Dict[str, torch.Tensor],
+    ) -> List[DataSampleType]:
+        """Convert results dict to `PlanningDataSample`.
+
+        Subclasses could override it to be compatible for some multi-modality
+        3D detectors.
+
+        Args:
+            data_samples (list[:obj:`Det3DDataSample`]): The input data.
+            results_dict (dict): The results dict from prediction
+
+        Returns:
+            list[:obj:`Det3DDataSample`]: Detection results of the
+            input. Each Det3DDataSample usually contains
+            'pred_instances_3d'. And the ``pred_instances_3d`` normally
+            contains following keys.
+
+            - scores_3d (Tensor): Classification scores, has a shape
+              (num_instance, )
+            - labels_3d (Tensor): Labels of 3D bboxes, has a shape
+              (num_instances, ).
+            - bboxes_3d (Tensor): Contains a tensor with shape
+              (num_instances, C) where C >=7.
+
+            When there are image prediction in some models, it should
+            contains  `pred_instances`, And the ``pred_instances`` normally
+            contains following keys.
+
+            - scores (Tensor): Classification scores of image, has a shape
+              (num_instance, )
+            - labels (Tensor): Predict Labels of 2D bboxes, has a shape
+              (num_instances, ).
+            - bboxes (Tensor): Contains a tensor with shape
+              (num_instances, 4).
+        """
+        # add box predictions to instances
+        pred_keys_instances = ['pred_bboxes_3d', 'pred_labels', 'pred_scores', 'pred_traj']
+        for b, data_sample in enumerate(data_samples):
+            for key in pred_keys_instances:
+                if key in results_dict['instances']:
+                    data_sample.instances.set_field(results_dict['instances'][key][b, ...], key)
+                    
+        # add ego predictions to ego
+        pred_ego_keys = ['pred_traj', 'pred_traffic_light', 'pred_stop_sign', 'pred_at_junction']
+        for b, data_sample in enumerate(data_samples):
+            for key in pred_ego_keys:
+                if key in results_dict['ego']:
+                    data_sample.ego.set_field(results_dict['ego'][key][b], key)
+                
+        # add grid predictions to grids
+        pred_keys_grids = ['pred_density']
+        for b, data_sample in enumerate(data_samples):
+            for key in pred_keys_grids:
+                if key in results_dict['grids']:
+                    data_sample.grids.set_field(results_dict['grids'][key][b], key)
+            
+        # add map predictions to map
+        
+        return data_samples
