@@ -16,8 +16,8 @@ default_hooks = dict(
     ),
     checkpoint=dict(
         type=CheckpointHook, 
-        interval=10000, 
-        by_epoch=False
+        interval=1, 
+        by_epoch=True
     )
 )
 

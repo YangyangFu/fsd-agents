@@ -354,11 +354,10 @@ class Planning3DDataset(Dataset):
         input_dict['sensors'] = info['sensors']
         
         # get annotation info
-        if not self.test_mode:
-            anno_info = self._get_ann_info(info)
-            
-            # save to standard info
-            input_dict['anno_info'] = anno_info
+        anno_info = self._get_ann_info(info)
+        
+        # save to standard info
+        input_dict['anno_info'] = anno_info
 
         return input_dict
 
@@ -558,9 +557,21 @@ class Planning3DDataset(Dataset):
         Returns:
             dict: Testing data dict of the corresponding index.
         """
-        input_dict = self.get_data_info(index)
+        info = self.prepare_planning_info(index)
+        # add past/future annotation info, such as future trajectory
+        info = self.generate_past_future_info(index, info) 
+        # assemble for data pipeline
+        input_dict = self.get_data_info(info)
+        if not input_dict:
+            return None
+
         self.pre_pipeline(input_dict)
         example = self.pipeline(input_dict)
+        if self.filter_empty_gt and \
+                (example is None or
+                    ~(example['data_samples'].instances.gt_labels != -1).any()):
+            return None
+        
         return example
 
     @classmethod

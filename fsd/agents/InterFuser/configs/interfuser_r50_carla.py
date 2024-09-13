@@ -249,7 +249,7 @@ train_pipeline = [
 ]
 
 train_dataloader = dict(
-    batch_size = 2,
+    batch_size = 16,
     num_workers = 1,
     dataset=dict(
         type=dataset_type,
@@ -268,8 +268,7 @@ train_dataloader = dict(
         sample_interval = 5, # sample interval # frames skiped per step
         test_mode = False
     ),
-    sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
-    collate_fn=dict(type="default_collate"),
+    sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=True),
     pin_memory=True,
 )
 
@@ -306,7 +305,7 @@ val_pipeline = [
         mean=img_norm_cfg['mean'], 
         std=img_norm_cfg['std'], 
         divider=255.0, 
-        to_rgb=False
+        to_rgb=img_norm_cfg['to_rgb']
     ),
     dict(type="Collect3D", keys= []), # default keys are in xx_fields
     dict(type="DefaultFormatBundle3D")
@@ -314,13 +313,13 @@ val_pipeline = [
 
 
 val_dataloader = dict(
-    batch_size = 4,
+    batch_size = 16,
     num_workers = 1,
     dataset=dict(
         type=dataset_type,
         data_root=data_root,
-        ann_file=ann_file_train,
-        pipeline=train_pipeline,
+        ann_file=ann_file_val,
+        pipeline=val_pipeline,
         classes=class_names,
         modality=input_modality,
         camera_sensors=camera_sensors,
@@ -334,12 +333,11 @@ val_dataloader = dict(
         test_mode = True
     ),
     sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
-    collate_fn=dict(type="default_collate"),
     pin_memory=True,
 )
 
 val_cfg = dict()
-val_evaluator = dict()
+val_evaluator = dict(type="TrajectoryMetric")
 
 # optimizer
 lr = 0.0005  # max learning rate
@@ -370,3 +368,6 @@ param_scheduler = [
         by_epoch=True
     ),
 ]
+
+randomness = dict(seed=2024)
+visualizer=dict(type='Visualizer', vis_backends=[dict(type='TensorboardVisBackend')])

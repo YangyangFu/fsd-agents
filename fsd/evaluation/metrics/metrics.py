@@ -12,28 +12,30 @@ class TrajectoryMetric(BaseMetric):
     """Metric for single modal trajecotry prediction.
     """    
     
+    # NOTE: the datasample is processed as dict before sending to the metric in the val loop
     def process(self, 
                 data_batch: dict,
                 data_samples: Sequence[dict]) -> None:
         
         for data_sample in data_samples:
             result = dict()
-            if hasattr(data_sample.ego, 'pred_traj'):
-                planning_steps = data_sample.ego.gt_traj.num_planning_steps
-                pred_traj_ego = data_sample.ego.pred_traj.data.to('cpu')[-planning_steps:, :2]
-                gt_traj_ego = data_sample.ego.gt_traj.data.to('cpu')[-planning_steps:, :2]
-                gt_traj_mask = data_sample.ego.gt_traj.mask.to('cpu')[-planning_steps:].view(-1, 1).repeat(1, 2) if data_sample.ego.gt_traj.mask is not None else None # [T, 2]
+            if 'pred_traj' in data_sample['ego']:
+                planning_steps = data_sample['ego']['gt_traj']['num_future_steps']
+                pred_traj_ego = data_sample['ego']['pred_traj']['data'].to('cpu')[-planning_steps:, :2]
+                gt_traj_ego = data_sample['ego']['gt_traj']['data'].to('cpu')[-planning_steps:, :2]
+                gt_traj_mask = data_sample['ego']['gt_traj']['mask'].to('cpu')[-planning_steps:].view(-1, 1).repeat(1, 2) if 'mask' in data_sample['ego']['gt_traj'] else None # [T, 2]
                 result['pred_traj_ego'] = pred_traj_ego
                 result['gt_traj_ego'] = gt_traj_ego
                 if gt_traj_mask is not None:
                     result['gt_traj_ego_mask'] = gt_traj_mask
             
-            if hasattr(data_sample.instances, 'pred_traj'):
-                planning_steps = data_sample.instances.gt_traj[0].num_planning_steps
-                pred_traj_instances = torch.cat([traj.data.to('cpu')[-planning_steps:, :2] for traj in data_sample.instances.pred_traj], axis=0)
-                gt_traj_instances = torch.cat([traj.data.to('cpu')[-planning_steps:, :2] for traj in data_sample.instances.gt_traj], axis=0)
-                if data_sample.instances.gt_traj[0].mask is not None:
-                    gt_traj_mask = torch.cat([traj.mask.to('cpu')[-planning_steps:].view(-1, 1).repeat(1, 2) for traj in data_sample.instances.gt_traj], axis=0)
+            # TODO: the eval loop seems didn't convert list of TrajectoryData to dict
+            if 'pred_traj' in data_sample['instances']:
+                planning_steps = data_sample['instances']['gt_traj'][0].num_future_steps
+                pred_traj_instances = torch.cat([traj.data.to('cpu')[-planning_steps:, :2] for traj in data_sample['instances']['pred_traj']], axis=0)
+                gt_traj_instances = torch.cat([traj.data.to('cpu')[-planning_steps:, :2] for traj in data_sample['instances']['gt_traj']], axis=0)
+                if data_sample['instances']['gt_traj'][0].mask is not None:
+                    gt_traj_mask = torch.cat([traj.mask.to('cpu')[-planning_steps:].view(-1, 1).repeat(1, 2) for traj in data_sample['instances']['gt_traj']], axis=0)
                 else:
                     gt_traj_mask = None
                     
