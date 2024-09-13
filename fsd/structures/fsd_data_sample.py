@@ -1,6 +1,5 @@
 from typing import Dict, Union
 
-import torch
 from mmengine.structures import BaseDataElement
 from fsd.structures.fsd_data import Ego, Instances, Grids
 

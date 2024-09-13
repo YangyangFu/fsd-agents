@@ -5,6 +5,7 @@ import warnings
 import torch
 import numpy as np 
 
+from mmengine.utils import is_seq_of
 from mmengine.structures import BaseDataElement, InstanceData
 from mmdet3d.structures import BaseInstance3DBoxes
 
@@ -819,15 +820,65 @@ class Instances(InstanceData):
         Args:
             value (TrajectoryData): The predicted trajectory of the instances
         """
-        assert isinstance(value, TrajectoryData), \
-            "Predicted trajectory should be a TrajectoryData object"
+        assert isinstance(value, list) and isinstance(value[0], TrajectoryData), \
+            "Predicted trajectory should be a list of TrajectoryData object"
         
         self.set_field(value, '_pred_traj', dtype=type(value))
     
     @pred_traj.deleter
     def pred_traj(self):
         del self._pred_traj
-        
+    
+    #TODO: use recursion to supported nested sequence of data
+    # Mainly to support convert a list of trajectory data
+    def to(self, *args, **kwargs) -> 'BaseDataElement':
+        """Apply same name function to all tensors in data_fields.
+        """
+        new_data = self.new()
+        for k, v in self.items():
+            if hasattr(v, 'to'):
+                v = v.to(*args, **kwargs)
+                data = {k: v}
+                new_data.set_data(data)
+            elif is_seq_of(v, torch.Tensor) or is_seq_of(v, BaseDataElement):
+                v = [x.to(*args, **kwargs) for x in v]
+                data = {k: v}
+                new_data.set_data(data)
+                
+        return new_data
+    
+    # Tensor-like methods
+    def cpu(self) -> 'BaseDataElement':
+        """Convert all tensors to CPU in data."""
+        new_data = self.new()
+        for k, v in self.items():
+            if isinstance(v, (torch.Tensor, BaseDataElement)):
+                v = v.cpu()
+                data = {k: v}
+                new_data.set_data(data)
+            elif is_seq_of(v, torch.Tensor) or is_seq_of(v, BaseDataElement):
+                v = [x.cpu() for x in v]
+                data = {k: v}
+                new_data.set_data(data)
+                
+        return new_data
+
+    # Tensor-like methods
+    def cuda(self) -> 'BaseDataElement':
+        """Convert all tensors to GPU in data."""
+        new_data = self.new()
+        for k, v in self.items():
+            if isinstance(v, (torch.Tensor, BaseDataElement)):
+                v = v.cuda()
+                data = {k: v}
+                new_data.set_data(data)
+            elif is_seq_of(v, torch.Tensor) or is_seq_of(v, BaseDataElement):
+                v = [x.cuda() for x in v]
+                data = {k: v}
+                new_data.set_data(data)
+                
+        return new_data    
+    
 class Grids(BaseDataElement):
     """Data structure for grid-map like data annontation
     

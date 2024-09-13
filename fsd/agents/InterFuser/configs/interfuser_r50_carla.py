@@ -269,9 +269,15 @@ train_dataloader = dict(
         test_mode = False
     ),
     sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
+    collate_fn=dict(type="default_collate"),
+    pin_memory=True,
 )
 
-train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=25, val_interval=1)
+train_cfg = dict(
+    type='EpochBasedTrainLoop', 
+    max_epochs=25, 
+    val_interval=1
+)
 
 # validataion
 val_pipeline = [
@@ -306,9 +312,9 @@ val_pipeline = [
     dict(type="DefaultFormatBundle3D")
 ]
 
-"""
+
 val_dataloader = dict(
-    batch_size = 2,
+    batch_size = 4,
     num_workers = 1,
     dataset=dict(
         type=dataset_type,
@@ -328,12 +334,12 @@ val_dataloader = dict(
         test_mode = True
     ),
     sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
+    collate_fn=dict(type="default_collate"),
+    pin_memory=True,
 )
 
-val_cfg = dict(type='ValLoop')
-
+val_cfg = dict()
 val_evaluator = dict()
-"""
 
 # optimizer
 lr = 0.0005  # max learning rate
