@@ -341,11 +341,11 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
         gt_instances_3d = Instances()
         
         instances_key_map = {
-            'gt_bboxes_3d': 'gt_bboxes_3d',
-            'gt_labels_3d': 'gt_labels',
-            'gt_instances_traj': 'gt_traj',
-            'gt_instances_ids': 'gt_ids',
-            'gt_instances_names': 'gt_names',
+            'gt_bboxes_3d': 'bboxes_3d',
+            'gt_labels_3d': 'labels',
+            'gt_instances_traj': 'traj',
+            'gt_instances_ids': 'ids',
+            'gt_instances_names': 'names',
         }
         
         for key in results['bbox3d_fields']:
@@ -368,7 +368,7 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
         # format gt_ego: data related to ego vehicle
         gt_ego = Ego()
         ego_key_map = {
-            "gt_ego_traj": "gt_traj",
+            "gt_ego_traj": "traj",
             "ego_ego2world": "pose",
             "ego_velocity": "velocity",
             "ego_affected_by_lights": "affected_by_lights",
@@ -391,8 +391,10 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
         # format gt_grids: data related to grids
         gt_grids = Grids()
         grids_key_map = {
-            'gt_grid_density': 'gt_density',
-            'gt_grid_occupancy': 'gt_occupancy',
+            'gt_grid_density': 'density',
+            'gt_grid_occupancy': 'occupancy',
+            'gt_grid_density_mask': 'density_mask',
+            'gt_grid_occupancy_mask': 'occupancy_mask',
         }
         for key in results['grid_fields']:
             if key in results:
@@ -406,9 +408,9 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
         # with map
         
         data_sample = PlanningDataSample()
-        data_sample.instances = gt_instances_3d
-        data_sample.ego = gt_ego
-        data_sample.grids = gt_grids
+        data_sample.gt_instances = gt_instances_3d
+        data_sample.gt_ego = gt_ego
+        data_sample.gt_grids = gt_grids
         
         results['data_samples'] = data_sample
         

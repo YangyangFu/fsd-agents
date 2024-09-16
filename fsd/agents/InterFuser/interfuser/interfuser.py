@@ -7,7 +7,7 @@ import torch.nn as nn
 from mmdet3d.models import Base3DDetector
 from mmdet.models import (SinePositionalEncoding, \
                             LearnedPositionalEncoding)
-from fsd.structures import TrajectoryData
+from fsd.structures import TrajectoryData, Instances, Ego, Grids
 from fsd.utils import ConfigType, OptConfigType, DataSampleType, OptDataSampleType
 from fsd.registry import NECKS as FSD_NECKS
 from fsd.registry import AGENTS as FSD_AGENTS
@@ -559,25 +559,43 @@ class InterFuser(Base3DDetector):
               (num_instances, 4).
         """
         # add box predictions to instances
-        pred_keys_instances = ['pred_bboxes_3d', 'pred_labels', 'pred_scores', 'pred_traj']
+        pred_keys_instances = ['pred_bboxes_3d', 'pred_labels', 'pred_scores', 'pred_traj', 'pred_logits']
         for b, data_sample in enumerate(data_samples):
+            if data_sample.gt_instances is not None:
+                pred_instances = data_sample.gt_instances.clone()
+            else:
+                pred_instances = Instances()
+                
             for key in pred_keys_instances:
                 if key in results_dict['instances']:
-                    data_sample.instances.set_field(results_dict['instances'][key][b, ...], key)
-                    
+                    pred_instances.set_field(results_dict['instances'][key][b, ...], key.replace('pred_', ''))
+            data_sample.pred_instances = pred_instances
+            
         # add ego predictions to ego
         pred_ego_keys = ['pred_traj', 'pred_traffic_light', 'pred_stop_sign', 'pred_at_junction']
         for b, data_sample in enumerate(data_samples):
+            if data_sample.gt_ego is not None:
+                pred_ego = data_sample.gt_ego.clone()
+            else:
+                pred_ego = Ego()
+                
             for key in pred_ego_keys:
                 if key in results_dict['ego']:
-                    data_sample.ego.set_field(results_dict['ego'][key][b], key)
-                
+                    pred_ego.set_field(results_dict['ego'][key][b], key.replace('pred_', ''))
+            data_sample.pred_ego = pred_ego
+            
         # add grid predictions to grids
         pred_keys_grids = ['pred_density']
         for b, data_sample in enumerate(data_samples):
+            if data_sample.gt_grids is not None:
+                pred_grids = data_sample.gt_grids.clone()
+            else:
+                pred_grids = Grids()
+                
             for key in pred_keys_grids:
                 if key in results_dict['grids']:
-                    data_sample.grids.set_field(results_dict['grids'][key][b], key)
+                    pred_grids.set_field(results_dict['grids'][key][b], key.replace('pred_', ''))
+            data_sample.pred_grids = pred_grids
             
         # add map predictions to map
         

@@ -401,7 +401,7 @@ class Ego(BaseDataElement):
     Attributes:
         - goal_point (torch.Tensor): The goal point of the ego vehicle.
         - ego2world (torch.Tensor): The transformation matrix from ego to world coordinates.
-        - gt_traj (TrajectoryData): The ground truth trajectory of the ego vehicle.
+        - gt_traj (TrajectoryData): The trajectory of the ego vehicle.
         - pred_traj (TrajectoryData): The predicted trajectory of the ego vehicle.
     """
     
@@ -468,59 +468,33 @@ class Ego(BaseDataElement):
     
     # trajectories
     @property
-    def gt_traj(self) -> TrajectoryData:
-        """The ground truth trajectory of the ego vehicle
+    def traj(self) -> TrajectoryData:
+        """The trajectory of the ego vehicle
         
         Returns:
-            TrajectoryData: The ground truth trajectory of the ego vehicle
+            TrajectoryData: The trajectory of the ego vehicle
         """
-        if hasattr(self, '_gt_traj'):
-            return self._gt_traj
+        if hasattr(self, '_traj'):
+            return self._traj
         return None
     
-    @gt_traj.setter
-    def gt_traj(self, value: Union[TrajectoryData, MultiModalTrajectoryData]):
-        """The ground truth trajectory of the ego vehicle
+    @traj.setter
+    def traj(self, value: Union[TrajectoryData, MultiModalTrajectoryData]):
+        """The trajectory of the ego vehicle
         
         Args:
-            value (TrajectoryData): The ground truth trajectory of the ego vehicle
+            value (TrajectoryData): The trajectory of the ego vehicle
         """
         assert isinstance(value, TrajectoryData), \
-            "Ground truth trajectory should be a TrajectoryData object"
+            "Trajectory should be a TrajectoryData object"
         
-        self.set_field(value, '_gt_traj', dtype=type(value))
+        self.set_field(value, '_traj', dtype=type(value))
     
-    @gt_traj.deleter
-    def gt_traj(self):
-        del self._gt_traj
-    
-    @property
-    def pred_traj(self) -> TrajectoryData:
-        """The predicted trajectory of the ego vehicle
-        
-        Returns:
-            TrajectoryData: The predicted trajectory of the ego vehicle
-        """
-        if hasattr(self, '_pred_traj'):
-            return self._pred_traj
-        return None
-    
-    @pred_traj.setter
-    def pred_traj(self, value: Union[TrajectoryData, MultiModalTrajectoryData]):
-        """The predicted trajectory of the ego vehicle
-        
-        Args:
-            value (TrajectoryData): The predicted trajectory of the ego vehicle
-        """
-        assert isinstance(value, TrajectoryData), \
-            "Predicted trajectory should be a TrajectoryData object"
-        
-        self.set_field(value, '_pred_traj', dtype=type(value))
-        
-    @pred_traj.deleter
-    def pred_traj(self):
-        del self._pred_traj
-        
+    @traj.deleter
+    def traj(self):
+        del self._traj
+ 
+ 
 class Instances(InstanceData):
     """ Data structure for instance annotations
     
@@ -597,18 +571,18 @@ class Instances(InstanceData):
         del self._bboxes_mask
     
     @property
-    def pose(self) -> torch.Tensor:
+    def poses(self) -> torch.Tensor:
         """The transformation matrix from the instances to world coordinates
         
         Returns:
             torch.Tensor: The transformation matrix from the instances to world coordinates
         """
-        if hasattr(self, '_pose'):
-            return self._pose
+        if hasattr(self, '_poses'):
+            return self._poses
         return None
 
-    @pose.setter
-    def pose(self, value: torch.Tensor):
+    @poses.setter
+    def poses(self, value: torch.Tensor):
         """The transformation matrix from the instances to world coordinates
         
         Args:
@@ -617,87 +591,55 @@ class Instances(InstanceData):
         assert isinstance(value, (torch.Tensor, np.ndarray)), \
             "Transformation matrix should be a tensor"
         
-        assert value.ndim == 2, "Transformation matrix should be a 2D tensor"
-        assert value.shape[0] == 4 and value.shape[1] == 4, "Transformation matrix should be a 4x4 tensor"
-        
-        self.set_field(value, '_pose', dtype=type(value))
+        assert value.shape[-2:] == (4, 4), "Transformation matrix for each isntance should be a 4x4 tensor"
+
+        self.set_field(value, '_poses', dtype=type(value))
     
-    @pose.deleter
-    def pose(self):
-        del self._pose
+    @poses.deleter
+    def poses(self):
+        del self._poses
     
     @property
-    def gt_bboxes_3d(self) -> torch.Tensor:
+    def bboxes_3d(self) -> torch.Tensor:
         """The bounding boxes of the instances
         
         Returns:
             torch.Tensor: The bounding boxes of the instances
         """
-        if hasattr(self, '_gt_bboxes_3d'):
-            return self._gt_bboxes_3d
+        if hasattr(self, '_bboxes_3d'):
+            return self._bboxes_3d
         return None
     
-    @gt_bboxes_3d.setter
-    def gt_bboxes_3d(self, value: torch.Tensor):
+    @bboxes_3d.setter
+    def bboxes_3d(self, value: torch.Tensor):
         """The bounding boxes of the instances
         
         Args:
             value (torch.Tensor): The bounding boxes of the instances
         """
         assert isinstance(value, BaseInstance3DBoxes), \
-            "Bounding boxes should be a tensor"
+            "Bounding boxes should be a BaseInstance3DBoxes object"
         
-        self.set_field(value, '_gt_bboxes_3d', dtype=type(value))
+        self.set_field(value, '_bboxes_3d', dtype=type(value))
     
-    @gt_bboxes_3d.deleter
-    def gt_bboxes_3d(self):
-        del self._gt_bboxes_3d
-    
-    
-    @property
-    def pred_bboxes_3d(self) -> torch.Tensor:
-        """The predicted bounding boxes of the instances
-        
-        Returns:
-            torch.Tensor: The predicted bounding boxes of the instances
-        """
-        if hasattr(self, '_pred_bboxes_3d'):
-            return self._pred_bboxes_3d
-        return None
-    
-    @pred_bboxes_3d.setter
-    def pred_bboxes_3d(self, value: torch.Tensor):
-        """The predicted bounding boxes of the instances
-        
-        Args:
-            value (torch.Tensor): The predicted bounding boxes of the instances
-        """
-        assert isinstance(value, BaseInstance3DBoxes), \
-            "Bounding boxes should be a tensor"
-        
-        assert value.tensor.shape == self.gt_bboxes_3d.tensor.shape, \
-            "The shape of the predicted bounding boxes is not consistent with the ground truth"
-        
-        self.set_field(value, '_pred_bboxes_3d', dtype=type(value))
-    
-    @pred_bboxes_3d.deleter
-    def pred_bboxes_3d(self):
-        del self._pred_bboxes_3d
+    @bboxes_3d.deleter
+    def bboxes_3d(self):
+        del self._bboxes_3d
     
     # gt labels
     @property
-    def gt_labels(self) -> torch.Tensor:
+    def labels(self) -> torch.Tensor:
         """The class labels of the instances
         
         Returns:
             torch.Tensor: The class labels of the instances
         """
-        if hasattr(self, '_gt_labels'):
-            return self._gt_labels
+        if hasattr(self, '_labels'):
+            return self._labels
         return None
 
-    @gt_labels.setter
-    def gt_labels(self, value: torch.Tensor):
+    @labels.setter
+    def labels(self, value: torch.Tensor):
         """The class labels of the instances
         
         Args:
@@ -708,126 +650,69 @@ class Instances(InstanceData):
         
         assert value.ndim == 1, "Class labels should be a 1D tensor"
         
-        self.set_field(value, '_gt_labels', dtype=type(value))
+        self.set_field(value, '_labels', dtype=type(value))
     
-    @gt_labels.deleter
-    def gt_labels(self):
-        del self._gt_labels
-    
-    # pred labels
-    @property
-    def pred_labels(self) -> torch.Tensor:
-        """The predicted class labels of the instances
-        
-        Returns:
-            torch.Tensor: The predicted class labels of the instances
-        """
-        if hasattr(self, '_pred_labels'):
-            return self._pred_labels
-        return None
-
-    @pred_labels.setter
-    def pred_labels(self, value: torch.Tensor):
-        """The predicted class labels of the instances
-        
-        Args:
-            value (torch.Tensor): The predicted class labels of the instances
-        """
-        assert isinstance(value, (torch.Tensor, np.ndarray)), \
-            "Class labels should be a tensor"
-        
-        assert value.shape == self.gt_labels.shape, \
-            "The shape of the predicted class labels is not consistent with the ground truth"
-        
-        self.set_field(value, '_pred_labels', dtype=type(value))
-    
-    @pred_labels.deleter
-    def pred_labels(self):
-        del self._pred_labels
+    @labels.deleter
+    def labels(self):
+        del self._labels
     
     # pred scores of the labels
     @property
-    def pred_scores(self) -> torch.Tensor:
-        """The predicted scores of the instances
+    def scores(self) -> torch.Tensor:
+        """The scores of the instances
         
         Returns:
-            torch.Tensor: The predicted scores of the instances
+            torch.Tensor: The scores of the instances
         """
-        if hasattr(self, '_pred_scores'):
-            return self._pred_scores
+        if hasattr(self, '_scores'):
+            return self._scores
         return None
     
-    @pred_scores.setter
-    def pred_scores(self, value: torch.Tensor):
-        """The predicted scores of the instances
+    @scores.setter
+    def scores(self, value: torch.Tensor):
+        """The scores of the instances
         
         Args:
-            value (torch.Tensor): The predicted scores of the instances
+            value (torch.Tensor): The scores of the instances
         """
         assert isinstance(value, (torch.Tensor, np.ndarray)), \
             "Scores should be a tensor"
                 
-        self.set_field(value, '_pred_scores', dtype=type(value))
+        self.set_field(value, '_scores', dtype=type(value))
     
-    @pred_scores.deleter
-    def pred_scores(self):
-        del self._pred_scores
+    @scores.deleter
+    def scores(self):
+        del self._scores
     
     
     # trajectories
     @property
-    def gt_traj(self) -> TrajectoryData:
-        """The ground truth trajectory of the instances
+    def traj(self) -> TrajectoryData:
+        """The trajectory of the instances
         
         Returns:
-            TrajectoryData: The ground truth trajectory of the instances
+            TrajectoryData: The trajectory of the instances
         """
-        if hasattr(self, '_gt_traj'):
-            return self._gt_traj
+        if hasattr(self, '_traj'):
+            return self._traj
         return None
 
-    @gt_traj.setter
-    def gt_traj(self, value: Union[TrajectoryData, MultiModalTrajectoryData]):
-        """The ground truth trajectory of the instances
+    @traj.setter
+    def traj(self, value: Union[TrajectoryData, MultiModalTrajectoryData]):
+        """The trajectory of the instances
         
         Args:
-            value (TrajectoryData): The ground truth trajectory of the instances
+            value (TrajectoryData): The trajectory of the instances
         """
         assert isinstance(value, list) and isinstance(value[0], TrajectoryData), \
-            "Ground truth trajectory should be a TrajectoryData object"
+            "trajectory should be a TrajectoryData object"
         
-        self.set_field(value, '_gt_traj', dtype=type(value))
+        self.set_field(value, '_traj', dtype=type(value))
     
-    @gt_traj.deleter
-    def gt_traj(self):
-        del self._gt_traj
+    @traj.deleter
+    def traj(self):
+        del self._traj
     
-    @property
-    def pred_traj(self) -> TrajectoryData:
-        """The predicted trajectory of the instances
-        
-        Returns:
-            TrajectoryData: The predicted trajectory of the instances
-        """
-        if hasattr(self, '_pred_traj'):
-            return self._pred_traj
-        return None
-    
-    @pred_traj.setter
-    def pred_traj(self, value: Union[TrajectoryData, MultiModalTrajectoryData]):
-        """The predicted trajectory of the instances
-        
-        Args:
-            value (TrajectoryData): The predicted trajectory of the instances
-        """
-        assert isinstance(value, list) and isinstance(value[0], TrajectoryData), \
-            "Predicted trajectory should be a list of TrajectoryData object"
-        
-        self.set_field(value, '_pred_traj', dtype=type(value))
-    
-    @pred_traj.deleter
-    def pred_traj(self):
-        del self._pred_traj
     
     #TODO: use recursion to supported nested sequence of data
     # Mainly to support convert a list of trajectory data
@@ -885,10 +770,8 @@ class Grids(BaseDataElement):
     Attributes:
         - occupancy_mask (torch.Tensor): The mask of the occupancy grid map.
         - density_mask (torch.Tensor): The mask of the density grid map.
-        - gt_occupancy (torch.Tensor): The ground truth occupancy of the grid map.
-        - pred_occupancy (torch.Tensor): The predicted occupancy of the grid map.
-        - gt_density (torch.Tensor): The ground truth density of the grid map.
-        - pred_density (torch.Tensor): The predicted density of the grid map.
+        - occupancy (torch.Tensor): The occupancy of the grid map.
+        - density (torch.Tensor): The density of the grid map.
     """
     
     @property
@@ -946,115 +829,56 @@ class Grids(BaseDataElement):
         del self._density_mask
     
     @property
-    def gt_occupancy(self) -> torch.Tensor:
-        """The ground truth occupancy of the grid map
+    def occupancy(self) -> torch.Tensor:
+        """The occupancy of the grid map
         
         Returns:
-            torch.Tensor: The ground truth occupancy of the grid map
+            torch.Tensor: The occupancy of the grid map
         """
-        if hasattr(self, '_gt_occupancy'):
-            return self._gt_occupancy
+        if hasattr(self, '_occupancy'):
+            return self._occupancy
         return None
 
-    @gt_occupancy.setter
-    def gt_occupancy(self, value: torch.Tensor):
-        """The ground truth occupancy of the grid map
+    @occupancy.setter
+    def occupancy(self, value: torch.Tensor):
+        """The occupancy of the grid map
         
         Args:
-            value (torch.Tensor): The ground truth occupancy of the grid map
+            value (torch.Tensor): The occupancy of the grid map
         """
         assert isinstance(value, (torch.Tensor, np.ndarray)), \
             "Occupancy should be a tensor"
                 
-        self.set_field(value, '_gt_occupancy', dtype=type(value))
+        self.set_field(value, '_occupancy', dtype=type(value))
     
-    @gt_occupancy.deleter
-    def gt_occupancy(self):
-        del self._gt_occupancy
-        
+    @occupancy.deleter
+    def occupancy(self):
+        del self._occupancy
+
     @property
-    def pred_occupancy(self) -> torch.Tensor:
-        """The predicted occupancy of the grid map
+    def density(self) -> torch.Tensor:
+        """The density of the grid map
         
         Returns:
-            torch.Tensor: The predicted occupancy of the grid map
+            torch.Tensor: The density of the grid map
         """
-        if hasattr(self, '_pred_occupancy'):
-            return self._pred_occupancy
+        if hasattr(self, '_density'):
+            return self._density
         return None
     
-    @pred_occupancy.setter
-    def pred_occupancy(self, value: torch.Tensor):
-        """The predicted occupancy of the grid map
+    @density.setter
+    def density(self, value: torch.Tensor):
+        """The density of the grid map
         
         Args:
-            value (torch.Tensor): The predicted occupancy of the grid map
-        """
-        assert isinstance(value, (torch.Tensor, np.ndarray)), \
-            "Occupancy should be a tensor"
-        
-        assert value.shape == self.gt_occupancy.shape, \
-            "The shape of the predicted occupancy is not consistent with the ground truth occupancy"
-            
-        self.set_field(value, '_pred_occupancy', dtype=type(value))
-    
-    @pred_occupancy.deleter
-    def pred_occupancy(self):
-        del self._pred_occupancy
-    
-    @property
-    def gt_density(self) -> torch.Tensor:
-        """The ground truth density of the grid map
-        
-        Returns:
-            torch.Tensor: The ground truth density of the grid map
-        """
-        if hasattr(self, '_gt_density'):
-            return self._gt_density
-        return None
-    
-    @gt_density.setter
-    def gt_density(self, value: torch.Tensor):
-        """The ground truth density of the grid map
-        
-        Args:
-            value (torch.Tensor): The ground truth density of the grid map
+            value (torch.Tensor): The density of the grid map
         """
         assert isinstance(value, (torch.Tensor, np.ndarray)), \
             "Density should be a tensor"
                 
-        self.set_field(value, '_gt_density', dtype=type(value))
+        self.set_field(value, '_density', dtype=type(value))
     
-    @gt_density.deleter
-    def gt_density(self):
-        del self._gt_density
-    
-    @property
-    def pred_density(self) -> torch.Tensor:
-        """The predicted density of the grid map
-        
-        Returns:
-            torch.Tensor: The predicted density of the grid map
-        """
-        if hasattr(self, '_pred_density'):
-            return self._pred_density
-        return None
-
-    @pred_density.setter
-    def pred_density(self, value: torch.Tensor):
-        """The predicted density of the grid map
-        
-        Args:
-            value (torch.Tensor): The predicted density of the grid map
-        """
-        assert isinstance(value, (torch.Tensor, np.ndarray)), \
-            "Density should be a tensor"
-        
-        assert value.shape == self.gt_density.shape, \
-            "The shape of the predicted density is not consistent with the ground truth density"
-            
-        self.set_field(value, '_pred_density', dtype=type(value))
-    
-    @pred_density.deleter
-    def pred_density(self):
-        del self._pred_density
+    @density.deleter
+    def density(self):
+        del self._density
+ 

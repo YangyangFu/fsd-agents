@@ -41,33 +41,93 @@ class PlanningDataSample(BaseDataElement):
     - gt_map (PixelData): Ground truth of the map.  
     """
 
-    # properties
+    # properties: ego
     @property
-    def ego(self) -> Ego:
-        return self._ego
-    @ego.setter 
-    def ego(self, value: Ego) -> None:
-        self.set_field(value, "_ego", dtype=Ego)
-    @ego.deleter
-    def ego(self) -> None:
-        del self._ego
+    def gt_ego(self) -> Ego:
+        return self._gt_ego
+    @gt_ego.setter 
+    def gt_ego(self, value: Ego) -> None:
+        self.set_field(value, "_gt_ego", dtype=Ego)
+    @gt_ego.deleter
+    def gt_ego(self) -> None:
+        del self._gt_ego
     
     @property
-    def instances(self) -> Instances:
-        return self._instances
-    @instances.setter
-    def instances(self, value: Instances):
-        self.set_field(value, "_instances", dtype=Instances)
-    @instances.deleter
-    def instances(self) -> None:
-        del self._instances
-        
+    def pred_ego(self) -> Ego:
+        return self._pred_ego
+    @pred_ego.setter
+    def pred_ego(self, value: Ego) -> None:
+        self.set_field(value, "_pred_ego", dtype=Ego)
+    @pred_ego.deleter
+    def pred_ego(self) -> None:
+        del self._pred_ego
+    
+    # properties: instances
     @property
-    def grids(self) -> Grids:
-        return self._grids
-    @grids.setter
-    def grids(self, value: Grids):
-        self.set_field(value, "_grids", dtype=Grids)
-    @grids.deleter
-    def grids(self) -> None:
-        del self._grids
+    def gt_instances(self) -> Instances:
+        return self._gt_instances
+    @gt_instances.setter
+    def gt_instances(self, value: Instances):
+        self.set_field(value, "_gt_instances", dtype=Instances)
+    @gt_instances.deleter
+    def gt_instances(self) -> None:
+        del self._gt_instances
+
+    @property
+    def pred_instances(self) -> Instances:
+        return self._pred_instances
+    @pred_instances.setter
+    def pred_instances(self, value: Instances):
+        self.set_field(value, "_pred_instances", dtype=Instances)
+    @pred_instances.deleter
+    def pred_instances(self) -> None:
+        del self._pred_instances
+        
+    # properties: grids 
+    @property
+    def gt_grids(self) -> Grids:
+        return self._gt_grids
+    @gt_grids.setter
+    def gt_grids(self, value: Grids):
+        self.set_field(value, "_gt_grids", dtype=Grids)
+    @gt_grids.deleter
+    def gt_grids(self) -> None:
+        del self._gt_grids
+    
+    @property
+    def pred_grids(self) -> Grids:
+        return self._pred_grids
+    @pred_grids.setter
+    def pred_grids(self, value: Grids):
+        self.set_field(value, "_pred_grids", dtype=Grids)
+    @pred_grids.deleter
+    def pred_grids(self) -> None:
+        del self._pred_grids
+    
+    #add point cloud annotation field
+    @property
+    def gt_pts(self) -> BaseDataElement:
+        if hasattr(self, "_gt_pts"):
+            return self._gt_pts
+        return None
+    
+    @gt_pts.setter
+    def gt_pts(self, value: BaseDataElement):
+        self.set_field(value, "_gt_pts", dtype=BaseDataElement)
+    @gt_pts.deleter
+    def gt_pts(self) -> None:
+        del self._gt_pts
+    
+    @property
+    def pred_pts(self) -> BaseDataElement:
+        if hasattr(self, "_pred_pts"):
+            return self._pred_pts
+        else:
+            return None
+    @pred_pts.setter
+    def pred_pts(self, value: BaseDataElement):
+        self.set_field(value, "_pred_pts", dtype=BaseDataElement)
+    @pred_pts.deleter
+    def pred_pts(self) -> None:
+        del self._pred_pts
+    

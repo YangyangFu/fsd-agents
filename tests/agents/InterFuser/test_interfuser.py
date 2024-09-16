@@ -14,7 +14,7 @@ def seed():
 
 
 # test three modes
-cfgs = ['fsd/agents/InterFuser/configs/interfuser_r50_carla.py']
+cfgs = ['fsd/configs/InterFuser/interfuser_r50_carla.py']
 init_default_scope('fsd')
 
 @pytest.mark.parametrize('cfg', cfgs)
@@ -35,11 +35,11 @@ def test_agent(cfg):
 
     ## forward pass
     outputs = agent(**sample, mode='predict')
-    object_density = outputs[0].grids.pred_density
-    junction = outputs[0].ego.pred_at_junction
-    stop_sign = outputs[0].ego.pred_stop_sign
-    traffic_light = outputs[0].ego.pred_traffic_light
-    waypoints = outputs[0].ego.pred_traj.data
+    object_density = outputs[0].pred_grids.density
+    junction = outputs[0].pred_ego.at_junction
+    stop_sign = outputs[0].pred_ego.stop_sign
+    traffic_light = outputs[0].pred_ego.traffic_light
+    waypoints = outputs[0].pred_ego.traj.data
 
     # check the output shapes
     assert object_density.shape == (20, 20, 7)
