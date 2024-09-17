@@ -73,6 +73,7 @@ class InterFuserDataPreprocessor(PlanningDataPreprocessor):
         
         return data
 
+    #TODO: check if need rotate 90 degree if the points are already in ego coord
     def generate_pts_to_hist(self, data: dict, view_ego_coord: bool = True):
         """Generate bin histogram from point cloud
         """
