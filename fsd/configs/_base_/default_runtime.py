@@ -10,7 +10,7 @@ default_hooks = dict(
         type='CheckpointHook', 
         interval=1, 
         by_epoch=True
-    )
+    ),
 )
 
 env_cfg = dict(

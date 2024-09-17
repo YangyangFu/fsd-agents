@@ -367,3 +367,22 @@ param_scheduler = [
 
 randomness = dict(seed=2024)
 visualizer=dict(type='Visualizer', vis_backends=[dict(type='TensorboardVisBackend')])
+
+# update visualization hook
+default_hooks = dict(
+    visualization=dict(
+        type='PlanningVisualizationHook',
+        draw=True,
+        interval=1,
+        score_thr=0.3,
+        show=True,
+        vis_task='multi-modality_planning',
+        wait_time=0,
+        test_out_dir='results/InterFuser',
+        draw_gt=True,
+        draw_pred=True,
+        show_pcd_rgb=False,
+        view_first_only=True,
+        index_front_camera=0,
+    )
+)
