@@ -129,6 +129,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         frame_cfg: dict = dict(size=1, origin=[0, 0, 0]),
         alpha: Union[int, float] = 0.8,
         multi_imgs_col: int = 3,
+        mult_imgs_size: Optional[Tuple[int]] = (2233, 800),
         fig_show_cfg: dict = dict(figsize=(18, 12))
     ) -> None:
         super().__init__(
@@ -154,6 +155,8 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         if points is not None:
             self.set_points(points, pcd_mode=pcd_mode, frame_cfg=frame_cfg)
         self.multi_imgs_col = multi_imgs_col
+        self.mult_imgs_size = mult_imgs_size
+        
         self.fig_show_cfg.update(fig_show_cfg)
 
         self.flag_pause = False
@@ -833,7 +836,9 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         linewidths=1
     ):
         # check dimensions
-        assert isinstance(traj, np.ndarray) and traj.ndim == 2, 'traj should be a 2D numpy array'
+        if traj is not None:
+            assert isinstance(traj, np.ndarray) and traj.ndim == 2, 'traj should be a 2D numpy array'
+        
         T, _ = traj.shape
         
         # filter out invalid trajectory
@@ -890,7 +895,8 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         # traj: (N, T, d)
         assert isinstance(img, np.ndarray), 'img should be a numpy array'
         assert isinstance(traj, np.ndarray), 'traj should be a numpy array'
-        assert isinstance(mask, np.ndarray), 'mask should be a numpy array'
+        if mask is not None:
+            assert isinstance(mask, np.ndarray), 'mask should be a numpy array'
         assert isinstance(input_meta, dict) and 'future_steps' in input_meta, \
             'input_meta should be a dictionary, and should contain lidar2img and future_steps'
         
@@ -1029,11 +1035,14 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                            vis_task: str,
                            show_pcd_rgb: bool = False,
                            palette: Optional[List[tuple]] = None,
-                           img_mode: Optional[str] = 'rgb') -> dict:
-        """Draw 3D instances of GT or prediction.
+                           img_mode: Optional[str] = 'rgb',
+                           img_names: Optional[str] = None) -> dict:
+        """Draw 3D instances of GT or prediction on the image or multi-view images.
+        
+        If the instances is empty, draw the original image.
 
         Args:
-            data_input (dict): The input dict to draw.
+            data_input (dict): The input dict to draw. with image in rgb mode as default
             instances (:obj:`InstanceData`): Data structure for instance-level
                 annotations or predictions.
             input_meta (dict): Meta information.
@@ -1047,26 +1056,32 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             dict: The drawn point cloud and image whose channel is RGB.
         """
 
-        # Only visualize when there is at least one instance
-        if not len(instances) > 0:
-            return None
+        # TODO: if no instances, return the original image
+        num_instances = len(instances)
 
         bboxes_3d = instances.bboxes_3d  # BaseInstance3DBoxes
         labels_3d = instances.labels
 
         data_3d = dict()
 
-        if vis_task in ['lidar_det', 'multi-modality_det']:
+        if vis_task in ['lidar_det', 'multi-modality_det']:# 'multi-modality_planning']:
             assert 'pts' in data_input
             points = data_input['pts'].tensor
             check_type('pts', points, (np.ndarray, Tensor))
             points = tensor2ndarray(points)
 
-            if not isinstance(bboxes_3d, DepthInstance3DBoxes):
-                points, bboxes_3d_depth = to_depth_mode(points, bboxes_3d)
-            else:
-                bboxes_3d_depth = bboxes_3d.clone()
+            if num_instances > 0:
+                if not isinstance(bboxes_3d, DepthInstance3DBoxes):
+                    points, bboxes_3d_depth = to_depth_mode(points, bboxes_3d)
+                else:
+                    bboxes_3d_depth = bboxes_3d.clone()
 
+                max_label = int(max(labels_3d) if len(labels_3d) > 0 else 0)
+                bbox_color = palette if self.bbox_color is None \
+                    else self.bbox_color
+                bbox_palette = get_palette(bbox_color, max_label + 1)
+                colors = [bbox_palette[label] for label in labels_3d]
+                
             if 'axis_align_matrix' in input_meta:
                 points = DepthPoints(points, points_dim=points.shape[1])
                 rot_mat = input_meta['axis_align_matrix'][:3, :3]
@@ -1075,32 +1090,41 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 points.translate(trans_vec)
                 points = tensor2ndarray(points.tensor)
 
-            max_label = int(max(labels_3d) if len(labels_3d) > 0 else 0)
-            bbox_color = palette if self.bbox_color is None \
-                else self.bbox_color
-            bbox_palette = get_palette(bbox_color, max_label + 1)
-            colors = [bbox_palette[label] for label in labels_3d]
-
             self.set_points(
                 points, pcd_mode=2, mode='xyzrgb' if show_pcd_rgb else 'xyz')
-            self.draw_bboxes_3d(bboxes_3d_depth, bbox_color=colors)
-
-            data_3d['bboxes_3d'] = tensor2ndarray(bboxes_3d_depth.tensor)
+            
+            if num_instances > 0:
+                self.draw_bboxes_3d(bboxes_3d_depth, bbox_color=colors)
+                data_3d['bboxes_3d'] = tensor2ndarray(bboxes_3d_depth.tensor)
+                
             data_3d['points'] = points
 
-        if vis_task in ['mono_det', 'multi-modality_det']:
+        if vis_task in ['mono_det', 'multi-modality_det', 'multi-modality_planning']:
             assert 'img' in data_input
             img = data_input['img']
             if isinstance(img, list) or (isinstance(img, (np.ndarray, Tensor))
                                          and len(img.shape) == 4):
                 # show multi-view images
-                img_size = img[0].shape[-2:] if isinstance(
-                    img, list) else img.shape[-2:]  # noqa: E501
+                img_size = img[0].shape[-2:]
                 img_col = self.multi_imgs_col
                 img_row = math.ceil(len(img) / img_col)
-                composed_img = np.zeros(
-                    (img_size[0] * img_row, img_size[1] * img_col, 3),
-                    dtype=np.uint8)
+                
+                # to rgb if needed
+                if img_mode.lower() == 'bgr':
+                    if isinstance(img, list) or isinstance(img, tuple):
+                        img = [im[..., ::-1] for im in img]
+                    elif isinstance(img, (Tensor, np.ndarray)):
+                        img = img[..., ::-1]
+                
+                # check if image names has consistent length with images
+                if img_names is not None:
+                    assert len(img_names) == len(img), 'img_names should have the same length with imgs'
+                    if len(img_names) < img_col * img_row:
+                        img_names += [''] * (img_col * img_row - len(img_names))
+                
+                # initialize a combined image
+                composed_img = [np.zeros((*img_size, 3)) for _ in range(img_col * img_row)]
+                
                 for i, single_img in enumerate(img):
                     # Note that we should keep the same order of elements both
                     # in `img` and `input_meta`
@@ -1115,28 +1139,37 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                             single_img_meta[key] = meta[i]
                         else:
                             single_img_meta[key] = meta
-
-                    max_label = int(
-                        max(labels_3d) if len(labels_3d) > 0 else 0)
-                    bbox_color = palette if self.bbox_color is None \
-                        else self.bbox_color
-                    bbox_palette = get_palette(bbox_color, max_label + 1)
-                    colors = [bbox_palette[label] for label in labels_3d]
-
-                    self.draw_proj_bboxes_3d(
-                        bboxes_3d,
-                        single_img_meta,
-                        img_size=single_img.shape[:2][::-1],
-                        edge_colors=colors)
+                    
+                    if num_instances > 0:
+                        max_label = int(
+                            max(labels_3d) if len(labels_3d) > 0 else 0)
+                        bbox_color = palette if self.bbox_color is None \
+                            else self.bbox_color
+                        bbox_palette = get_palette(bbox_color, max_label + 1)
+                        colors = [bbox_palette[label] for label in labels_3d]
+                        self.draw_proj_bboxes_3d(
+                            bboxes_3d,
+                            single_img_meta,
+                            img_size=single_img.shape[:2][::-1],
+                            edge_colors=colors)
                     if vis_task == 'mono_det' and hasattr(
                             instances, 'centers_2d'):
                         centers_2d = instances.centers_2d
                         self.draw_points(centers_2d)
-                    composed_img[(i // img_col) *
-                                 img_size[0]:(i // img_col + 1) * img_size[0],
-                                 (i % img_col) *
-                                 img_size[1]:(i % img_col + 1) *
-                                 img_size[1]] = self.get_image()
+                    #composed_img[(i // img_col) *
+                    #             img_size[0]:(i // img_col + 1) * img_size[0],
+                    #             (i % img_col) *
+                    #             img_size[1]:(i % img_col + 1) *
+                    #             img_size[1]] = self.get_image()
+                    composed_img[i] = self.get_image()
+                    
+                composed_img = self.draw_multiviews(imgs = composed_img, 
+                                        view_names = img_names,
+                                        target_size = self.mult_imgs_size,
+                                        arrangement = (img_row, img_col),
+                                        text_colors = (255, 255, 255)
+                )
+                    
                 data_3d['img'] = composed_img
             else:
                 # show single-view image
@@ -1146,14 +1179,15 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                     img = img.permute(1, 2, 0).numpy()
                 self.set_image(img)
 
-                max_label = int(max(labels_3d) if len(labels_3d) > 0 else 0)
-                bbox_color = palette if self.bbox_color is None \
-                    else self.bbox_color
-                bbox_palette = get_palette(bbox_color, max_label + 1)
-                colors = [bbox_palette[label] for label in labels_3d]
+                if num_instances > 0:
+                    max_label = int(max(labels_3d) if len(labels_3d) > 0 else 0)
+                    bbox_color = palette if self.bbox_color is None \
+                        else self.bbox_color
+                    bbox_palette = get_palette(bbox_color, max_label + 1)
+                    colors = [bbox_palette[label] for label in labels_3d]
 
-                self.draw_proj_bboxes_3d(
-                    bboxes_3d, input_meta, edge_colors=colors)
+                    self.draw_proj_bboxes_3d(
+                        bboxes_3d, input_meta, edge_colors=colors)
                 if vis_task == 'mono_det' and hasattr(instances, 'centers_2d'):
                     centers_2d = instances.centers_2d
                     self.draw_points(centers_2d)
@@ -1225,7 +1259,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         if hasattr(self, '_image'):
             if drawn_img is None and drawn_img_3d is None:
                 # use the image got by Visualizer.get_image()
-                if vis_task == 'multi-modality_det':
+                if vis_task in ['multi-modality_det', 'multi-modality_planning']:
                     import matplotlib.pyplot as plt
                     is_inline = 'inline' in plt.get_backend()
                     img = self.get_image() if drawn_img is None else drawn_img
@@ -1247,7 +1281,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                     super().show(drawn_img_3d, win_name, wait_time,
                                  continue_key)
             else:
-                if vis_task == 'multi-modality_det':
+                if vis_task in ['multi-modality_det', 'multi-modality_planning']:
                     import matplotlib.pyplot as plt
                     is_inline = 'inline' in plt.get_backend()
                     img = drawn_img if drawn_img_3d is None else drawn_img_3d
@@ -1361,6 +1395,8 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                        show_pcd_rgb: bool = False,
                        traj_img_idx: int = 1) -> None:
         """Draw datasample and save to all backends.
+            - draw ego trajectory planning on given camera, e.g., front camera
+            - draw 3D bboxes on multi-view images
 
         - If GT and prediction are plotted at the same time, they are displayed
           in a stitched image where the left image is the ground truth and the
@@ -1414,7 +1450,9 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 'multi-modality_det'
         ]:
             self.o3d_vis = self._initialize_o3d_vis(show=show)
-
+        
+        # copy data_input to avoid overwriting the original data
+        data_input_cpy = copy.deepcopy(data_input)
         if draw_gt and data_sample is not None:
             # draw gt ego trajectory on front camera
             if data_sample.gt_ego is not None and vis_task == 'multi-modality_planning':
@@ -1429,14 +1467,11 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 img_traj = self.get_image()
                 
                 # save back to data_input
-                #TODO: avoid overwriting the original image
-                data_input['img'][traj_img_idx] = torch.from_numpy(img_traj).permute(2, 0, 1)
+                data_input_cpy['img'][traj_img_idx] = torch.from_numpy(img_traj).permute(2, 0, 1)
 
-            
-            # draw 3d bboxes and images
             if data_sample.gt_instances is not None:
                 gt_data_3d = self._draw_instances_3d(
-                    data_input, 
+                    data_input_cpy, 
                     data_sample.gt_instances,
                     data_sample.metainfo, 
                     vis_task, 
@@ -1450,7 +1485,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                                             'visualizing semantic ' \
                                             'segmentation results.'
                 assert 'pts' in data_input
-                self._draw_pts_sem_seg(data_input['pts'],
+                self._draw_pts_sem_seg(data_input_cpy['pts'],
                                        data_sample.gt_pts.seg, palette,
                                        keep_index)
 
@@ -1461,7 +1496,9 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 img = data_input['img'][traj_img_idx].permute(1, 2, 0).numpy()
                 lidar2img = data_sample.metainfo['lidar2img'][traj_img_idx]
                 ego_traj = data_sample.pred_ego.traj.data.numpy()
-                ego_traj_mask = data_sample.pre_ego.traj.mask.numpy()
+                ego_traj_mask = data_sample.pred_ego.traj.mask
+                if ego_traj_mask is not None:
+                    ego_traj_mask = ego_traj_mask.numpy()
                 input_meta = {'lidar2img': lidar2img,
                               'future_steps': data_sample.pred_ego.traj.num_future_steps}
 
@@ -1469,17 +1506,18 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 img_traj = self.get_image()
                 
                 # save back to data_input
-                #TODO: avoid overwriting the original image
-                data_input['img'][traj_img_idx] = torch.from_numpy(img_traj).permute(2, 0, 1)
-            
+                data_input_cpy['img'][traj_img_idx] = torch.from_numpy(img_traj).permute(2, 0, 1)
+                
             # draw 3d bboxes on images
             if data_sample.pred_instances is not None:
                 pred_instances_3d = data_sample.pred_instances
                 # .cpu can not be used for BaseInstance3DBoxes
                 # so we need to use .to('cpu')
-                pred_instances_3d = pred_instances_3d[
-                    pred_instances_3d.scores > pred_score_thr].to('cpu')
-                pred_data_3d = self._draw_instances_3d(data_input,
+                if hasattr(pred_instances_3d, 'scores') and pred_instances_3d.scores is not None:                                       
+                    pred_instances_3d = pred_instances_3d[
+                        pred_instances_3d.scores > pred_score_thr].to('cpu')
+                    
+                pred_data_3d = self._draw_instances_3d(data_input_cpy,
                                                        pred_instances_3d,
                                                        data_sample.metainfo,
                                                        vis_task, 
@@ -1492,12 +1530,12 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                                             'visualizing semantic ' \
                                             'segmentation results.'
                 assert 'pts' in data_input
-                self._draw_pts_sem_seg(data_input['pts'],
+                self._draw_pts_sem_seg(data_input_cpy['pts'],
                                        data_sample.pred_pts.seg, palette,
                                        keep_index)
 
         # monocular 3d object detection image
-        if vis_task in ['mono_det', 'multi-modality_det']:
+        if vis_task in ['mono_det', 'multi-modality_det', 'multi-modality_planning']:
             if gt_data_3d is not None and pred_data_3d is not None:
                 drawn_img_3d = np.concatenate(
                     (gt_data_3d['img'], pred_data_3d['img']), axis=1)
