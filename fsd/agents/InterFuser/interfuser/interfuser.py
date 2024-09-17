@@ -561,10 +561,7 @@ class InterFuser(Base3DDetector):
         # add box predictions to instances
         pred_keys_instances = ['pred_bboxes_3d', 'pred_labels', 'pred_scores', 'pred_traj', 'pred_logits']
         for b, data_sample in enumerate(data_samples):
-            if data_sample.gt_instances is not None:
-                pred_instances = data_sample.gt_instances.clone()
-            else:
-                pred_instances = Instances()
+            pred_instances = Instances()
                 
             for key in pred_keys_instances:
                 if key in results_dict['instances']:
@@ -574,10 +571,7 @@ class InterFuser(Base3DDetector):
         # add ego predictions to ego
         pred_ego_keys = ['pred_traj', 'pred_traffic_light', 'pred_stop_sign', 'pred_at_junction']
         for b, data_sample in enumerate(data_samples):
-            if data_sample.gt_ego is not None:
-                pred_ego = data_sample.gt_ego.clone()
-            else:
-                pred_ego = Ego()
+            pred_ego = Ego()
                 
             for key in pred_ego_keys:
                 if key in results_dict['ego']:
@@ -587,10 +581,7 @@ class InterFuser(Base3DDetector):
         # add grid predictions to grids
         pred_keys_grids = ['pred_density']
         for b, data_sample in enumerate(data_samples):
-            if data_sample.gt_grids is not None:
-                pred_grids = data_sample.gt_grids.clone()
-            else:
-                pred_grids = Grids()
+            pred_grids = Grids()
                 
             for key in pred_keys_grids:
                 if key in results_dict['grids']:
