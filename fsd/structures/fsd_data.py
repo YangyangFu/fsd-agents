@@ -207,7 +207,7 @@ class TrajectoryData(BaseDataElement):
         """
         if hasattr(self, '_mask'):
             return self._mask
-        return np.ones(len(self))
+        return None
     
     @mask.setter
     def mask(self, value: torch.Tensor):
