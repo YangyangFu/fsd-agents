@@ -74,7 +74,6 @@ class Planning3DDataset(Dataset):
                  ann_file,
                  metainfo = None,
                  pipeline = None,
-                 classes = None,
                  modality = None,
                  camera_sensors = ['CAM_FRONT'],
                  lidar_sensors = None,

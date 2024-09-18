@@ -12,7 +12,9 @@ img_norm_cfg = dict(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], to_rg
 class_names = [
 'car','van','truck','bicycle','traffic_sign','traffic_cone','traffic_light','pedestrian','others'
 ]
-
+metainfo = dict(
+    classes = class_names,
+)
 
 input_modality = dict(
     use_lidar=True, 
@@ -250,7 +252,7 @@ train_dataloader = dict(
         data_root=data_root,
         ann_file=ann_file_train,
         pipeline=train_pipeline,
-        classes=class_names,
+        metainfo=metainfo,
         modality=input_modality,
         camera_sensors=camera_sensors,
         lidar_sensors=lidar_sensors,
@@ -314,7 +316,7 @@ val_dataloader = dict(
         data_root=data_root,
         ann_file=ann_file_val,
         pipeline=val_pipeline,
-        classes=class_names,
+        metainfo=metainfo,
         modality=input_modality,
         camera_sensors=camera_sensors,
         lidar_sensors=lidar_sensors,

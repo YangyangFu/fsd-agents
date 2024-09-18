@@ -9,6 +9,9 @@ patch_size = [102.4, 102.4]
 class_names = [
 'car','van','truck','bicycle','traffic_sign','traffic_cone','traffic_light','pedestrian','others'
 ]
+metainfo = dict(
+    classes = class_names,
+)
 
 input_modality = dict(
     use_lidar=True, 
@@ -74,7 +77,7 @@ train_dataset=dict(
     data_root=data_root,
     ann_file=ann_file_train,
     pipeline=train_pipeline,
-    classes=class_names,
+    metainfo=metainfo,
     modality=input_modality,
     camera_sensors=camera_sensors,
     lidar_sensors=lidar_sensors,
