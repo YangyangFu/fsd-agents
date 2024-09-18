@@ -192,7 +192,6 @@ class PlanningVisualizationHook(Hook):
             mkdir_or_exist(self.test_out_dir)
 
         # add lidar2img to data_sample
-        data_inputs = data_batch['inputs']
         for b, data_sample in enumerate(outputs):
             self._test_index += 1
 
@@ -202,8 +201,10 @@ class PlanningVisualizationHook(Hook):
             if self.vis_task in [
                     'mono_det', 'multi-view_det', 'multi-modality_det', 'multi-modality_planning'
             ]:
-                assert 'img_filename' in data_batch['inputs']['img_metas'], "image path is not in data_batch['inputs']"
-                img_path = [fb[b] for fb in data_batch['inputs']['img_metas']['img_filename']]
+                assert hasattr(data_sample, 'img_metas') and 'img_filename' in data_sample.img_metas, \
+                    "image path is not in data_sample.img_metas"
+                    
+                img_path = [img for img in data_sample.img_metas['img_filename']]
                 
                 if isinstance(img_path, list):
                     img = []
@@ -223,7 +224,8 @@ class PlanningVisualizationHook(Hook):
             #TODO: need load pts from file instead of from data_batch
             # load pts in Lidar coord
             if self.vis_task in ['lidar_det', 'multi-modality_det', 'multi-modality_planning', 'lidar_seg']:
-                assert 'pts_filename' in data_batch['inputs']['pts_metas'], 'lidar_path is not in outputs[0]'
+                assert hasattr(data_sample, 'pts_metas') and 'pts_filename' in data_sample.pts_metas, \
+                    'lidar_path is not in outputs[0]'
                 points = data_batch['inputs']['pts'][b]
                 data_input['pts'] = points
                 
@@ -232,10 +234,10 @@ class PlanningVisualizationHook(Hook):
 
             if total_curr_iter % self.interval == 0:
                 # get lidar2img transform
-                cams2world = [pose[b] for pose in data_inputs['img_metas']['cam2world']]
-                cams_intrinsics = [intrinsic[b] for intrinsic in data_inputs['img_metas']['cam_intrinsics']]
+                cams2world = data_sample.img_metas['cam2world']
+                cams_intrinsics = data_sample.img_metas['cam_intrinsics']
                 cams_intrinsics = [np.pad(cam, (0, 1), constant_values=0) for cam in cams_intrinsics]
-                lidar2world = data_inputs['pts_metas']['lidar2world'][b]
+                lidar2world = data_sample.pts_metas['lidar2world']
                 lidar2imgs = [cam_intrinsic @ np.linalg.inv(cam2world) @ lidar2world for cam_intrinsic, cam2world in zip(cams_intrinsics, cams2world)]
                 data_sample.set_metainfo(dict(lidar2img=lidar2imgs))
                 

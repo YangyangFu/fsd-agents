@@ -29,10 +29,10 @@ for i, item in enumerate(ds):
     data_samples = item['data_samples']
     
     # need set lidar2img in data_samples
-    lidar2world = data_inputs['pts_metas']['lidar2world']
+    lidar2world = data_samples.pts_metas['lidar2world']
     
-    cams2world = data_inputs['img_metas']['cam2world']
-    cams_intrinsics = data_inputs['img_metas']['cam_intrinsics']
+    cams2world = data_samples.img_metas['cam2world']
+    cams_intrinsics = data_samples.img_metas['cam_intrinsics']
     cams_intrinsics = [np.pad(cam, (0, 1), constant_values=0) for cam in cams_intrinsics]
     lidar2imgs = [cam_intrinsic @ np.linalg.inv(cam2world) @ lidar2world for cam_intrinsic, cam2world in zip(cams_intrinsics, cams2world)]
     

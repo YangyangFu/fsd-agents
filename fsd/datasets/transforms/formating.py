@@ -274,10 +274,7 @@ class DefaultFormatBundle(object):
             results['inputs'] = {}
         results['inputs']['img'] = results['img']
         results.pop('img')
-        if 'img_metas' in results:
-            results['inputs']['img_metas'] = results['img_metas']
-            results.pop('img_metas')
-        
+
         return results
 
     def __repr__(self):
@@ -332,11 +329,7 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
             results['inputs'] = {}
         results['inputs']['pts'] = results['pts']
         results.pop('pts')
-        if 'pts_metas' in results:
-            results['inputs']['pts_metas'] = results['pts_metas']
-            results.pop('pts_metas')
-        
-        
+
         # format gt_instances_3d: data related to instances
         gt_instances_3d = Instances()
         
@@ -411,6 +404,16 @@ class DefaultFormatBundle3D(DefaultFormatBundle):
         data_sample.gt_instances = gt_instances_3d
         data_sample.gt_ego = gt_ego
         data_sample.gt_grids = gt_grids
+        
+        # metas
+        metainfo = {}
+        if 'img_metas' in results:
+            metainfo['img_metas'] = results['img_metas']
+            results.pop('img_metas')
+        if 'pts_metas' in results:
+            metainfo['pts_metas'] = results['pts_metas']
+            results.pop('pts_metas')
+        data_sample.set_metainfo(metainfo)
         
         results['data_samples'] = data_sample
         

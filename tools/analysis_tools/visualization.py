@@ -103,9 +103,9 @@ for i, item in enumerate(ds):
     
     front_img = imgs[1]
     vis.set_image(front_img)
-    lidar2world = data_inputs['pts_metas']['lidar2world']
-    cam_front2world = data_inputs['img_metas']['cam2world'][1]
-    cam_front_intrinsic = data_inputs['img_metas']['cam_intrinsics'][1]
+    lidar2world = data_samples.pts_metas['lidar2world']
+    cam_front2world = data_samples.img_metas['cam2world'][1]
+    cam_front_intrinsic = data_samples.img_metas['cam_intrinsics'][1]
     cam_front_intrinsic = np.pad(cam_front_intrinsic, (0, 1), constant_values=0)
     lidar2img = cam_front_intrinsic @ np.linalg.inv(cam_front2world) @ lidar2world
     
@@ -135,7 +135,7 @@ for i, item in enumerate(ds):
     imgs[1] = front_img_traj
     cv2.imwrite('temp_dir/front_img_traj.jpg', cv2.cvtColor(front_img_traj, cv2.COLOR_RGB2BGR)) # rgb
     
-    cam_names = data_inputs['img_metas']['img_sensor_name']
+    cam_names = data_samples.img_metas['img_sensor_name']
     text_color = (255, 255, 255)
     
     multiview_imgs = vis.draw_multiviews(imgs, 
