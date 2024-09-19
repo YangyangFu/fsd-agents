@@ -45,3 +45,4 @@ Full self-driving agents benchmark on closed-loop simulation
 - [ ] the label category number count seems always 0
 - [ ] add nuscence dataset and examples
 - [ ] add doc for visualization examples
+- [ ] add ci tests
