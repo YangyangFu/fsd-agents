@@ -43,3 +43,5 @@ Full self-driving agents benchmark on closed-loop simulation
 - [x] `input` key in data should only contain `img`, `pts`. Other such as `img_metas`, `pts_metas` should be moved to data_sample metainfo.
 - [ ] add multiview image names to visualization hook
 - [ ] the label category number count seems always 0
+- [ ] add nuscence dataset and examples
+- [ ] add doc for visualization examples
