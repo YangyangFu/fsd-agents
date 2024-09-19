@@ -67,7 +67,7 @@ class LoadImageFromFile:
         if self.to_float32:
             img = img.astype(np.float32)
 
-        results['filename'] = filename
+        results['img_filename'] = filename
         results['ori_filename'] = results['img_info']['filename']
         results['img'] = img
         results['img_shape'] = img.shape
@@ -106,7 +106,7 @@ class LoadImageFromWebcam(LoadImageFromFile):
         if self.to_float32:
             img = img.astype(np.float32)
 
-        results['filename'] = None
+        results['img_filename'] = None
         results['ori_filename'] = None
         results['img'] = img
         results['img_shape'] = img.shape
@@ -175,7 +175,7 @@ class LoadMultiChannelImageFromFiles:
         if self.to_float32:
             img = img.astype(np.float32)
 
-        results['filename'] = filename
+        results['img_filename'] = filename
         results['ori_filename'] = results['img_info']['filename']
         results['img'] = img
         results['img_shape'] = img.shape
@@ -283,7 +283,7 @@ class LoadMultiViewImageFromFiles(object):
         imgs = [imread(name, self.color_type, self.channel_order) for name in filename]
         if self.to_float32:
             imgs = [img.astype(np.float32) for img in imgs]
-        results['filename'] = filename
+        results['img_filename'] = filename
         results['num_views'] = len(imgs)
         results['img'] = imgs
         results['img_shape'] = [img.shape for img in imgs]
@@ -1008,7 +1008,6 @@ class LoadPointsFromMultiSweeps:
         """str: Return a string that describes the module."""
         return f"{self.__class__.__name__}(sweeps_num={self.sweeps_num})"
 
-#TODO: preprocess the points to be in right-hand ego coordinates before pipeline
 @PIPELINES.register_module()
 class LoadPointsFromFileCarlaDataset:
     """Load Points From File used for carla dataset only.
@@ -1016,7 +1015,7 @@ class LoadPointsFromFileCarlaDataset:
     CarlaDataset save points data in .laz file, and 
     the points are in left-hand UE coordinates(e.g., x forward, y right, z up), and 
     the points are saved in ego coordinates.
-    Here we load the points and convert them to right-hand MMDET3D ego coordinates for consistency.
+    Here we load the points and convert them to right-hand MMDET3D lidar coordinates for consistency.
     
     Load sunrgbd and scannet points from file.
 
@@ -1114,6 +1113,8 @@ class LoadPointsFromFileCarlaDataset:
 
                 - points (:obj:`BasePoints`): Point clouds data.
         """
+        assert self.coord_type == "LIDAR", "Only support LIDAR type for now"
+        
         lidar_path = results["pts_filename"]
         lidar_name = results["pts_sensor_name"]
         points = self._load_points(lidar_path)
@@ -1165,6 +1166,7 @@ class LoadPointsFromFileCarlaDataset:
             points, points_dim=points.shape[-1], attribute_dims=attribute_dims
         )
         results["pts"] = points
-        results['pts_fields'].append('pts')
+        results['pts_num_features'] = points.points_dim
+        results['pts_fields'].extend(['pts', 'pts_num_features'])
 
         return results

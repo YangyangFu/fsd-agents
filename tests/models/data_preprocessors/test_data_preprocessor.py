@@ -18,7 +18,7 @@ def test_planning_data_preprocessor():
         print(sample.keys())
         print(sample['inputs']['img'].shape)
         
-        assert sample['inputs']['img'].shape == (2, 6, 3, 928, 1600)
+        assert sample['inputs']['img'].shape == (2, 6, 3, 900, 1600)
         break
 
 pytest.main(["tests/models/data_preprocessors/test_data_preprocessor.py"])

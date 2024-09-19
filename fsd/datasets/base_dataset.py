@@ -1,20 +1,24 @@
 # Copyright (c) OpenMMLab. All rights reserved. 
+import copy
+import logging
 import numpy as np
 import tempfile
 import warnings
 from os import path as osp
 from torch.utils.data import Dataset
+from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
+from collections.abc import Mapping
+from terminaltables import AsciiTable
 
 #from mmcv.datasets.builder import DATASETS
-from fsd.registry import DATASETS
-
-#from ..core.bbox import get_box_type
-from mmdet3d.structures import get_box_type, LiDARInstance3DBoxes, DepthInstance3DBoxes, CameraInstance3DBoxes
-from fsd.datasets.utils import extract_result_dict, get_loading_pipeline
+from mmengine.config import Config
 from mmengine.fileio import load, dump, list_from_file
+from mmengine.logging import print_log
 from mmengine.dataset import Compose
-from mmengine.structures import InstanceData, BaseDataElement
-from fsd.structures import TrajectoryData, PlanningDataSample
+from mmdet3d.structures import get_box_type, LiDARInstance3DBoxes, DepthInstance3DBoxes, CameraInstance3DBoxes
+from fsd.structures import TrajectoryData
+from fsd.datasets.utils import extract_result_dict, get_loading_pipeline
+from fsd.registry import DATASETS
 
 @DATASETS.register_module()
 class Planning3DDataset(Dataset):
@@ -63,11 +67,13 @@ class Planning3DDataset(Dataset):
     # default is identity matrix
     TO_MMDET3D_LIDAR = np.eye(4)
 
+    METAINFO = {}
+    
     def __init__(self,
                  data_root,
                  ann_file,
+                 metainfo = None,
                  pipeline = None,
-                 classes = None,
                  modality = None,
                  camera_sensors = ['CAM_FRONT'],
                  lidar_sensors = None,
@@ -79,8 +85,10 @@ class Planning3DDataset(Dataset):
                  planning_steps = 6, # planning length
                  sample_interval = 5, # sample interval # frames skiped per step
                  FPS = 10, # frame per second
-                 test_mode = False):
-        super().__init__()
+                 test_mode = False,
+                 show_ins_var = False,
+                 **kwargs) -> None:
+        super().__init__(**kwargs)
         self.data_root = data_root
         self.ann_file = ann_file
         self.test_mode = test_mode
@@ -99,10 +107,35 @@ class Planning3DDataset(Dataset):
         self.box_type_3d_original = box_type_3d_original
         self.box_type_3d, self.box_mode_3d = get_box_type(box_type_3d)
         
-        self.CLASSES = self.get_classes(classes)
-        self.cat2id = {name: i for i, name in enumerate(self.CLASSES)}
+        # class names
+        if metainfo is not None and 'classes' in metainfo:
+            # map unselected classes to -1
+            self.label_mapping = {
+                i: -1
+                for i in range(len(self.METAINFO['classes']))
+                
+            }
+            self.label_mapping[-1] = -1
+            for label_idx, name in enumerate(metainfo['classes']):
+                ori_label = self.METAINFO['classes'].index(name)
+                self.label_mapping[ori_label] = label_idx
+                
+            self.num_ins_per_cat = [0] * len(metainfo['classes'])
+        else:
+            self.label_mapping = {
+                i: i 
+                for i in range(len(self.METAINFO['classes']))
+            }
+            self.label_mapping[-1] = -1
+            self.num_ins_per_cat = [0] * len(self.METAINFO['classes'])
+            
+        # can be accessed by other components in the runner
+        self._metainfo = self._load_metainfo(metainfo)
+        self.metainfo['label_mapping'] = self.label_mapping
+        self.metainfo['box_type_3d'] = self.box_type_3d
+        
+        # load annotations
         self.data_infos = self.load_anno_files(self.ann_file)
-
         self.num_samples = len(self.data_infos)
         
         if pipeline is not None:
@@ -111,6 +144,73 @@ class Planning3DDataset(Dataset):
         # set group flag for the sampler
         if not self.test_mode:
             self._set_group_flag()
+
+        if not kwargs.get('lazy_init', False):
+            # used for showing variation of the number of instances before and
+            # after through the pipeline
+            self.show_ins_var = show_ins_var
+
+            # show statistics of this dataset
+            print_log('-' * 30, 'current')
+            print_log(
+                f'The length of {"test" if self.test_mode else "training"} dataset: {len(self)}',  # noqa: E501
+                'current')
+            content_show = [['category', 'number']]
+            for label, num in enumerate(self.num_ins_per_cat):
+                cat_name = self.metainfo['classes'][label]
+                content_show.append([cat_name, num])
+            table = AsciiTable(content_show)
+            print_log(
+                f'The number of instances per category in the dataset:\n{table.table}',  # noqa: E501
+                'current')
+        
+    @property
+    def metainfo(self):
+        """Get meta information of dataset.
+
+        Returns:
+            dict: meta information collected from ``BaseDataset.METAINFO``,
+            annotation file and metainfo argument during instantiation.
+        """
+        return copy.deepcopy(self._metainfo)
+
+
+    def _load_metainfo(self,
+                       metainfo: Union[Mapping, Config, None] = None) -> dict:
+        """Collect meta information from the dictionary of meta.
+
+        Args:
+            metainfo (Mapping or Config, optional): Meta information dict.
+                If ``metainfo`` contains existed filename, it will be
+                parsed by ``list_from_file``.
+
+        Returns:
+            dict: Parsed meta information.
+        """
+        # avoid `cls.METAINFO` being overwritten by `metainfo`
+        cls_metainfo = copy.deepcopy(self.METAINFO)
+        if metainfo is None:
+            return cls_metainfo
+        if not isinstance(metainfo, (Mapping, Config)):
+            raise TypeError('metainfo should be a Mapping or Config, '
+                            f'but got {type(metainfo)}')
+
+        for k, v in metainfo.items():
+            if isinstance(v, str):
+                # If type of value is string, and can be loaded from
+                # corresponding backend. it means the file name of meta file.
+                try:
+                    cls_metainfo[k] = list_from_file(v)
+                except (TypeError, FileNotFoundError):
+                    print_log(
+                        f'{v} is not a meta file, simply parsed as meta '
+                        'information',
+                        logger='current',
+                        level=logging.WARNING)
+                    cls_metainfo[k] = v
+            else:
+                cls_metainfo[k] = v
+        return cls_metainfo
 
     def load_anno_files(self, ann_file):
         """Load annotations from ann_file.
@@ -258,13 +358,19 @@ class Planning3DDataset(Dataset):
         gt_instances_ids = info.pop('gt_instances_ids')
         gt_instances2world = info.pop('gt_instances2world')
         
+        # map labels
         gt_labels_3d = []
-        for cat in gt_instances_names:
-            if cat in self.CLASSES:
-                gt_labels_3d.append(self.CLASSES.index(cat))
+        for name in gt_instances_names:
+            if name in self.METAINFO['classes']:
+                idx = self.METAINFO['classes'].index(name)
+                gt_labels_3d.append(self.label_mapping[idx])
             else:
                 gt_labels_3d.append(-1) # if not in the class list, set as -1
         gt_labels_3d = np.array(gt_labels_3d)
+        # count the number of instances per category
+        for label in gt_labels_3d:
+            if label != -1:
+                self.num_ins_per_cat[label] += 1
 
         # add velocity to gt_bboxes_3d
         # from (N, 7) to (N, 9)
@@ -354,11 +460,10 @@ class Planning3DDataset(Dataset):
         input_dict['sensors'] = info['sensors']
         
         # get annotation info
-        if not self.test_mode:
-            anno_info = self._get_ann_info(info)
-            
-            # save to standard info
-            input_dict['anno_info'] = anno_info
+        anno_info = self._get_ann_info(info)
+        
+        # save to standard info
+        input_dict['anno_info'] = anno_info
 
         return input_dict
 
@@ -545,7 +650,7 @@ class Planning3DDataset(Dataset):
         example = self.pipeline(input_dict)
         if self.filter_empty_gt and \
                 (example is None or
-                    ~(example['data_samples'].instances.gt_labels != -1).any()):
+                    ~(example['data_samples'].gt_instances.labels != -1).any()):
             return None
         return example
 
@@ -558,9 +663,21 @@ class Planning3DDataset(Dataset):
         Returns:
             dict: Testing data dict of the corresponding index.
         """
-        input_dict = self.get_data_info(index)
+        info = self.prepare_planning_info(index)
+        # add past/future annotation info, such as future trajectory
+        info = self.generate_past_future_info(index, info) 
+        # assemble for data pipeline
+        input_dict = self.get_data_info(info)
+        if not input_dict:
+            return None
+
         self.pre_pipeline(input_dict)
         example = self.pipeline(input_dict)
+        if self.filter_empty_gt and \
+                (example is None or
+                    ~(example['data_samples'].gt_instances.labels != -1).any()):
+            return None
+        
         return example
 
     @classmethod

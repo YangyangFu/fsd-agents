@@ -1,4 +1,4 @@
-from .utils import center_crop
+from .utils import center_crop, load_points_carla
 from .formating import (DefaultFormatBundle, DefaultFormatBundle3D, ImageToTensor,
                         ToBaseDataElement, ToTensor, Transpose, to_tensor,VADFormatBundle3D)
 from .loading import (LoadImageFromFile, LoadImageFromWebcam,

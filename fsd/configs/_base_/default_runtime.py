@@ -1,24 +1,16 @@
-# Copyright (c) OpenMMLab. All rights reserved.
-from mmengine.hooks.checkpoint_hook import CheckpointHook
-from mmengine.hooks.iter_timer_hook import IterTimerHook
-from mmengine.hooks.logger_hook import LoggerHook
-from mmengine.runner.log_processor import LogProcessor
-
-
-
 default_scope = 'fsd'
 
 default_hooks = dict(
-    timer=dict(type=IterTimerHook),
+    timer=dict(type='IterTimerHook'),
     logger=dict(
-        type=LoggerHook, 
+        type='LoggerHook', 
         interval=50
     ),
     checkpoint=dict(
-        type=CheckpointHook, 
-        interval=10000, 
-        by_epoch=False
-    )
+        type='CheckpointHook', 
+        interval=1, 
+        by_epoch=True
+    ),
 )
 
 env_cfg = dict(
@@ -27,7 +19,7 @@ env_cfg = dict(
     dist_cfg=dict(backend='nccl'),
 )
 
-log_processor = dict(type=LogProcessor, window_size=50, by_epoch=True)
+log_processor = dict(type='LogProcessor', window_size=50, by_epoch=True)
 
 log_level = 'INFO'
 load_from = None

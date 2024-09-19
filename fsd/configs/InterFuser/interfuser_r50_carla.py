@@ -1,15 +1,9 @@
-from mmengine import read_base
-
-with read_base():
-    from fsd.configs._base_.default_runtime import *
+_base_ = [
+    '../_base_/default_runtime.py',
+]
 
 work_dir = '.'
 
-# custom imports to trigger registration
-custom_imports = dict(
-    imports=['mmpretrain.models'],
-    allow_failed_imports=False
-)
 
 # If point cloud range is changed, the models should also change their point
 # cloud range accordingly
@@ -18,7 +12,9 @@ img_norm_cfg = dict(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], to_rg
 class_names = [
 'car','van','truck','bicycle','traffic_sign','traffic_cone','traffic_light','pedestrian','others'
 ]
-
+metainfo = dict(
+    classes = class_names,
+)
 
 input_modality = dict(
     use_lidar=True, 
@@ -249,14 +245,14 @@ train_pipeline = [
 ]
 
 train_dataloader = dict(
-    batch_size = 2,
+    batch_size = 16,
     num_workers = 1,
     dataset=dict(
         type=dataset_type,
         data_root=data_root,
         ann_file=ann_file_train,
         pipeline=train_pipeline,
-        classes=class_names,
+        metainfo=metainfo,
         modality=input_modality,
         camera_sensors=camera_sensors,
         lidar_sensors=lidar_sensors,
@@ -268,10 +264,15 @@ train_dataloader = dict(
         sample_interval = 5, # sample interval # frames skiped per step
         test_mode = False
     ),
-    sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
+    sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=True),
+    pin_memory=True,
 )
 
-train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=25, val_interval=1)
+train_cfg = dict(
+    type='EpochBasedTrainLoop', 
+    max_epochs=25, 
+    val_interval=1
+)
 
 # validataion
 val_pipeline = [
@@ -300,22 +301,22 @@ val_pipeline = [
         mean=img_norm_cfg['mean'], 
         std=img_norm_cfg['std'], 
         divider=255.0, 
-        to_rgb=False
+        to_rgb=img_norm_cfg['to_rgb']
     ),
     dict(type="Collect3D", keys= []), # default keys are in xx_fields
     dict(type="DefaultFormatBundle3D")
 ]
 
-"""
+
 val_dataloader = dict(
-    batch_size = 2,
+    batch_size = 16,
     num_workers = 1,
     dataset=dict(
         type=dataset_type,
         data_root=data_root,
-        ann_file=ann_file_train,
-        pipeline=train_pipeline,
-        classes=class_names,
+        ann_file=ann_file_val,
+        pipeline=val_pipeline,
+        metainfo=metainfo,
         modality=input_modality,
         camera_sensors=camera_sensors,
         lidar_sensors=lidar_sensors,
@@ -328,12 +329,14 @@ val_dataloader = dict(
         test_mode = True
     ),
     sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
+    pin_memory=True,
 )
+val_evaluator = dict(type="TrajectoryMetric")
+val_cfg = dict()
 
-val_cfg = dict(type='ValLoop')
-
-val_evaluator = dict()
-"""
+test_dataloader = val_dataloader
+test_evaluator = val_evaluator
+test_cfg = val_cfg
 
 # optimizer
 lr = 0.0005  # max learning rate
@@ -345,11 +348,10 @@ optim_wrapper = dict(
 )
 
 # learning rate: different from original paper where a warmup is used
-# TODO: reimplement the learning rate schedule by adding warmup
 param_scheduler = [
     dict(
         type='LinearLR',
-        start_factor=1e-06,
+        start_factor=1e-03,
         by_epoch=True,
         begin=0,
         end=5), # warmup
@@ -364,3 +366,25 @@ param_scheduler = [
         by_epoch=True
     ),
 ]
+
+randomness = dict(seed=2024)
+visualizer=dict(type='Visualizer', vis_backends=[dict(type='TensorboardVisBackend')])
+
+# update visualization hook
+default_hooks = dict(
+    visualization=dict(
+        type='PlanningVisualizationHook',
+        draw=True,
+        interval=1,
+        score_thr=0.3,
+        show=True,
+        vis_task='multi-modality_planning',
+        wait_time=0,
+        test_out_dir='results/InterFuser/',
+        draw_gt=True,
+        draw_pred=True,
+        show_pcd_rgb=False,
+        view_first_only=True,
+        index_front_camera=0,
+    )
+)

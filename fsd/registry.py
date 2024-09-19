@@ -56,4 +56,9 @@ TASK_UTILS = Registry('task_util', parent=MMENGINE_TASK_UTILS, locations=['fsd.a
 VISUALIZERS = Registry('visualizer', parent=MMENGINE_VISUALIZERS, locations=['fsd.visualization'])
 
 CONTROLLERS = Registry('controller', locations=['fsd.controllers'])
+
+METRICS = Registry('metric', parent=MMENGINE_METRICS, locations=['fsd.evaluation.metrics'])
+
+HOOKS = Registry('hook', parent=MMENGINE_HOOKS, locations=['fsd.hooks'])
+
 #count_registered_modules()

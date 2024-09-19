@@ -53,7 +53,7 @@ class InterFuserDataPreprocessor(PlanningDataPreprocessor):
         """Generate goal points for goal-directed tasks
         """
         
-        gt_ego_future_traj = [sample.ego.gt_traj.data[-1, :2].squeeze(0) for sample in data['data_samples']]
+        gt_ego_future_traj = [sample.gt_ego.traj.data[-1, :2].squeeze(0) for sample in data['data_samples']]
         
         data['inputs']['goal_points'] = torch.stack(gt_ego_future_traj)
         
@@ -66,13 +66,14 @@ class InterFuserDataPreprocessor(PlanningDataPreprocessor):
             dict with ego velocity (B, 1)
         """
         
-        v = [sample.ego.velocity for sample in data['data_samples']]
+        v = [sample.gt_ego.velocity for sample in data['data_samples']]
         v = [torch.sqrt(vx**2 + vy**2).unsqueeze(0).to(torch.float32) for vx, vy, _ in v]
         
         data['inputs']['ego_velocity'] = torch.stack(v)
         
         return data
 
+    #TODO: check if need rotate 90 degree if the points are already in ego coord
     def generate_pts_to_hist(self, data: dict, view_ego_coord: bool = True):
         """Generate bin histogram from point cloud
         """
