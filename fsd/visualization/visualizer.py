@@ -1064,7 +1064,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
 
         data_3d = dict()
 
-        if vis_task in ['lidar_det', 'multi-modality_det']:# 'multi-modality_planning']:
+        if vis_task in ['lidar_det', 'multi-modality_det', 'multi-modality_planning']:
             assert 'pts' in data_input
             points = data_input['pts'].tensor
             check_type('pts', points, (np.ndarray, Tensor))
@@ -1447,7 +1447,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
 
         if not hasattr(self, 'o3d_vis') and vis_task in [
                 'multi-view_det', 'lidar_det', 'lidar_seg',
-                'multi-modality_det'
+                'multi-modality_det', 'multi-modality_planning'
         ]:
             self.o3d_vis = self._initialize_o3d_vis(show=show)
         

@@ -13,6 +13,7 @@ from mmdet3d.structures import LiDARInstance3DBoxes, limit_period, Box3DMode
 from fsd.registry import DATASETS, VISUALIZERS
 
 ds_cfg = Config.fromfile('fsd/configs/_base_/dataset/carla_dataset.py')
+#ds_cfg = Config.fromfile('fsd/configs/InterFuser/interfuser_r50_carla.py')
 vis_cfg = Config(dict(
     type='PlanningVisualizer',
     _scope_ = 'fsd',
@@ -21,7 +22,7 @@ vis_cfg = Config(dict(
     name='vis')
 )
 init_default_scope('fsd')
-ds = DATASETS.build(ds_cfg.train_dataset)
+ds = DATASETS.build(ds_cfg.test_dataloader.dataset)
 vis = VISUALIZERS.build(vis_cfg) 
 
 for i, item in enumerate(ds):
@@ -43,6 +44,9 @@ for i, item in enumerate(ds):
         torch.tensor([[0, 0, 0, ego_size[0], ego_size[1], ego_size[2], 0, 0, 0]]),
         box_dim=9,
     )
+    
+    vis.set_points(pts)
+    
     """
     # draw bev bboxes
     vis.set_bev_image(bev_shape=800)

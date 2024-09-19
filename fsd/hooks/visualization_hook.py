@@ -182,6 +182,10 @@ class PlanningVisualizationHook(Hook):
         if self.draw is False:
             return
 
+        # get dataset meta
+        dataset_meta = runner.test_dataloader.dataset.metainfo
+        self._visualizer.dataset_meta = dataset_meta
+        
         # There is no guarantee that the same batch of images
         # is visualized for each evaluation.
         total_curr_iter = runner.iter + batch_idx
@@ -190,7 +194,8 @@ class PlanningVisualizationHook(Hook):
             self.test_out_dir = osp.join(runner.work_dir, runner.timestamp,
                                          self.test_out_dir)
             mkdir_or_exist(self.test_out_dir)
-
+        out_file = o3d_save_path = None
+            
         # add lidar2img to data_sample
         for b, data_sample in enumerate(outputs):
             self._test_index += 1
@@ -220,17 +225,45 @@ class PlanningVisualizationHook(Hook):
                     img = torch.from_numpy(img).permute(2, 0, 1)
                     
                 data_input['img'] = img
-
-            #TODO: need load pts from file instead of from data_batch
+                # save folder
+                if self.test_out_dir is not None:
+                    if isinstance(img_path, list):
+                        img_path = img_path[0]
+                    out_file = osp.basename(img_path)
+                    out_file = osp.join(self.test_out_dir, out_file)
+                
+                
             # load pts in Lidar coord
             if self.vis_task in ['lidar_det', 'multi-modality_det', 'multi-modality_planning', 'lidar_seg']:
                 assert hasattr(data_sample, 'pts_metas') and 'pts_filename' in data_sample.pts_metas, \
-                    'lidar_path is not in outputs[0]'
-                points = data_batch['inputs']['pts'][b]
+                    'lidar_path is not in data_sample.pts_metas'
+                lidar_path = data_sample.pts_metas['pts_filename']
+                
+                # CARLA dataset lidar points
+                if dataset_meta['name'] == 'carla':
+                    from fsd.datasets.transforms import load_points_carla
+                    
+                    lidar2world = data_sample.pts_metas['lidar2world']
+                    ego2world = data_sample.gt_ego.pose.cpu().numpy()
+                    lidar2ego = np.linalg.inv(ego2world) @ lidar2world
+                    points = load_points_carla(
+                        lidar_path = lidar_path, 
+                        input_meta = {'lidar2ego': lidar2ego}, 
+                        coord_type = 'depth', 
+                        num_features = 3, 
+                        to_float32 = True
+                    )
+                else:
+                    raise NotImplementedError('Only support CARLA dataset for now')
+                
                 data_input['pts'] = points
                 
-            # save dirs
-            out_file = o3d_save_path = None
+                # save folder
+                if self.test_out_dir is not None:
+                    o3d_save_path = osp.basename(lidar_path).split(
+                        '.')[0] + '.png'
+                    o3d_save_path = osp.join(self.test_out_dir, o3d_save_path)                    
+                    
 
             if total_curr_iter % self.interval == 0:
                 # get lidar2img transform
@@ -255,8 +288,8 @@ class PlanningVisualizationHook(Hook):
                     vis_task=self.vis_task,
                     wait_time=self.wait_time,
                     pred_score_thr=self.score_thr,
-                    out_file=self.test_out_dir,
-                    o3d_save_path=self.test_out_dir,
+                    out_file=out_file,
+                    o3d_save_path=o3d_save_path,
                     step=self._test_index,
                     show_pcd_rgb=self.show_pcd_rgb,
                     traj_img_idx=self.index_front_camera)
