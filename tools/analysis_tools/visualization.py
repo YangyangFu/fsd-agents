@@ -22,7 +22,7 @@ vis_cfg = Config(dict(
     name='vis')
 )
 init_default_scope('fsd')
-ds = DATASETS.build(ds_cfg.test_dataloader.dataset)
+ds = DATASETS.build(ds_cfg.train_dataset)
 vis = VISUALIZERS.build(vis_cfg) 
 
 for i, item in enumerate(ds):
@@ -45,66 +45,7 @@ for i, item in enumerate(ds):
         box_dim=9,
     )
     
-    vis.set_points(pts)
-    
-    """
-    # draw bev bboxes
-    vis.set_bev_image(bev_shape=800)
-    vis.draw_bev_bboxes(
-        bbox_3d_ego = ego_box.convert_to(Box3DMode.DEPTH),
-        bboxes_3d_instances = bboxes_3d.convert_to(Box3DMode.DEPTH), 
-        scale=10,
-        edge_colors_ego='r',
-        edge_colors_instances='b',
-        face_colors = 'none',
-    )
-    bev_img = vis.get_image()
-
-    # add trajectory to bev
-    gt_ego_traj = data_samples.gt_ego.traj
-    gt_ego_traj_xyr = gt_ego_traj.data.numpy()
-    gt_ego_traj_mask = gt_ego_traj.mask.numpy()
-    input_meta = {'future_steps': gt_ego_traj.num_future_steps}
-    vis.draw_trajectory_bev(
-        gt_ego_traj_xyr, 
-        gt_ego_traj_mask, 
-        scale=10,
-        cmap='Reds',
-        draw_history=False, 
-        input_meta=input_meta)
-
-    
-    gt_instances_traj = data_samples.gt_instances.traj
-    gt_instances_traj_xyr = [traj.data.numpy() for traj in gt_instances_traj]    
-    gt_instances_traj_mask = [traj.mask.numpy() for traj in gt_instances_traj]
-    gt_instances_names = data_samples.gt_instances.names
-    # only care about vehicle, pedestrian, cyclist
-    moving = ['car', 'pedestrian', 'bicycle', 'van', 'truck']
-    
-    gt_instances_traj = []
-    gt_instances_mask = []
-    for i, name in enumerate(gt_instances_names):
-        if name in moving:
-            gt_instances_traj.append(gt_instances_traj_xyr[i])
-            gt_instances_mask.append(gt_instances_traj_mask[i])
-
-    if len(gt_instances_traj) > 0:
-        gt_instances_traj = np.stack(gt_instances_traj)
-        gt_instances_mask = np.stack(gt_instances_mask)
-        vis.draw_trajectory_bev(gt_instances_traj, 
-                                    gt_instances_mask, 
-                                    cmap='Blues',
-                                    scale=10,
-                                    draw_history=False, 
-                                    input_meta=input_meta)
-                                    input_meta=input_meta)
-            
-                                    input_meta=input_meta) 
-            
-    vis.show()
-    
-    """
-    
+    # draw 3d boxes and traj on images
     front_img = imgs[1]
     vis.set_image(front_img)
     lidar2world = data_samples.pts_metas['lidar2world']
@@ -122,7 +63,7 @@ for i, item in enumerate(ds):
     gt_ego_traj = data_samples.gt_ego.traj
     gt_ego_traj_xyr = gt_ego_traj.data.numpy()
     gt_ego_traj_mask = gt_ego_traj.mask.numpy()
-    print(f"gt_ego_traj: {gt_ego_traj_xyr}")
+
     vis.draw_trajectory_image(
         front_img, 
         gt_ego_traj_xyr, 
@@ -131,9 +72,7 @@ for i, item in enumerate(ds):
                       'future_steps': gt_ego_traj.num_future_steps})
     front_img_traj = vis.get_image()
 
-    """
     
-    """
     # multi-view: 
     # inputs['img'] = [front_left, front, front_right, back_left, back, back_right]
     imgs[1] = front_img_traj
@@ -149,6 +88,3 @@ for i, item in enumerate(ds):
                         text_colors=(255, 255, 255))
     cv2.imwrite('temp_dir/multiview_imgs.jpg', cv2.cvtColor(multiview_imgs, cv2.COLOR_RGB2BGR)) # rgb
     vis.show(drawn_img_3d=multiview_imgs, vis_task = 'multi-modality_det')
-
-    
-    
