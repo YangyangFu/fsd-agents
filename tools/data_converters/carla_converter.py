@@ -4,7 +4,7 @@ import gzip, json, pickle
 import numpy as np
 from pyquaternion import Quaternion
 from tqdm import tqdm
-from vis_utils import calculate_cube_vertices,calculate_occlusion_stats,edges,DIS_CAR_SAVE
+from carla_converter_utils import calculate_cube_vertices,calculate_occlusion_stats,edges,DIS_CAR_SAVE
 import cv2
 import multiprocessing
 import argparse
@@ -15,7 +15,7 @@ import argparse
 # Nuscene coord: https://www.nuscenes.org/nuscenes#data-collection
 
 DATAROOT = 'data-mini/carla/'
-MAP_ROOT = 'data-min/data/carla/maps'
+MAP_ROOT = 'data-mini/carla/maps'
 OUT_DIR = 'data-mini/carla/infos'
 
 MAX_DISTANCE = 75              # Filter bounding boxes that are too far from the vehicle
@@ -241,6 +241,48 @@ def gengrate_map_chunk(map_root):
     with open(join(OUT_DIR,'b2d_map_infos_11.pkl'),'wb') as f:
         pickle.dump(map_infos,f)
 
+#TODO: map of 1.5G is too big to be loadded in a 32GB ram computer.
+def generate_map_chunk_lane_points(map_root):
+    map_infos = {}
+    for file_name in os.listdir(map_root):
+        if '.npy' in file_name:
+            map_info = dict(np.load(join(map_root,file_name), allow_pickle=True)['arr'])
+            town_name = file_name.split('_')[0]
+            map_infos[town_name] = {} 
+            lane_points = []
+            lane_types = []
+            lane_sample_points = []
+            trigger_volumes_points = []
+            trigger_volumes_types = []
+            trigger_volumes_sample_points = []
+            print(len(map_info))
+            print(sssss)
+            for road_id, road in map_info.items():
+                for lane_id, lane in road.items():
+                    if lane_id == 'Trigger_Volumes':
+                        pass
+                    else:
+                        for single_lane in lane:
+                            points = np.array([raw_point[0] for raw_point in single_lane['Points']]).astype(np.float32)
+                            points[:,1] *= -1
+                            lane_points.append(points)
+                            lane_types.append(single_lane['Type'])
+                            #lane_lenth = points.shape[0]
+                            #if lane_lenth % 50 != 0:
+                            #    devide_points = [50*i for i in range(lane_lenth//50+1)]
+                            #else:
+                            #    devide_points = [50*i for i in range(lane_lenth//50)]
+                            #devide_points.append(lane_lenth-1)
+                            #lane_sample_points_tmp = points[devide_points]
+                            #lane_sample_points.append(lane_sample_points_tmp)
+            map_infos[town_name]['lane_points'] = lane_points
+            #map_infos[town_name]['lane_sample_points'] = lane_sample_points
+            map_infos[town_name]['lane_types'] = lane_types
+            #map_infos[town_name]['trigger_volumes_points'] = trigger_volumes_points
+            #map_infos[town_name]['trigger_volumes_sample_points'] = trigger_volumes_sample_points
+            #map_infos[town_name]['trigger_volumes_types'] = trigger_volumes_types
+    with open(join(OUT_DIR,'b2d_map_infos_11.pkl'),'wb') as f:
+        pickle.dump(map_infos,f)
 
 def preprocess(folder_list,idx,tmp_dir,train_or_val):
 
@@ -327,7 +369,7 @@ def preprocess(folder_list,idx,tmp_dir,train_or_val):
                     # get road and lane id
                     ego_road_id = npc['road_id']
                     ego_lane_id = npc['lane_id']
-                    
+                    ego_section_id = npc['section_id']
                     continue
                 if npc['distance'] > MAX_DISTANCE: continue
                 if abs(npc['location'][2] - anno['bounding_boxes'][0]['location'][2]) > FILTER_Z_SHRESHOLD: continue
@@ -407,30 +449,34 @@ def preprocess(folder_list,idx,tmp_dir,train_or_val):
                     affected_by_lights.append(npc['id'])
                 elif npc['class'] == 'traffic_sign' and npc['affects_ego']:
                     affected_by_signs.append(npc['id'])
-                
+            
+            """    
             # check if ego is affected by junction
             affected_by_junction = 0
-            map_dir = join(MAP_ROOT, frame_data['town_name'] + 'HD_map.npz')
+            map_dir = join(MAP_ROOT, frame_data['town_name'] + '_HD_map.npz')
             map_info = dict(np.load(map_dir, allow_pickle=True)['arr'])
-            for key in map_info[ego_road_id][ego_lane_id].keys():
-                if key == "Points":
+            print('ego location: ', frame_data['ego_translation'], ego_section_id)
+            for seg in map_info[ego_road_id][ego_lane_id]:
+                if seg['Type'] == 'Center':
+                    key = 'Points'
                     # find waypoints
-                    min_distance = 10
+                    min_distance = 5
                     min_idx = -1
-                    for idx, point in enumerate(map_info[ego_road_id][ego_lane_id][key]):
-                        point_xyz = point[0]
-                        point_xyz[2] = 0
+                    for idx, point in enumerate(seg[key]):
+                        point_xyz = [point[0][0], -point[0][1], point[0][2]] # to right hand
                         dist = np.linalg.norm(np.array(point_xyz) - frame_data['ego_translation'])
                         if dist < min_distance:
                             min_distance = dist
-                            min_idx= idx 
+                            min_idx= idx
+      
+                    print("min distance found: ", min_distance) 
                     # check if the waypoint is a junction
                     if min_idx == -1: continue
-                    point = map_info[ego_road_id][ego_lane_id][key][min_idx]
+                    point = seg[key][min_idx]
                     if len(point) == 3 and point[2]:
                         affected_by_junction = 1
                         break
-                     
+            """         
             if len(gt_boxes) == 0:
                 continue
 
@@ -448,7 +494,7 @@ def preprocess(folder_list,idx,tmp_dir,train_or_val):
             # if ego is affected by traffic lights or signs
             frame_data['affected_by_lights'] = np.array(affected_by_lights)
             frame_data['affected_by_signs'] = np.array(affected_by_signs)
-            frame_data['affected_by_junction'] = affected_by_junction
+            #frame_data['affected_by_junction'] = affected_by_junction
             final_data.append(frame_data)
     
     os.makedirs(join(OUT_DIR,tmp_dir),exist_ok=True)
@@ -481,7 +527,7 @@ if __name__ == "__main__":
     
     os.makedirs(OUT_DIR,exist_ok=True)
     argparser = argparse.ArgumentParser(description=__doc__)
-    argparser.add_argument('--workers',type=int, default= 4, help='num of workers to prepare dataset')
+    argparser.add_argument('--workers',type=int, default= 16, help='num of workers to prepare dataset')
     argparser.add_argument('--tmp_dir', default="tmp_data", )
     args = argparser.parse_args()    
     workers = args.workers
@@ -495,11 +541,11 @@ if __name__ == "__main__":
         if 'Town' in foldername and 'Route' in foldername and 'Weather' in foldername and not join('v1',foldername) in train_val_split['val']:
             train_list.append(join('v1',foldername))   
     print('processing train data...')
-    generate_infos(train_list,workers,'train',args.tmp_dir)
+    #generate_infos(train_list,workers,'train',args.tmp_dir)
     process_list = []
     print('processing val data...')
-    generate_infos(train_val_split['val'],workers,'val',args.tmp_dir)
+    #generate_infos(train_val_split['val'],workers,'val',args.tmp_dir)
     
     print('processing map data...')
-    gengrate_map_chunk(MAP_ROOT)
+    generate_map_chunk_lane_points(MAP_ROOT)
     print('finish!')

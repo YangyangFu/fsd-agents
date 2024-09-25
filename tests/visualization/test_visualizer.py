@@ -38,6 +38,9 @@ for i, item in enumerate(ds):
     
     data_samples.set_metainfo(dict(lidar2img = lidar2imgs))
     
+    # save file with four digits
+    out_file = os.path.join('tmp', f'{i:05d}')
+    
     # add data and plot
     vis.add_datasample(name='test',
                        data_input=data_inputs,
@@ -46,4 +49,6 @@ for i, item in enumerate(ds):
                        draw_pred=False,
                        show=True,
                        vis_task='multi-modality_planning',
-                       traj_img_idx = 1)
+                       traj_img_idx = 1,
+                       out_file = out_file,
+    )

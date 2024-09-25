@@ -2,6 +2,17 @@
 Full self-driving agents benchmark on closed-loop simulation
 
 
+## Agents:
+- [x] InterFuser
+- [] VAD
+- [] SparseDriving
+- [] XLM
+
+
+## Visualization
+
+![planning](./doc/assets/planning.gif)
+
 ## TODOS
 - [x] architecture design with heads
     - maybe consider waypoint heads, heat map head, classification head etc
