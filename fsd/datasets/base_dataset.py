@@ -88,7 +88,7 @@ class Planning3DDataset(Dataset):
                  test_mode = False,
                  show_ins_var = False,
                  **kwargs) -> None:
-        super().__init__(**kwargs)
+        super().__init__()
         self.data_root = data_root
         self.ann_file = ann_file
         self.test_mode = test_mode
