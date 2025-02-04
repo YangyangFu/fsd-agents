@@ -108,6 +108,7 @@ class PlanningVisualizationHook(Hook):
     def after_val_iter(self, runner: Runner, batch_idx: int, data_batch: dict,
                        outputs: Sequence[PlanningDataSample]) -> None:
         """Run after every ``self.interval`` validation iterations.
+            Same implementation as after_test_iter.
 
         Args:
             runner (:obj:`Runner`): The runner of the validation process.
@@ -116,57 +117,7 @@ class PlanningVisualizationHook(Hook):
             outputs (Sequence[:obj:`DetDataSample`]]): A batch of data samples
                 that contain annotations and predictions.
         """
-        if self.draw is False:
-            return
-
-        # There is no guarantee that the same batch of images
-        # is visualized for each evaluation.
-        total_curr_iter = runner.iter + batch_idx
-
-        data_input = dict()
-
-        # Visualize only the first data
-        if self.vis_task in [
-                'mono_det', 'multi-view_det', 'multi-modality_det', 'multi-modality_planning'
-        ]:
-            assert 'img_path' in outputs[0], 'img_path is not in outputs[0]'
-            img_path = outputs[0].img_path
-            if isinstance(img_path, list):
-                img = []
-                for single_img_path in img_path:
-                    img_bytes = get(
-                        single_img_path, backend_args=self.backend_args)
-                    single_img = mmcv.imfrombytes(
-                        img_bytes, channel_order='rgb')
-                    img.append(single_img)
-            else:
-                img_bytes = get(img_path, backend_args=self.backend_args)
-                img = mmcv.imfrombytes(img_bytes, channel_order='rgb')
-            data_input['img'] = img
-
-        if self.vis_task in ['lidar_det', 'multi-modality_det', 'multi-modality_planning', 'lidar_seg']:
-            assert 'lidar_path' in outputs[
-                0], 'lidar_path is not in outputs[0]'
-            lidar_path = outputs[0].lidar_path
-            num_pts_feats = outputs[0].num_pts_feats
-            pts_bytes = get(lidar_path, backend_args=self.backend_args)
-            points = np.frombuffer(pts_bytes, dtype=np.float32)
-            points = points.reshape(-1, num_pts_feats)
-            data_input['pts'] = points
-
-        if total_curr_iter % self.interval == 0:
-            self._visualizer.add_datasample(
-                'val sample',
-                data_input,
-                data_sample=outputs[0],
-                draw_gt=self.draw_gt,
-                draw_pred=self.draw_pred,
-                show=self.show,
-                vis_task=self.vis_task,
-                wait_time=self.wait_time,
-                pred_score_thr=self.score_thr,
-                step=total_curr_iter,
-                show_pcd_rgb=self.show_pcd_rgb)
+        self.after_test_iter(runner, batch_idx, data_batch, outputs)
 
     def after_test_iter(self, runner: Runner, batch_idx: int, data_batch: dict,
                         outputs: Sequence[PlanningDataSample]) -> None:
