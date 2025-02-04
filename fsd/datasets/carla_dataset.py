@@ -108,10 +108,13 @@ class CarlaDataset(Planning3DDataset):
         ego['velocity'] = raw_info['ego_vel'].astype(np.float32) # [x, y, z] in ego frame, 
         ego['acceleration'] = raw_info['ego_accel'].astype(np.float32) # [x, y, z] in ego frame
         
-        # TODO: faked data, need to be updated
-        ego['affected_by_lights'] = one_hot_encoding(np.array(0), 2)
-        ego['affected_by_stop_sign'] = one_hot_encoding(np.array(0), 2)
-        ego['is_at_junction'] = one_hot_encoding(np.array(0), 2)
+        # traffic light, stop sign, junction
+        affected_by_lights = np.array(1) if raw_info['affected_by_lights'] else np.array(0)
+        affected_by_signs = np.array(1) if raw_info['affected_by_signs'] else np.array(0)
+        affected_by_junction = np.array(1) if raw_info['affected_by_junction'] else np.array(0)
+        ego['affected_by_lights'] = one_hot_encoding(affected_by_lights, 2)
+        ego['affected_by_stop_sign'] = one_hot_encoding(affected_by_signs, 2)
+        ego['is_at_junction'] = one_hot_encoding(affected_by_junction, 2)
         info['ego'] = ego
         
         # sensor info
