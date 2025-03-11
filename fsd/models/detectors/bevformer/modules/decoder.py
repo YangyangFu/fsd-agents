@@ -1,35 +1,19 @@
-# ---------------------------------------------
-# Copyright (c) OpenMMLab. All rights reserved.
-# ---------------------------------------------
-#  Modified by Zhiqi Li
-# ---------------------------------------------
-
-from mmcv.ops.multi_scale_deform_attn import multi_scale_deformable_attn_pytorch
-import mmcv
-import cv2 as cv
-import copy
+import math
 import warnings
-from matplotlib import pyplot as plt
-import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+
+from mmengine.model import BaseModule, constant_init, xavier_init
+from mmengine.utils import deprecated_api_warning
+
 from mmcv.cnn import xavier_init, constant_init
-from mmcv.cnn.bricks.registry import (ATTENTION,
-                                      TRANSFORMER_LAYER_SEQUENCE)
 from mmcv.cnn.bricks.transformer import TransformerLayerSequence
-import math
-from mmcv.runner.base_module import BaseModule, ModuleList, Sequential
-from mmcv.utils import (ConfigDict, build_from_cfg, deprecated_api_warning,
-                        to_2tuple)
+from mmcv.ops.multi_scale_deform_attn import MultiScaleDeformableAttnFunction, multi_scale_deformable_attn_pytorch
 
 from mmcv.utils import ext_loader
-from .multi_scale_deformable_attn_function import MultiScaleDeformableAttnFunction_fp32, \
-    MultiScaleDeformableAttnFunction_fp16
-
 ext_module = ext_loader.load_ext(
     '_ext', ['ms_deform_attn_backward', 'ms_deform_attn_forward'])
-
+from fsd.registry import MODELS
 
 def inverse_sigmoid(x, eps=1e-5):
     """Inverse function of sigmoid.
@@ -49,7 +33,7 @@ def inverse_sigmoid(x, eps=1e-5):
     return torch.log(x1 / x2)
 
 
-@TRANSFORMER_LAYER_SEQUENCE.register_module()
+@MODELS.register_module()
 class DetectionTransformerDecoder(TransformerLayerSequence):
     """Implements the decoder in DETR3D transformer.
     Args:
@@ -129,8 +113,8 @@ class DetectionTransformerDecoder(TransformerLayerSequence):
         return output, reference_points
 
 
-@ATTENTION.register_module()
-class CustomMSDeformableAttention(BaseModule):
+@MODELS.register_module()
+class BEVMultiScaleDeformableAttention(BaseModule):
     """An attention module used in Deformable-Detr.
 
     `Deformable DETR: Deformable Transformers for End-to-End Object Detection.
@@ -226,8 +210,6 @@ class CustomMSDeformableAttention(BaseModule):
         xavier_init(self.output_proj, distribution='uniform', bias=0.)
         self._is_init = True
 
-    @deprecated_api_warning({'residual': 'identity'},
-                            cls_name='MultiScaleDeformableAttention')
     def forward(self,
                 query,
                 key=None,
@@ -323,12 +305,6 @@ class CustomMSDeformableAttention(BaseModule):
                 f'Last dim of reference_points must be'
                 f' 2 or 4, but get {reference_points.shape[-1]} instead.')
         if torch.cuda.is_available() and value.is_cuda:
-
-            # using fp16 deformable attention is unstable because it performs many sum operations
-            if value.dtype == torch.float16:
-                MultiScaleDeformableAttnFunction = MultiScaleDeformableAttnFunction_fp32
-            else:
-                MultiScaleDeformableAttnFunction = MultiScaleDeformableAttnFunction_fp32
             output = MultiScaleDeformableAttnFunction.apply(
                 value, spatial_shapes, level_start_index, sampling_locations,
                 attention_weights, self.im2col_step)

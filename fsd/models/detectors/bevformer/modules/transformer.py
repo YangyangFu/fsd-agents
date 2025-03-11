@@ -1,29 +1,19 @@
-# ---------------------------------------------
-# Copyright (c) OpenMMLab. All rights reserved.
-# ---------------------------------------------
-#  Modified by Zhiqi Li
-# ---------------------------------------------
-
 import numpy as np
 import torch
 import torch.nn as nn
-from mmcv.cnn import xavier_init
-from mmcv.cnn.bricks.transformer import build_transformer_layer_sequence
-from mmcv.runner.base_module import BaseModule
-
-from mmdet.models.utils.builder import TRANSFORMER
 from torch.nn.init import normal_
-from projects.mmdet3d_plugin.models.utils.visual import save_tensor
-from mmcv.runner.base_module import BaseModule
 from torchvision.transforms.functional import rotate
+
+from mmengine.model import BaseModule, xavier_init
+from mmcv.cnn.bricks.transformer import build_transformer_layer_sequence
+
 from .temporal_self_attention import TemporalSelfAttention
-from .spatial_cross_attention import MSDeformableAttention3D
-from .decoder import CustomMSDeformableAttention
-from projects.mmdet3d_plugin.models.utils.bricks import run_time
-from mmcv.runner import force_fp32, auto_fp16
+from .spatial_cross_attention import MultiScaleDeformableAttention3D
+from .decoder import BEVMultiScaleDeformableAttention
 
+from fsd.registry import MODELS
 
-@TRANSFORMER.register_module()
+@MODELS.register_module()
 class PerceptionTransformer(BaseModule):
     """Implements the Detr3D transformer.
     Args:
@@ -89,8 +79,8 @@ class PerceptionTransformer(BaseModule):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
         for m in self.modules():
-            if isinstance(m, MSDeformableAttention3D) or isinstance(m, TemporalSelfAttention) \
-                    or isinstance(m, CustomMSDeformableAttention):
+            if isinstance(m, MultiScaleDeformableAttention3D) or isinstance(m, TemporalSelfAttention) \
+                    or isinstance(m, BEVMultiScaleDeformableAttention):
                 try:
                     m.init_weight()
                 except AttributeError:
@@ -100,7 +90,6 @@ class PerceptionTransformer(BaseModule):
         xavier_init(self.reference_points, distribution='uniform', bias=0.)
         xavier_init(self.can_bus_mlp, distribution='uniform', bias=0.)
 
-    @auto_fp16(apply_to=('mlvl_feats', 'bev_queries', 'prev_bev', 'bev_pos'))
     def get_bev_features(
             self,
             mlvl_feats,
@@ -212,7 +201,6 @@ class PerceptionTransformer(BaseModule):
 
         return bev_embed
 
-    @auto_fp16(apply_to=('mlvl_feats', 'bev_queries', 'object_query_embed', 'prev_bev', 'bev_pos'))
     def forward(self,
                 mlvl_feats,
                 bev_queries,

@@ -1,31 +1,21 @@
-
-# ---------------------------------------------
-# Copyright (c) OpenMMLab. All rights reserved.
-# ---------------------------------------------
-#  Modified by Zhiqi Li
-# ---------------------------------------------
-
-from projects.mmdet3d_plugin.models.utils.bricks import run_time
-from projects.mmdet3d_plugin.models.utils.visual import save_tensor
-from .custom_base_transformer_layer import MyCustomBaseTransformerLayer
 import copy
 import warnings
-from mmcv.cnn.bricks.registry import (ATTENTION,
-                                      TRANSFORMER_LAYER,
-                                      TRANSFORMER_LAYER_SEQUENCE)
-from mmcv.cnn.bricks.transformer import TransformerLayerSequence
-from mmcv.runner import force_fp32, auto_fp16
 import numpy as np
 import torch
-import cv2 as cv
-import mmcv
-from mmcv.utils import TORCH_VERSION, digit_version
+
+from mmcv.cnn.bricks.transformer import TransformerLayerSequence
+from mmengine.utils import digit_version
+TORCH_VERSION = tuple(int(x) for x in torch.__version__.split('.')[:2])
+
+from fsd.registry import MODELS 
+from .custom_base_transformer_layer import MyCustomBaseTransformerLayer
+
 from mmcv.utils import ext_loader
 ext_module = ext_loader.load_ext(
     '_ext', ['ms_deform_attn_backward', 'ms_deform_attn_forward'])
 
 
-@TRANSFORMER_LAYER_SEQUENCE.register_module()
+@MODELS.register_module()
 class BEVFormerEncoder(TransformerLayerSequence):
 
     """
@@ -88,8 +78,6 @@ class BEVFormerEncoder(TransformerLayerSequence):
             ref_2d = ref_2d.repeat(bs, 1, 1).unsqueeze(2)
             return ref_2d
 
-    # This function must use fp32!!!
-    @force_fp32(apply_to=('reference_points', 'img_metas'))
     def point_sampling(self, reference_points, pc_range,  img_metas):
 
         lidar2img = []
@@ -134,7 +122,7 @@ class BEVFormerEncoder(TransformerLayerSequence):
                     & (reference_points_cam[..., 1:2] < 1.0)
                     & (reference_points_cam[..., 0:1] < 1.0)
                     & (reference_points_cam[..., 0:1] > 0.0))
-        if digit_version(TORCH_VERSION) >= digit_version('1.8'):
+        if TORCH_VERSION >= digit_version('1.8'):
             bev_mask = torch.nan_to_num(bev_mask)
         else:
             bev_mask = bev_mask.new_tensor(
@@ -145,7 +133,6 @@ class BEVFormerEncoder(TransformerLayerSequence):
 
         return reference_points_cam, bev_mask
 
-    @auto_fp16()
     def forward(self,
                 bev_query,
                 key,
@@ -240,7 +227,7 @@ class BEVFormerEncoder(TransformerLayerSequence):
         return output
 
 
-@TRANSFORMER_LAYER.register_module()
+@MODELS.register_module()
 class BEVFormerLayer(MyCustomBaseTransformerLayer):
     """Implements decoder layer in DETR transformer.
     Args:
@@ -388,8 +375,7 @@ class BEVFormerLayer(MyCustomBaseTransformerLayer):
                     identity if self.pre_norm else None,
                     query_pos=query_pos,
                     key_pos=key_pos,
-                    reference_points=ref_3d,
-                    reference_points_cam=reference_points_cam,
+                    reference_points=reference_points_cam,
                     mask=mask,
                     attn_mask=attn_masks[attn_index],
                     key_padding_mask=key_padding_mask,

@@ -5,12 +5,12 @@ import torch
 import torch.nn as nn
 
 from mmengine.model import BaseModule, constant_init, xavier_init
-from mmengine.registry import MODELS
 from mmengine.utils import deprecated_api_warning
-
 from mmcv.cnn.bricks.transformer import build_attention
 from mmcv.ops.multi_scale_deform_attn import MultiScaleDeformableAttnFunction, multi_scale_deformable_attn_pytorch
 from mmcv.utils import ext_loader
+
+from fsd.registry import MODELS
 
 ext_module = ext_loader.load_ext(
     '_ext', ['ms_deform_attn_backward', 'ms_deform_attn_forward'])
