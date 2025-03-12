@@ -13,7 +13,7 @@ from mmdet.models.dense_heads import DETRHead
 
 from mmdet3d.models.task_modules.builder import build_bbox_coder
 from ..core.bbox.util import normalize_bbox
-from .transformer import inverse_sigmoid
+from .decoder import inverse_sigmoid
 
 from fsd.registry import HEADS
 
@@ -390,7 +390,7 @@ class BEVFormerHead(DETRHead):
             bbox_preds[isnotnan, :10], normalized_bbox_targets[isnotnan,
                                                                :10], bbox_weights[isnotnan, :10],
             avg_factor=num_total_pos)
-        if digit_version(TORCH_VERSION) >= digit_version('1.8'):
+        if TORCH_VERSION >= digit_version('1.8'):
             loss_cls = torch.nan_to_num(loss_cls)
             loss_bbox = torch.nan_to_num(loss_bbox)
         return loss_cls, loss_bbox
