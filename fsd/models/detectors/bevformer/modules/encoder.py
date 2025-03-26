@@ -8,7 +8,7 @@ from mmengine.utils import digit_version
 TORCH_VERSION = tuple(int(x) for x in torch.__version__.split('.')[:2])
 
 from fsd.registry import MODELS 
-from .custom_base_transformer_layer import MyCustomBaseTransformerLayer
+from .custom_base_transformer_layer import BaseTransformerLayerBEVFormer
 
 from mmcv.utils import ext_loader
 ext_module = ext_loader.load_ext(
@@ -227,7 +227,7 @@ class BEVFormerEncoder(TransformerLayerSequence):
 
 
 @MODELS.register_module()
-class BEVFormerLayer(MyCustomBaseTransformerLayer):
+class BEVFormerLayer(BaseTransformerLayerBEVFormer):
     """Implements decoder layer in DETR transformer.
     Args:
         attn_cfgs (list[`mmcv.ConfigDict`] | list[dict] | dict )):

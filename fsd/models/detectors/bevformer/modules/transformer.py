@@ -7,10 +7,6 @@ from torchvision.transforms.functional import rotate
 from mmengine.model import BaseModule, xavier_init
 from mmcv.cnn.bricks.transformer import build_transformer_layer_sequence
 
-from .temporal_self_attention import TemporalSelfAttention
-from .spatial_cross_attention import MultiScaleDeformableAttention3D
-from .decoder import BEVMultiScaleDeformableAttention
-
 from fsd.registry import MODELS
 
 @MODELS.register_module()
@@ -79,12 +75,7 @@ class PerceptionTransformer(BaseModule):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
         for m in self.modules():
-            if isinstance(m, MultiScaleDeformableAttention3D) or isinstance(m, TemporalSelfAttention) \
-                    or isinstance(m, BEVMultiScaleDeformableAttention):
-                try:
-                    m.init_weight()
-                except AttributeError:
-                    m.init_weights()
+                m.init_weights()
         normal_(self.level_embeds)
         normal_(self.cams_embeds)
         xavier_init(self.reference_points, distribution='uniform', bias=0.)

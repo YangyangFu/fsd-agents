@@ -15,7 +15,7 @@ from mmdet.models.utils import multi_apply
 from mmdet.models.dense_heads import DETRHead
 
 from mmdet3d.models.task_modules.builder import build_bbox_coder
-from ..core.bbox.util import normalize_bbox
+from ..task_modules.bbox.util import normalize_bbox
 from .decoder import inverse_sigmoid
 
 from fsd.registry import HEADS

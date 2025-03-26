@@ -26,7 +26,7 @@ from mmcv.cnn.bricks.transformer import build_feedforward_network, build_attenti
 
 
 @MODELS.register_module()
-class MyCustomBaseTransformerLayer(BaseModule):
+class BaseTransformerLayerBEVFormer(BaseModule):
     """Base `TransformerLayer` for vision transformer.
     It can be built from `mmcv.ConfigDict` and support more flexible
     customization, for example, using any number of `FFN or LN ` and
@@ -89,7 +89,7 @@ class MyCustomBaseTransformerLayer(BaseModule):
                     f'to a dict named `ffn_cfgs`. ')
                 ffn_cfgs[new_name] = kwargs[ori_name]
 
-        super(MyCustomBaseTransformerLayer, self).__init__(init_cfg)
+        super(BaseTransformerLayerBEVFormer, self).__init__(init_cfg)
 
         self.batch_first = batch_first
 
