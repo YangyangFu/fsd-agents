@@ -15,7 +15,7 @@ from mmengine.logging import print_log
 from mmdet3d.datasets import NuScenesDataset
 from mmdet3d.structures import Det3DDataSample
 from fsd.registry import DATASETS
-from .nuscenes_eval_bev import NuScenesEvalBEVFormer
+from .eval_utils.nuscenes_eval_bev import NuScenesEvalBEVFormer
 
 @DATASETS.register_module()
 class NuScenesDatasetBEVFormer(NuScenesDataset):
