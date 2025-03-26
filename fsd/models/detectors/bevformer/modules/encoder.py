@@ -27,7 +27,7 @@ class BEVFormerEncoder(TransformerLayerSequence):
             `LN`.
     """
 
-    def __init__(self, *args, pc_range=None, num_points_in_pillar=4, return_intermediate=False, dataset_type='nuscenes',
+    def __init__(self, *args, pc_range=None, num_points_in_pillar=4, return_intermediate=False,
                  **kwargs):
 
         super(BEVFormerEncoder, self).__init__(*args, **kwargs)

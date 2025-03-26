@@ -11,7 +11,7 @@ def seed():
     seed_everything(2024)
     
 
-cfgs = ['fsd/configs/bevformer/bevformer_small.py']
+cfgs = ['fsd/configs/bevformer/bevformer_base.py']
 @pytest.mark.parametrize('cfg', cfgs)
 def test_bevformer(cfg):
     # scope

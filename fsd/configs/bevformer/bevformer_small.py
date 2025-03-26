@@ -75,7 +75,9 @@ model = dict(
         style='caffe',
         with_cp=True, # using checkpoint to save GPU memory
         dcn=dict(type='DCNv2', deform_groups=1, fallback_on_stride=False), # original DCNv2 will print log when perform load_state_dict
-        stage_with_dcn=(False, False, True, True)),
+        stage_with_dcn=(False, False, True, True),
+        #pretrained='torchvision://resnet101',
+        ),
     img_neck=dict(
         type='FPN',
         _scope_="mmdet",
@@ -91,7 +93,6 @@ model = dict(
         bev_w=bev_w_,
         num_query=900,
         num_classes=10,
-        #in_channels=_dim_,
         sync_cls_avg_factor=True,
         with_box_refine=True,
         as_two_stage=False,
@@ -166,7 +167,6 @@ model = dict(
             post_center_range=[-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],
             pc_range=point_cloud_range,
             max_num=300,
-            #voxel_size=voxel_size,
             num_classes=10),
         positional_encoding=dict(
             type='LearnedPositionalEncoding',
@@ -224,14 +224,12 @@ train_pipeline = [
     dict(type='NormalizeMultiviewImage', **img_norm_cfg, divider=1.0),
     dict(type='RandomScaleImageMultiViewImage', scales=[0.8]),
     dict(type='PadMultiViewImage', size_divisor=32),
-    #dict(type='Pack3DDetInputs', class_names=class_names),
     dict(type='Pack3DDetInputs', _scope_='mmdet3d', keys=['gt_bboxes_3d', 'gt_labels_3d', 'img'])
 ]
 
 test_pipeline = [
     dict(type='LoadMultiViewImageFromFiles', to_float32=True),
     dict(type='NormalizeMultiviewImage', **img_norm_cfg, divider=1.0),
-    #dict(type='PadMultiViewImage', size_divisor=32),
     dict(
         type='MultiScaleFlipAug3D',
         img_scale=(1600, 900),
@@ -265,8 +263,7 @@ train_dataloader = dict(
     sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=True),
     pin_memory=True,
 )
-    #shuffler_sampler=dict(type='DistributedGroupSampler'),
-    #onshuffler_sampler=dict(type='DistributedSampler')
+
 val_dataloader = dict(
     batch_size=1,
     num_workers=1,
