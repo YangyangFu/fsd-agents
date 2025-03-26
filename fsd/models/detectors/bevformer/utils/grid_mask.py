@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from PIL import Image
-
+import copy
 
 class Grid(object):
 
@@ -61,7 +61,7 @@ class Grid(object):
         mask = mask[(hh - h) // 2:(hh - h) // 2 + h,
                     (ww - w) // 2:(ww - w) // 2 + w]
 
-        mask = torch.from_numpy(mask).float()
+        mask = torch.from_numpy(copy.deepcopy(mask)).float()
         if self.mode == 1:
             mask = 1 - mask
 
@@ -129,7 +129,7 @@ class GridMask(nn.Module):
         mask = mask[(hh - h) // 2:(hh - h) // 2 + h,
                     (ww - w) // 2:(ww - w) // 2 + w]
 
-        mask = torch.from_numpy(mask).to(x)
+        mask = torch.from_numpy(copy.deepcopy(mask)).to(x)
         if self.mode == 1:
             mask = 1 - mask
         mask = mask.expand_as(x)

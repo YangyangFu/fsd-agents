@@ -6,7 +6,6 @@ import torch.nn as nn
 from mmengine.model import BaseModule, constant_init, xavier_init
 from mmengine.utils import deprecated_api_warning
 
-from mmcv.cnn import xavier_init, constant_init
 from mmcv.cnn.bricks.transformer import TransformerLayerSequence
 from mmcv.ops.multi_scale_deform_attn import MultiScaleDeformableAttnFunction, multi_scale_deformable_attn_pytorch
 
@@ -204,7 +203,8 @@ class BEVMultiScaleDeformableAttention(BaseModule):
         for i in range(self.num_points):
             grid_init[:, :, i, :] *= i + 1
 
-        self.sampling_offsets.bias.data = grid_init.view(-1)
+        self.sampling_offsets.bias.data = grid_init.view(-1).to(
+            self.sampling_offsets.bias.device)
         constant_init(self.attention_weights, val=0., bias=0.)
         xavier_init(self.value_proj, distribution='uniform', bias=0.)
         xavier_init(self.output_proj, distribution='uniform', bias=0.)

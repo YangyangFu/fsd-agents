@@ -182,7 +182,7 @@ class MultiScaleFlipAug3D(object):
             results (dict): Result dict contains the data to augment.
 
         Returns:
-            dict: The result dict contains the data that is augmented with \
+            List(dict): The result dict contains the data that is augmented with \
                 different scales and flips.
         """
         aug_data = []
@@ -216,11 +216,11 @@ class MultiScaleFlipAug3D(object):
                                 data = self.transforms(_results)
                                 aug_data.append(data)
         # list of dict to dict of list
-        aug_data_dict = {key: [] for key in aug_data[0]}
-        for data in aug_data:
-            for key, val in data.items():
-                aug_data_dict[key].append(val)
-        return aug_data_dict
+        #aug_data_dict = {key: [] for key in aug_data[0]}
+        #for data in aug_data:
+        #    for key, val in data.items():
+        #        aug_data_dict[key].append(val)
+        return aug_data
 
     def __repr__(self):
         """str: Return a string that describes the module."""

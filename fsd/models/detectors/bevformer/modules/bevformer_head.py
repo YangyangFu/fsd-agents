@@ -1,13 +1,16 @@
+from typing import Dict, List, Tuple
+
 import copy
 import torch
 import torch.nn as nn
 
+from mmengine.structures import InstanceData
 from mmengine.model import bias_init_with_prob
 from mmengine.utils import digit_version
 TORCH_VERSION = tuple(int(x) for x in torch.__version__.split('.')[:2])
 from mmcv.cnn import Linear
 
-from mmdet.utils import reduce_mean
+from mmdet.utils import reduce_mean, InstanceList
 from mmdet.models.utils import multi_apply
 from mmdet.models.dense_heads import DETRHead
 
@@ -16,6 +19,7 @@ from ..core.bbox.util import normalize_bbox
 from .decoder import inverse_sigmoid
 
 from fsd.registry import HEADS
+from fsd.registry import MODELS 
 
 @HEADS.register_module()
 class BEVFormerHead(DETRHead):
@@ -32,6 +36,11 @@ class BEVFormerHead(DETRHead):
 
     def __init__(self,
                  *args,
+                 num_query,
+                 positional_encoding=dict(
+                     type='SinePositionalEncoding',
+                     num_feats=128,
+                     normalize=True),
                  with_box_refine=False,
                  as_two_stage=False,
                  transformer=None,
@@ -45,9 +54,10 @@ class BEVFormerHead(DETRHead):
         self.bev_h = bev_h
         self.bev_w = bev_w
         self.fp16_enabled = False
-
+        self.num_query = num_query
         self.with_box_refine = with_box_refine
         self.as_two_stage = as_two_stage
+
         if self.as_two_stage:
             transformer['as_two_stage'] = self.as_two_stage
         if 'code_size' in kwargs:
@@ -65,11 +75,31 @@ class BEVFormerHead(DETRHead):
         self.real_w = self.pc_range[3] - self.pc_range[0]
         self.real_h = self.pc_range[4] - self.pc_range[1]
         self.num_cls_fcs = num_cls_fcs - 1
+        
+        # some parameters
+        self.num_layers_decoder = transformer.decoder.num_layers
+        self.embed_dims = transformer.embed_dims
+        
+        # build classification and regression branch
         super(BEVFormerHead, self).__init__(
-            *args, transformer=transformer, **kwargs)
+            *args, **kwargs)
         self.code_weights = nn.Parameter(torch.tensor(
             self.code_weights, requires_grad=False), requires_grad=False)
 
+        # build transformer
+        self.transformer = MODELS.build(transformer)
+        
+        # build bev positional encoding
+        self.positional_encoding = MODELS.build(positional_encoding)
+        #self.embed_dims = transformer.embed_dims
+        assert 'num_feats' in positional_encoding
+        num_feats = positional_encoding['num_feats']
+        assert num_feats * 2 == self.embed_dims, 'embed_dims should' \
+            f' be exactly 2 times of num_feats. Found {self.embed_dims}' \
+            f' and {num_feats}.'
+        
+
+        
     def _init_layers(self):
         """Initialize classification branch and regression branch of head."""
         cls_branch = []
@@ -92,8 +122,8 @@ class BEVFormerHead(DETRHead):
 
         # last reg_branch is used to generate proposal from
         # encode feature map when as_two_stage is True.
-        num_pred = (self.transformer.decoder.num_layers + 1) if \
-            self.as_two_stage else self.transformer.decoder.num_layers
+        num_pred = (self.num_layers_decoder + 1) if \
+            self.as_two_stage else self.num_layers_decoder
 
         if self.with_box_refine:
             self.cls_branches = _get_clones(fc_cls, num_pred)
@@ -216,11 +246,10 @@ class BEVFormerHead(DETRHead):
         return outs
 
     def _get_target_single(self,
-                           cls_score,
-                           bbox_pred,
-                           gt_labels,
-                           gt_bboxes,
-                           gt_bboxes_ignore=None):
+                            cls_score,
+                            bbox_pred,
+                            gt_instances,
+                            img_meta):
         """"Compute regression and classification targets for one image.
         Outputs from a single decoder layer of a single feature level are used.
         Args:
@@ -246,23 +275,31 @@ class BEVFormerHead(DETRHead):
         """
 
         num_bboxes = bbox_pred.size(0)
+        gt_bboxes = gt_instances.bboxes_3d
+        gt_labels = gt_instances.labels_3d
         # assigner and sampler
         gt_c = gt_bboxes.shape[-1]
 
-        assign_result = self.assigner.assign(bbox_pred, cls_score, gt_bboxes,
-                                             gt_labels, gt_bboxes_ignore)
+        pred_instances = InstanceData(scores=cls_score, bboxes_3d=bbox_pred)
+        assign_result = self.assigner.assign(pred_instances=pred_instances,
+                                             gt_instances=gt_instances,
+                                             img_meta=img_meta)
 
-        sampling_result = self.sampler.sample(assign_result, bbox_pred,
-                                              gt_bboxes)
-        pos_inds = sampling_result.pos_inds
-        neg_inds = sampling_result.neg_inds
+        #sampling_result = self.sampler.sample(assign_result, bbox_pred,
+        #                                      gt_bboxes)
+        pos_inds = torch.nonzero(
+            assign_result.gt_inds > 0, as_tuple=False).squeeze(-1).unique()
+        neg_inds = torch.nonzero(
+            assign_result.gt_inds == 0, as_tuple=False).squeeze(-1).unique()
+        pos_assigned_gt_inds = assign_result.gt_inds[pos_inds] - 1
+        pos_gt_bboxes = gt_bboxes[pos_assigned_gt_inds.long(), :]
 
         # label targets
-        labels = gt_bboxes.new_full((num_bboxes,),
+        labels = gt_bboxes.tensor.new_full((num_bboxes,),
                                     self.num_classes,
                                     dtype=torch.long)
-        labels[pos_inds] = gt_labels[sampling_result.pos_assigned_gt_inds]
-        label_weights = gt_bboxes.new_ones(num_bboxes)
+        labels[pos_inds] = gt_labels[pos_assigned_gt_inds]
+        label_weights = gt_bboxes.tensor.new_ones(num_bboxes)
 
         # bbox targets
         bbox_targets = torch.zeros_like(bbox_pred)[..., :gt_c]
@@ -270,16 +307,15 @@ class BEVFormerHead(DETRHead):
         bbox_weights[pos_inds] = 1.0
 
         # DETR
-        bbox_targets[pos_inds] = sampling_result.pos_gt_bboxes
+        bbox_targets[pos_inds] = pos_gt_bboxes.tensor
         return (labels, label_weights, bbox_targets, bbox_weights,
                 pos_inds, neg_inds)
 
     def get_targets(self,
                     cls_scores_list,
                     bbox_preds_list,
-                    gt_bboxes_list,
-                    gt_labels_list,
-                    gt_bboxes_ignore_list=None):
+                    batch_gt_instances: InstanceList,
+                    batch_img_meta: List[Dict]):
         """"Compute regression and classification targets for a batch image.
         Outputs from a single decoder layer of a single feature level are used.
         Args:
@@ -309,17 +345,11 @@ class BEVFormerHead(DETRHead):
                 - num_total_neg (int): Number of negative samples in all \
                     images.
         """
-        assert gt_bboxes_ignore_list is None, \
-            'Only supports for gt_bboxes_ignore setting to None.'
-        num_imgs = len(cls_scores_list)
-        gt_bboxes_ignore_list = [
-            gt_bboxes_ignore_list for _ in range(num_imgs)
-        ]
 
         (labels_list, label_weights_list, bbox_targets_list,
          bbox_weights_list, pos_inds_list, neg_inds_list) = multi_apply(
             self._get_target_single, cls_scores_list, bbox_preds_list,
-            gt_labels_list, gt_bboxes_list, gt_bboxes_ignore_list)
+            batch_gt_instances, batch_img_meta)
         num_total_pos = sum((inds.numel() for inds in pos_inds_list))
         num_total_neg = sum((inds.numel() for inds in neg_inds_list))
         return (labels_list, label_weights_list, bbox_targets_list,
@@ -328,9 +358,8 @@ class BEVFormerHead(DETRHead):
     def loss_single(self,
                     cls_scores,
                     bbox_preds,
-                    gt_bboxes_list,
-                    gt_labels_list,
-                    gt_bboxes_ignore_list=None):
+                    batch_gt_instances: InstanceList,
+                    batch_img_meta: List[Dict]):
         """"Loss function for outputs from a single decoder layer of a single
         feature level.
         Args:
@@ -353,8 +382,8 @@ class BEVFormerHead(DETRHead):
         cls_scores_list = [cls_scores[i] for i in range(num_imgs)]
         bbox_preds_list = [bbox_preds[i] for i in range(num_imgs)]
         cls_reg_targets = self.get_targets(cls_scores_list, bbox_preds_list,
-                                           gt_bboxes_list, gt_labels_list,
-                                           gt_bboxes_ignore_list)
+                                           batch_gt_instances=batch_gt_instances,
+                                           batch_img_meta=batch_img_meta)
         (labels_list, label_weights_list, bbox_targets_list, bbox_weights_list,
          num_total_pos, num_total_neg) = cls_reg_targets
         labels = torch.cat(labels_list, 0)
@@ -396,11 +425,8 @@ class BEVFormerHead(DETRHead):
         return loss_cls, loss_bbox
 
     def loss(self,
-             gt_bboxes_list,
-             gt_labels_list,
              preds_dicts,
-             gt_bboxes_ignore=None,
-             img_metas=None):
+             batch_data_samples):
         """"Loss function.
         Args:
 
@@ -428,45 +454,42 @@ class BEVFormerHead(DETRHead):
         Returns:
             dict[str, Tensor]: A dictionary of loss components.
         """
-        assert gt_bboxes_ignore is None, \
-            f'{self.__class__.__name__} only supports ' \
-            f'for gt_bboxes_ignore setting to None.'
 
+        # extract predictions
         all_cls_scores = preds_dicts['all_cls_scores']
         all_bbox_preds = preds_dicts['all_bbox_preds']
         enc_cls_scores = preds_dicts['enc_cls_scores']
         enc_bbox_preds = preds_dicts['enc_bbox_preds']
 
+        # extract ground truth
+        batch_gt_instances = []
+        batch_img_metas = []
+        for data_sample in batch_data_samples:
+            batch_gt_instances.append(data_sample.gt_instances_3d)
+            batch_img_metas.append(data_sample.metainfo)
+        
         num_dec_layers = len(all_cls_scores)
-        device = gt_labels_list[0].device
 
-        gt_bboxes_list = [torch.cat(
-            (gt_bboxes.gravity_center, gt_bboxes.tensor[:, 3:]),
-            dim=1).to(device) for gt_bboxes in gt_bboxes_list]
+        all_gt_instances = [batch_gt_instances for _ in range(num_dec_layers)]
+        all_img_metas = [batch_img_metas for _ in range(num_dec_layers)]
 
-        all_gt_bboxes_list = [gt_bboxes_list for _ in range(num_dec_layers)]
-        all_gt_labels_list = [gt_labels_list for _ in range(num_dec_layers)]
-        all_gt_bboxes_ignore_list = [
-            gt_bboxes_ignore for _ in range(num_dec_layers)
-        ]
-
+        
         losses_cls, losses_bbox = multi_apply(
             self.loss_single, all_cls_scores, all_bbox_preds,
-            all_gt_bboxes_list, all_gt_labels_list,
-            all_gt_bboxes_ignore_list)
+            all_gt_instances, all_img_metas)
 
         loss_dict = dict()
         # loss of proposal generated from encode feature map.
-        if enc_cls_scores is not None:
-            binary_labels_list = [
-                torch.zeros_like(gt_labels_list[i])
-                for i in range(len(all_gt_labels_list))
-            ]
-            enc_loss_cls, enc_losses_bbox = \
-                self.loss_single(enc_cls_scores, enc_bbox_preds,
-                                 gt_bboxes_list, binary_labels_list, gt_bboxes_ignore)
-            loss_dict['enc_loss_cls'] = enc_loss_cls
-            loss_dict['enc_loss_bbox'] = enc_losses_bbox
+        #if enc_cls_scores is not None:
+        #    binary_labels_list = [
+        #        torch.zeros_like(gt_labels_list[i])
+        #        for i in range(len(all_gt_labels_list))
+        #    ]
+        #    enc_loss_cls, enc_losses_bbox = \
+        #        self.loss_single(enc_cls_scores, enc_bbox_preds,
+        #                         gt_bboxes_list, binary_labels_list, gt_bboxes_ignore)
+        #    loss_dict['enc_loss_cls'] = enc_loss_cls
+        #    loss_dict['enc_loss_bbox'] = enc_losses_bbox
 
         # loss from the last decoder layer
         loss_dict['loss_cls'] = losses_cls[-1]
@@ -484,10 +507,10 @@ class BEVFormerHead(DETRHead):
     def get_bboxes(self, preds_dicts, img_metas, rescale=False):
         """Generate bboxes from bbox head predictions.
         Args:
-            preds_dicts (tuple[list[dict]]): Prediction results.
-            img_metas (list[dict]): Point cloud and image's meta info.
+            preds_dicts (list[dict]): Prediction results.
+            img_metas (dict): Point cloud and image's meta info.
         Returns:
-            list[dict]: Decoded bbox, scores and labels after nms.
+            list[list]: Decoded bbox, scores and labels after nms.
         """
 
         preds_dicts = self.bbox_coder.decode(preds_dicts)
@@ -501,7 +524,7 @@ class BEVFormerHead(DETRHead):
             bboxes[:, 2] = bboxes[:, 2] - bboxes[:, 5] * 0.5
 
             code_size = bboxes.shape[-1]
-            bboxes = img_metas[i]['box_type_3d'](bboxes, code_size)
+            bboxes = img_metas['box_type_3d'][i](bboxes, code_size)
             scores = preds['scores']
             labels = preds['labels']
 

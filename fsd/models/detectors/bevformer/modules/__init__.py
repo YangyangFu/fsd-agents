@@ -3,4 +3,4 @@ from .spatial_cross_attention import SpatialCrossAttention, MultiScaleDeformable
 from .temporal_self_attention import TemporalSelfAttention
 from .encoder import BEVFormerEncoder, BEVFormerLayer
 from .decoder import DetectionTransformerDecoder
-
+from .bevformer_head import BEVFormerHead

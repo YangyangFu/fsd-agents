@@ -171,3 +171,6 @@ data-mini/*
 # ignore model checkpoints
 *.pth.tar
 *.pth
+
+# ignore evaluation results
+eval
