@@ -3,7 +3,7 @@
 # ---------------------------------------------
 #  Modified by Yangyang Fu
 # ---------------------------------------------
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union, Optional
 import torch
 import copy
 from mmengine.structures import InstanceData
@@ -17,28 +17,42 @@ from fsd.registry import MODELS
 
 @MODELS.register_module()
 class BEVFormer(MVXTwoStageDetector):
-    """BEVFormer.
-    Args:
-        video_test_mode (bool): Decide whether to use temporal information during inference.
-    """
+    """BEVFormer."""
 
     def __init__(self,
-                 use_grid_mask=False,
-                 pts_voxel_encoder=None,
-                 pts_middle_encoder=None,
-                 pts_fusion_layer=None,
-                 img_backbone=None,
-                 pts_backbone=None,
-                 img_neck=None,
-                 pts_neck=None,
-                 pts_bbox_head=None,
-                 img_roi_head=None,
-                 img_rpn_head=None,
-                 train_cfg=None,
-                 test_cfg=None,
-                 video_test_mode=False
-                 ):
+                 use_grid_mask: bool = False,
+                 pts_voxel_encoder: Optional[Dict] = None,
+                 pts_middle_encoder: Optional[Dict] = None,
+                 pts_fusion_layer: Optional[Dict] = None,
+                 img_backbone: Optional[Dict] = None,
+                 pts_backbone: Optional[Dict] = None,
+                 img_neck: Optional[Dict] = None,
+                 pts_neck: Optional[Dict] = None,
+                 pts_bbox_head: Optional[Dict] = None,
+                 img_roi_head: Optional[Dict] = None,
+                 img_rpn_head: Optional[Dict] = None,
+                 train_cfg: Optional[Dict] = None,
+                 test_cfg: Optional[Dict] = None,
+                 video_test_mode: bool = False
+                 ) -> None:
+        """Initialize BEVFormer.
 
+        Args:
+            use_grid_mask (bool): Whether to use grid mask augmentation.
+            pts_voxel_encoder (dict, optional): Config for point cloud voxel encoder.
+            pts_middle_encoder (dict, optional): Config for point cloud middle encoder.
+            pts_fusion_layer (dict, optional): Config for point cloud fusion layer.
+            img_backbone (dict, optional): Config for image backbone.
+            pts_backbone (dict, optional): Config for point cloud backbone.
+            img_neck (dict, optional): Config for image neck.
+            pts_neck (dict, optional): Config for point cloud neck.
+            pts_bbox_head (dict, optional): Config for point cloud bounding box head.
+            img_roi_head (dict, optional): Config for image ROI head.
+            img_rpn_head (dict, optional): Config for image RPN head.
+            train_cfg (dict, optional): Training configuration.
+            test_cfg (dict, optional): Testing configuration.
+            video_test_mode (bool): Whether to use temporal information during inference.
+        """
         super(BEVFormer,
               self).__init__(pts_voxel_encoder,
                              pts_middle_encoder, pts_fusion_layer,
@@ -62,16 +76,15 @@ class BEVFormer(MVXTwoStageDetector):
 
     def extract_img_feat(self, 
                          img: torch.Tensor, 
-                         len_queue: int=None) -> List[torch.Tensor]:
+                         len_queue: Optional[int] = None) -> List[torch.Tensor]:
         """Extract features of images.
-        
+
         Args:
             img (torch.Tensor): Image tensor with shape (B, N, C, H, W).
-            img_metas (dict): Meta information of each sample.
-            len_queue (int): The length of the queue. Defaults to None.
-        
+            len_queue (int, optional): The length of the queue. Defaults to None.
+
         Returns:
-            list[torch.Tensor]: Extracted features of images
+            List[torch.Tensor]: Extracted features of images, reshaped based on `len_queue`.
         """
         B = img.size(0)
         if img is not None:
@@ -107,16 +120,16 @@ class BEVFormer(MVXTwoStageDetector):
         return img_feats_reshaped
 
     def extract_feat(self,
-                    img: torch.Tensor, 
-                    len_queue: int=None) -> List[torch.Tensor]:
+                     img: torch.Tensor, 
+                     len_queue: Optional[int] = None) -> List[torch.Tensor]:
         """Extract features of images.
-        
+
         Args:
             img (torch.Tensor): Image tensor with shape (B, N, C, H, W).
-            len_queue (int): The length of the queue. Defaults to None.
-        
+            len_queue (int, optional): The length of the queue. Defaults to None.
+
         Returns:
-            list[torch.Tensor]: Extracted features of images
+            List[torch.Tensor]: Extracted features of images.
         """
 
         img_feats = self.extract_img_feat(img, len_queue=len_queue)
@@ -125,23 +138,20 @@ class BEVFormer(MVXTwoStageDetector):
 
 
     def forward_pts_train(self,
-                          pts_feats,
-                          data_samples,
-                          img_metas,
-                          prev_bev=None):
-        """Forward function'
+                          pts_feats: List[torch.Tensor],
+                          data_samples: List[Dict],
+                          img_metas: List[Dict],
+                          prev_bev: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
+        """Forward function for training the point cloud branch.
+
         Args:
-            pts_feats (list[torch.Tensor]): Features of point cloud branch
-            gt_bboxes_3d (list[:obj:`BaseInstance3DBoxes`]): Ground truth
-                boxes for each sample.
-            gt_labels_3d (list[torch.Tensor]): Ground truth labels for
-                boxes of each sampole
-            img_metas (list[dict]): Meta information of samples.
-            gt_bboxes_ignore (list[torch.Tensor], optional): Ground truth
-                boxes to be ignored. Defaults to None.
-            prev_bev (torch.Tensor, optional): BEV features of previous frame.
+            pts_feats (List[torch.Tensor]): Features of the point cloud branch.
+            data_samples (List[Dict]): Ground truth data samples.
+            img_metas (List[Dict]): Meta information of samples.
+            prev_bev (torch.Tensor, optional): BEV features of the previous frame. Defaults to None.
+
         Returns:
-            dict: Losses of each branch.
+            Dict[str, torch.Tensor]: Losses of each branch.
         """
 
         outs = self.pts_bbox_head(
@@ -154,54 +164,39 @@ class BEVFormer(MVXTwoStageDetector):
         dummy_metas = None
         return self.forward_test(img=img, img_metas=[[dummy_metas]])
 
-    def forward(self, inputs, 
-                data_samples, 
-                mode:str = 'loss', 
-                **kwargs,):
-        """The unified entry for a forward process in both training and test.
-
-        The method should accept three modes: "tensor", "predict" and "loss":
-
-        - "tensor": Forward the whole network and return tensor or tuple of
-        tensor without any post-processing, same as a common nn.Module.
-        - "predict": Forward and return the predictions, which are fully
-        processed to a list of :obj:`Det3DDataSample`.
-        - "loss": Forward and return a dict of losses according to the given
-        inputs and data samples.
-
-        Note that this method doesn't handle neither back propagation nor
-        optimizer updating, which are done in the :meth:`train_step`.
+    def forward(self, 
+                inputs: Dict[str, Union[torch.Tensor, List[torch.Tensor]]], 
+                data_samples: List[Dict], 
+                mode: str = 'loss', 
+                **kwargs) -> Union[torch.Tensor, Dict, List[Dict]]:
+        """Unified entry for forward process in both training and testing.
 
         Args:
-            inputs  (dict | list[dict]): When it is a list[dict], the
-                outer list indicate the test time augmentation. Each
-                dict contains batch inputs
-                which include 'points' and 'img' keys.
-
-                - points (list[torch.Tensor]): Point cloud of each sample.
-                - img (torch.Tensor): Image tensor has shape (B, C, H, W) or 
-                    (B, N, C, H, W).
-            data_samples (dict): The
-                annotation data of every samples. When it is a list[list], the
-                outer list indicate the test time augmentation, and the
-                inter list indicate the batch. Otherwise, the list simply
-                indicate the batch. Defaults to None.
-            mode (str): Return what kind of value. Defaults to 'tensor'.
+            inputs (Dict): Input data containing 'points' and 'img'.
+                - points (List[torch.Tensor]): Point cloud of each sample.
+                - img (torch.Tensor): Image tensor with shape (B, C, H, W) or (B, N, C, H, W).
+            data_samples (List[Dict]): Annotation data of each sample.
+            mode (str): Mode of operation ('loss', 'predict', or 'tensor'). Defaults to 'loss'.
 
         Returns:
-            The return type depends on ``mode``.
-
-            - If ``mode="tensor"``, return a tensor or a tuple of tensor.
-            - If ``mode="predict"``, return a dict of predictions.
-            - If ``mode="loss"``, return a dict of tensor.
+            Union[torch.Tensor, Dict, List[Dict]]: Output depends on the mode.
         """
         if mode == "loss":
             return self.forward_train(inputs, data_samples, **kwargs)
         else:
             return self.forward_test(inputs, data_samples, **kwargs)
     
-    def obtain_history_bev(self, imgs_queue, img_metas):
-        """Obtain history BEV features iteratively. To save GPU memory, gradients are not calculated.
+    def obtain_history_bev(self, 
+                           imgs_queue: torch.Tensor, 
+                           img_metas: List[Dict]) -> torch.Tensor:
+        """Obtain history BEV features iteratively.
+
+        Args:
+            imgs_queue (torch.Tensor): Image queue with shape (B, L, N, C, H, W).
+            img_metas (List[Dict]): Meta information of each sample.
+
+        Returns:
+            torch.Tensor: History BEV features.
         """
         self.eval()
 
@@ -220,32 +215,19 @@ class BEVFormer(MVXTwoStageDetector):
             return prev_bev
 
     def forward_train(self,
-                      inputs, 
-                      data_samples,
-                      **kwargs
-                      ):
-        """Forward training function.
+                      inputs: Dict[str, Union[torch.Tensor, List[torch.Tensor]]], 
+                      data_samples: List[Dict],
+                      **kwargs) -> Dict[str, torch.Tensor]:
+        """Forward function for training.
+
         Args:
-            points (list[torch.Tensor], optional): Points of each sample.
-                Defaults to None.
-            img_metas (list[dict], optional): Meta information of each sample.
-                Defaults to None.
-            gt_bboxes_3d (list[:obj:`BaseInstance3DBoxes`], optional):
-                Ground truth 3D boxes. Defaults to None.
-            gt_labels_3d (list[torch.Tensor], optional): Ground truth labels
-                of 3D boxes. Defaults to None.
-            gt_labels (list[torch.Tensor], optional): Ground truth labels
-                of 2D boxes in images. Defaults to None.
-            gt_bboxes (list[torch.Tensor], optional): Ground truth 2D boxes in
-                images. Defaults to None.
-            img (torch.Tensor optional): Images of each sample with shape
-                (N, C, H, W). Defaults to None.
-            proposals ([list[torch.Tensor], optional): Predicted proposals
-                used for training Fast RCNN. Defaults to None.
-            gt_bboxes_ignore (list[torch.Tensor], optional): Ground truth
-                2D boxes in images to be ignored. Defaults to None.
+            inputs (Dict): Input data containing 'points' and 'img'.
+                - points (List[torch.Tensor]): Point cloud of each sample.
+                - img (torch.Tensor): Image tensor with shape (B, C, H, W) or (B, N, C, H, W).
+            data_samples (List[Dict]): Ground truth data samples.
+
         Returns:
-            dict: Losses of different branches.
+            Dict[str, torch.Tensor]: Losses of different branches.
         """
         # get inputs
         device = inputs['img'][0].device
@@ -274,8 +256,21 @@ class BEVFormer(MVXTwoStageDetector):
         losses.update(losses_pts)
         return losses
 
-    def forward_test(self, inputs, data_samples, **kwargs):
+    def forward_test(self, 
+                     inputs: Dict[str, Union[torch.Tensor, List[torch.Tensor]]], 
+                     data_samples: List[Dict], 
+                     **kwargs) -> List[Dict]:
+        """Forward function for testing.
 
+        Args:
+            inputs (Dict): Input data containing 'points' and 'img'.
+                - points (List[torch.Tensor]): Point cloud of each sample.
+                - img (torch.Tensor): Image tensor with shape (B, C, H, W) or (B, N, C, H, W).
+            data_samples (List[Dict]): Annotation data of each sample.
+
+        Returns:
+            List[Dict]: Predictions for each sample.
+        """
         img = inputs['img']
         device = img[0].device
         img = torch.stack(img, dim=0).to(device)
@@ -327,8 +322,22 @@ class BEVFormer(MVXTwoStageDetector):
         
         return data_samples
 
-    def simple_test_pts(self, x, img_metas, prev_bev=None, rescale=False):
-        """Test function"""
+    def simple_test_pts(self, 
+                        x: List[torch.Tensor], 
+                        img_metas: List[Dict], 
+                        prev_bev: Optional[torch.Tensor] = None, 
+                        rescale: bool = False) -> Tuple[torch.Tensor, List[Dict]]:
+        """Test function for point cloud branch.
+
+        Args:
+            x (List[torch.Tensor]): Extracted features.
+            img_metas (List[Dict]): Meta information of samples.
+            prev_bev (torch.Tensor, optional): BEV features of the previous frame. Defaults to None.
+            rescale (bool): Whether to rescale the results. Defaults to False.
+
+        Returns:
+            Tuple[torch.Tensor, List[Dict]]: BEV embeddings and bounding box results.
+        """
         outs = self.pts_bbox_head(x, img_metas, prev_bev=prev_bev)
 
         bbox_list = self.pts_bbox_head.get_bboxes(
@@ -339,8 +348,22 @@ class BEVFormer(MVXTwoStageDetector):
         ]
         return outs['bev_embed'], bbox_results
 
-    def simple_test(self, img_metas, img=None, prev_bev=None, rescale=False):
-        """Test function without augmentaiton."""
+    def simple_test(self, 
+                    img_metas: List[Dict], 
+                    img: Optional[torch.Tensor] = None, 
+                    prev_bev: Optional[torch.Tensor] = None, 
+                    rescale: bool = False) -> Tuple[torch.Tensor, List[Dict]]:
+        """Test function without augmentation.
+
+        Args:
+            img_metas (List[Dict]): Meta information of samples.
+            img (torch.Tensor, optional): Image tensor with shape (B, C, H, W) or (B, N, C, H, W). Defaults to None.
+            prev_bev (torch.Tensor, optional): BEV features of the previous frame. Defaults to None.
+            rescale (bool): Whether to rescale the results. Defaults to False.
+
+        Returns:
+            Tuple[torch.Tensor, List[Dict]]: BEV embeddings and bounding box results.
+        """
         img_feats = self.extract_feat(img=img)
         new_prev_bev, bbox_pts = self.simple_test_pts(
             img_feats, img_metas, prev_bev, rescale=rescale)

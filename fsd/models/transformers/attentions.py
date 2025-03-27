@@ -1,6 +1,6 @@
 import warnings
 import math
-from typing import Optional, no_type_check
+from typing import Optional, no_type_check, Dict, Any, List, Tuple, Union
 import torch
 import torch.nn as nn 
 
@@ -19,31 +19,41 @@ MODELS.register_module(module=MultiheadAttention, name='MultiheadAttention')
 
 @MODELS.register_module()
 class SpatialCrossAttention(BaseModule):
-    """An attention module used in BEVFormer.
+    """An attention module used in BEVFormer for spatial cross attention.
+    
+    This module enables interaction between BEV queries and multi-camera image features.
+    
     Args:
         embed_dims (int): The embedding dimension of Attention.
             Default: 256.
-        num_cams (int): The number of cameras
+        num_cams (int): The number of cameras.
+            Default: 6.
+        pc_range (List[float], optional): The point cloud range used for 
+            projection. Default: None.
         dropout (float): A Dropout layer on `inp_residual`.
-            Default: 0..
-        init_cfg (obj:`mmcv.ConfigDict`): The Config for initialization.
+            Default: 0.1.
+        init_cfg (Dict, optional): The Config for initialization.
             Default: None.
-        deformable_attention: (dict): The config for the deformable attention used in SCA.
+        batch_first (bool): Whether the input is batch first.
+            Default: False.
+        deformable_attention (Dict): The config for the deformable attention 
+            used in SCA. Default: dict(type='MultiScaleDeformableAttention3D',
+            embed_dims=256, num_levels=4).
     """
 
     def __init__(self,
-                 embed_dims=256,
-                 num_cams=6,
-                 pc_range=None,
-                 dropout=0.1,
-                 init_cfg=None,
-                 batch_first=False,
-                 deformable_attention=dict(
+                 embed_dims: int = 256,
+                 num_cams: int = 6,
+                 pc_range: Optional[List[float]] = None,
+                 dropout: float = 0.1,
+                 init_cfg: Optional[Dict] = None,
+                 batch_first: bool = False,
+                 deformable_attention: Dict = dict(
                      type='MultiScaleDeformableAttention3D',
                      embed_dims=256,
                      num_levels=4),
-                 **kwargs
-                 ):
+                 **kwargs: Any
+                 ) -> None:
         super(SpatialCrossAttention, self).__init__(init_cfg)
 
         self.init_cfg = init_cfg
@@ -56,54 +66,55 @@ class SpatialCrossAttention(BaseModule):
         self.batch_first = batch_first
         self.init_weight()
 
-    def init_weight(self):
-        """Default initialization for Parameters of Module."""
+    def init_weight(self) -> None:
+        """Initialize the weights of the linear layers."""
         xavier_init(self.output_proj, distribution='uniform', bias=0.)
     
-
     def forward(self,
-                query,
-                key,
-                value,
-                residual=None,
-                query_pos=None,
-                key_padding_mask=None,
-                reference_points=None,
-                spatial_shapes=None,
-                bev_mask=None,
-                level_start_index=None,
-                flag='encoder',
-                **kwargs):
-        """Forward Function of Detr3DCrossAtten.
+                query: torch.Tensor,
+                key: Optional[torch.Tensor],
+                value: Optional[torch.Tensor],
+                residual: Optional[torch.Tensor] = None,
+                query_pos: Optional[torch.Tensor] = None,
+                key_padding_mask: Optional[torch.Tensor] = None,
+                reference_points: Optional[torch.Tensor] = None,
+                spatial_shapes: Optional[torch.Tensor] = None,
+                bev_mask: Optional[torch.Tensor] = None,
+                level_start_index: Optional[torch.Tensor] = None,
+                flag: str = 'encoder',
+                **kwargs: Any) -> torch.Tensor:
+        """Forward function for SpatialCrossAttention.
+        
         Args:
-            query (Tensor): Query of Transformer with shape
+            query (Tensor): Query of Transformer with shape 
                 (bs, num_query, embed_dims).
-            key (Tensor): The key tensor with shape
-                `(num_cams, num_key, bs, embed_dim)`.
-            value (Tensor): The value tensor with shape
-                `(num_cams, num_key, bs, embed_dim)'
-            residual (Tensor): The tensor used for addition, with the
-                same shape as `x`. Default None. If None, `x` will be used.
-            query_pos (Tensor): The positional encoding for `query`.
+            key (Tensor, optional): The key tensor with shape 
+                (num_cams, num_key, bs, embed_dims).
+            value (Tensor, optional): The value tensor with shape 
+                (num_cams, num_key, bs, embed_dims).
+            residual (Tensor, optional): The tensor used for addition, with the
+                same shape as `query`. If None, `query` will be used. 
                 Default: None.
-            key_pos (Tensor): The positional encoding for  `key`. Default
-                None.
-            reference_points (Tensor): The normalized reference points
+            query_pos (Tensor, optional): The positional encoding for `query`,
+                with the same shape as `query`. Default: None.
+            key_padding_mask (Tensor, optional): ByteTensor for `query`, with
+                shape [bs, num_key]. Default: None.
+            reference_points (Tensor, optional): The normalized reference points
                 with shape (num_cams, bs, num_query, num_levels, 2).
+                Default: None.
+            spatial_shapes (Tensor, optional): Spatial shapes of features in
+                different levels. With shape (num_levels, 2), last dimension
+                represents (h, w). Default: None.
+            bev_mask (Tensor, optional): Mask for BEV queries, with shape
+                [bs, num_query]. Default: None.
+            level_start_index (Tensor, optional): The start index of each level.
+                A tensor with shape (num_levels, ) and can be represented
+                as [0, h_0*w_0, h_0*w_0+h_1*w_1, ...]. Default: None.
+            flag (str): Flag for the type of attention. Default: 'encoder'.
                 
-            key_padding_mask (Tensor): ByteTensor for `query`, with
-                shape [bs, num_key].
-            spatial_shapes (Tensor): Spatial shape of features in
-                different level. With shape  (num_levels, 2),
-                last dimension represent (h, w).
-            
-            level_start_index (Tensor): The start index of each level.
-                A tensor has shape (num_levels) and can be represented
-                as [0, h_0*w_0, h_0*w_0+h_1*w_1, ...].
         Returns:
-             Tensor: forwarded results with shape [num_query, bs, embed_dims].
+            Tensor: Attention output with shape [bs, num_query, embed_dims].
         """
-
         if key is None:
             key = query
         if value is None:
