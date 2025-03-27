@@ -62,7 +62,6 @@ class BEVFormer(MVXTwoStageDetector):
 
     def extract_img_feat(self, 
                          img: torch.Tensor, 
-                         img_metas: Dict, 
                          len_queue: int=None) -> List[torch.Tensor]:
         """Extract features of images.
         
@@ -109,20 +108,18 @@ class BEVFormer(MVXTwoStageDetector):
 
     def extract_feat(self,
                     img: torch.Tensor, 
-                    img_metas: Dict, 
                     len_queue: int=None) -> List[torch.Tensor]:
         """Extract features of images.
         
         Args:
             img (torch.Tensor): Image tensor with shape (B, N, C, H, W).
-            img_metas (dict): Meta information of each sample.
             len_queue (int): The length of the queue. Defaults to None.
         
         Returns:
             list[torch.Tensor]: Extracted features of images
         """
 
-        img_feats = self.extract_img_feat(img, img_metas, len_queue=len_queue)
+        img_feats = self.extract_img_feat(img, len_queue=len_queue)
         
         return img_feats
 
@@ -266,7 +263,7 @@ class BEVFormer(MVXTwoStageDetector):
 
         # current image
         curr_img_metas = img_metas[len_queue-1]
-        img_feats = self.extract_feat(img=img, img_metas=curr_img_metas)
+        img_feats = self.extract_feat(img=img)
         
         # loss
         losses = dict()
@@ -344,7 +341,7 @@ class BEVFormer(MVXTwoStageDetector):
 
     def simple_test(self, img_metas, img=None, prev_bev=None, rescale=False):
         """Test function without augmentaiton."""
-        img_feats = self.extract_feat(img=img, img_metas=img_metas)
+        img_feats = self.extract_feat(img=img)
         new_prev_bev, bbox_pts = self.simple_test_pts(
             img_feats, img_metas, prev_bev, rescale=rescale)
 

@@ -8,7 +8,7 @@
 
 
 _base_ = [
-    '../datasets/custom_nus-3d.py',
+    '../datasets/bevformer_nus_3d.py',
     '../_base_/default_runtime.py'
 ]
 #
@@ -73,7 +73,8 @@ model = dict(
         frozen_stages=1,
         norm_cfg=dict(type='BN', requires_grad=False),
         norm_eval=True,
-        style='pytorch'),
+        style='pytorch',
+        init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50')),
     img_neck=dict(
         type='FPN',
         _scope_="mmdet",

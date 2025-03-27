@@ -11,7 +11,7 @@ def seed():
     seed_everything(2024)
     
 
-cfgs = ['fsd/configs/bevformer/bevformer_base.py']
+cfgs = ['fsd/configs/bevformer/bevformer_tiny.py']
 @pytest.mark.parametrize('cfg', cfgs)
 def test_bevformer(cfg):
     # scope
@@ -23,11 +23,11 @@ def test_bevformer(cfg):
     # forward pass
     #outputs = model(sample)
     runner = RUNNERS.build(cfg)
-    #runner.train()
-    runner.test()    
+    runner.train()
+    #runner.test()    
     
 
-#test_bevformer(cfgs[0])
-pytest.main(['-s', 'tests/models/detectors/test_bevformer.py'])    
+test_bevformer(cfgs[0])
+#pytest.main(['-s', 'tests/models/detectors/test_bevformer.py'])    
     
 
