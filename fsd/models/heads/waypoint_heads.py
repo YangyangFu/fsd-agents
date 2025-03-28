@@ -1,2 +1,0 @@
-""" Waypoint prediction heads
-"""

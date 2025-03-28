@@ -17,8 +17,6 @@ from .transforms_3d import (RandomDropPointsColor, RandomFlip3D, RandomJitterPoi
                             ObjectNameFilter, ObjectRangeFilter
                             )
 
-from .occflow_label import GenerateOccFlowLabels
-
 # __all__ = [
 #     'Compose', 'to_tensor', 'ToTensor', 'ImageToTensor', 'ToDataContainer',
 #     'Transpose', 'Collect', 'DefaultFormatBundle', 'LoadAnnotations',

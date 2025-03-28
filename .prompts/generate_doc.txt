@@ -1,0 +1,1 @@
+can you help add type hints and documetation to the code? If the arguments take the fromat of array or tensor, please also document their shapes by inferring from the code.
