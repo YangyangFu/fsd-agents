@@ -1,4 +1,3 @@
-from . import agents
 from . import configs 
 from . import models
 from . import datasets 
@@ -7,3 +6,4 @@ from . import runner
 from . import structures
 from . import visualization
 from . import utils
+from . import agents
