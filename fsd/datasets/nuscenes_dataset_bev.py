@@ -1,3 +1,6 @@
+"""Nuscenes Dataset for 3D object detection used by BEVFormer.
+"""
+
 import copy
 import logging
 import random

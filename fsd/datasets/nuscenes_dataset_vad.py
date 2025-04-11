@@ -1093,21 +1093,19 @@ class NuScenesDatasetVAD(NuScenesDataset):
                   'gt_bboxes_3d': stack=False, cpu_only=True
         '''
         # import pdb;pdb.set_trace()
-        lidar2ego = np.eye(4)
-        lidar2ego[:3,:3] = Quaternion(input_dict['lidar2ego_rotation']).rotation_matrix
-        lidar2ego[:3, 3] = input_dict['lidar2ego_translation']
-        ego2global = np.eye(4)
-        ego2global[:3,:3] = Quaternion(input_dict['ego2global_rotation']).rotation_matrix
-        ego2global[:3, 3] = input_dict['ego2global_translation']
+        #lidar2ego = np.eye(4)
+        #lidar2ego[:3,:3] = Quaternion(input_dict['lidar2ego_rotation']).rotation_matrix
+        #lidar2ego[:3, 3] = input_dict['lidar2ego_translation']
+        #ego2global = np.eye(4)
+        #ego2global[:3,:3] = Quaternion(input_dict['ego2global_rotation']).rotation_matrix
+        #ego2global[:3, 3] = input_dict['ego2global_translation']
 
-        lidar2global = ego2global @ lidar2ego
-
+        #lidar2global = ego2global @ lidar2ego
+        lidar2global = input_dict['lidar2global']
         lidar2global_translation = list(lidar2global[:3,3])
-        lidar2global_rotation = list(Quaternion(matrix=lidar2global).q)
+        lidar2global_rotation = list(Quaternion(matrix=lidar2global, atol=1e-06).q)
 
         location = input_dict['map_location']
-        ego2global_translation = input_dict['ego2global_translation']
-        ego2global_rotation = input_dict['ego2global_rotation']
         anns_results = self.vector_map.gen_vectorized_samples(
             location, lidar2global_translation, lidar2global_rotation
         )
@@ -1130,8 +1128,8 @@ class NuScenesDatasetVAD(NuScenesDataset):
                 # but we preserve it for test
                 gt_vecs_pts_loc = gt_vecs_pts_loc
 
-        example['map_gt_labels_3d'] = DC(gt_vecs_label, cpu_only=False)
-        example['map_gt_bboxes_3d'] = DC(gt_vecs_pts_loc, cpu_only=True)
+        example['map_gt_labels_3d'] = gt_vecs_label
+        example['map_gt_bboxes_3d'] = gt_vecs_pts_loc
 
         return example
 
@@ -1186,8 +1184,8 @@ class NuScenesDatasetVAD(NuScenesDataset):
         example = self.pipeline(input_dict)
         example = self.vectormap_pipeline(example,input_dict)
         if self.filter_empty_gt and \
-                ((example is None or ~(example['gt_labels_3d']._data != -1).any()) or \
-                    (example is None or ~(example['map_gt_labels_3d']._data != -1).any())):
+                ((example is None or ~(example['gt_labels_3d'] != -1).any()) or \
+                    (example is None or ~(example['map_gt_labels_3d'] != -1).any())):
             return None
         data_queue.insert(0, example)
         for i in prev_indexs_list:
@@ -1200,8 +1198,8 @@ class NuScenesDatasetVAD(NuScenesDataset):
                 example = self.pipeline(input_dict)
                 example = self.vectormap_pipeline(example,input_dict)
                 if self.filter_empty_gt and \
-                        (example is None or ~(example['gt_labels_3d']._data != -1).any()) and \
-                            (example is None or ~(example['map_gt_labels_3d']._data != -1).any()):
+                        (example is None or ~(example['gt_labels_3d'] != -1).any()) and \
+                            (example is None or ~(example['map_gt_labels_3d'] != -1).any()):
                     return None
                 frame_idx = input_dict['frame_idx']
             data_queue.insert(0, copy.deepcopy(example))
@@ -1232,7 +1230,7 @@ class NuScenesDatasetVAD(NuScenesDataset):
         prev_pos = None
         prev_angle = None
         for i, each in enumerate(queue):
-            metas_map[i] = each['img_metas'].data
+            metas_map[i] = each['img_metas']
             if i == 0:
                 metas_map[i]['prev_bev'] = False
                 prev_pos = copy.deepcopy(metas_map[i]['can_bus'][:3])
@@ -1253,7 +1251,7 @@ class NuScenesDatasetVAD(NuScenesDataset):
         queue = queue[-1]
         return queue
 
-    def get_ann_info(self, index):
+    def get_ann_info(self, info):
         """Get annotation info according to the given index.
 
         Args:
@@ -1267,52 +1265,36 @@ class NuScenesDatasetVAD(NuScenesDataset):
                 - gt_labels_3d (np.ndarray): Labels of ground truths.
                 - gt_names (list[str]): Class names of ground truths.
         """
-        info = self.data_infos[index]
+        #info = self.data_list[index]
         # filter out bbox containing no points
         if self.use_valid_flag:
-            mask = info['valid_flag']
+            mask = info['vad']['valid_flag']
         else:
             mask = info['num_lidar_pts'] > 0
-        gt_bboxes_3d = info['gt_boxes'][mask]
-        gt_names_3d = info['gt_names'][mask]
-        gt_labels_3d = []
-        for cat in gt_names_3d:
-            if cat in self.CLASSES:
-                gt_labels_3d.append(self.CLASSES.index(cat))
-            else:
-                gt_labels_3d.append(-1)
-        gt_labels_3d = np.array(gt_labels_3d)
-
-        if self.with_velocity:
-            gt_velocity = info['gt_velocity'][mask]
-            nan_mask = np.isnan(gt_velocity[:, 0])
-            gt_velocity[nan_mask] = [0.0, 0.0]
-            gt_bboxes_3d = np.concatenate([gt_bboxes_3d, gt_velocity], axis=-1)
+        
+        anno = info['ann_info']
         
         if self.with_attr:
-            gt_fut_trajs = info['gt_agent_fut_trajs'][mask]
-            gt_fut_masks = info['gt_agent_fut_masks'][mask]
-            gt_fut_goal = info['gt_agent_fut_goal'][mask]
-            gt_lcf_feat = info['gt_agent_lcf_feat'][mask]
-            gt_fut_yaw = info['gt_agent_fut_yaw'][mask]
+            gt_fut_trajs = info['vad']['gt_agent_fut_trajs'][mask]
+            gt_fut_masks = info['vad']['gt_agent_fut_masks'][mask]
+            gt_fut_goal = info['vad']['gt_agent_fut_goal'][mask]
+            gt_lcf_feat = info['vad']['gt_agent_lcf_feat'][mask]
+            gt_fut_yaw = info['vad']['gt_agent_fut_yaw'][mask]
             attr_labels = np.concatenate(
                 [gt_fut_trajs, gt_fut_masks, gt_fut_goal[..., None], gt_lcf_feat, gt_fut_yaw], axis=-1
             ).astype(np.float32)
 
         # the nuscenes box center is [0.5, 0.5, 0.5], we change it to be
         # the same as KITTI (0.5, 0.5, 0)
-        gt_bboxes_3d = LiDARInstance3DBoxes(
-            gt_bboxes_3d,
-            box_dim=gt_bboxes_3d.shape[-1],
-            origin=(0.5, 0.5, 0.5)).convert_to(self.box_mode_3d)
+        #gt_bboxes_3d = LiDARInstance3DBoxes(
+        #    gt_bboxes_3d,
+        #    box_dim=gt_bboxes_3d.shape[-1],
+        #    origin=(0.5, 0.5, 0.5)).convert_to(self.box_mode_3d)
         
-        anns_results = dict(
-            gt_bboxes_3d=gt_bboxes_3d,
-            gt_labels_3d=gt_labels_3d,
-            gt_names=gt_names_3d,
+        anno.update(
             attr_labels=attr_labels)
 
-        return anns_results
+        return anno
 
     def get_data_info(self, index):
         """Get data info according to the given index.
@@ -1345,69 +1327,51 @@ class NuScenesDatasetVAD(NuScenesDataset):
             
         # standard protocal modified from SECOND.Pytorch
         input_dict = dict(
-            sample_idx=info['token'],
-            pts_filename=info['lidar_path'],
-            sweeps=info['sweeps'],
-            ego2global_translation=info['ego2global_translation'],
-            ego2global_rotation=info['ego2global_rotation'],
-            lidar2ego_translation=info['lidar2ego_translation'],
-            lidar2ego_rotation=info['lidar2ego_rotation'],
-            prev_idx=info['prev'],
-            next_idx=info['next'],
-            scene_token=info['scene_token'],
-            can_bus=info['can_bus'],
-            frame_idx=info['frame_idx'],
-            timestamp=info['timestamp'] / 1e6,
-            fut_valid_flag=info['fut_valid_flag'],
-            map_location=info['map_location'],
-            ego_his_trajs=info['gt_ego_his_trajs'],
-            ego_fut_trajs=info['gt_ego_fut_trajs'],
-            ego_fut_masks=info['gt_ego_fut_masks'],
-            ego_fut_cmd=info['gt_ego_fut_cmd'],
-            ego_lcf_feat=info['gt_ego_lcf_feat']
+            sample_token=info['token'],
+            sample_idx=info['sample_idx'],
+            frame_idx=info['vad']['frame_idx'],
+            timestamp=info['timestamp'],
+            pts_filename=info['lidar_points']['lidar_path'],
+            sweeps=info.get('lidar_sweeps',[]),
+            ego2global=info['ego2global'],
+            lidar2ego=info['lidar_points']['lidar2ego'], # (4, 4)
+            #prev_idx=info['prev'],
+            #next_idx=info['next'],
+            #scene_token=info['scene_token'],
+            can_bus=info['vad']['can_bus'],
+            fut_valid_flag=info['vad']['fut_valid_flag'],
+            map_location=info['vad']['map_location'],
+            ego_his_trajs=info['vad']['gt_ego_his_trajs'],
+            ego_fut_trajs=info['vad']['gt_ego_fut_trajs'],
+            ego_fut_masks=info['vad']['gt_ego_fut_masks'],
+            ego_fut_cmd=info['vad']['gt_ego_fut_cmd'],
+            ego_lcf_feat=info['vad']['gt_ego_lcf_feat']
         )
-        # lidar to ego transform
-        lidar2ego = np.eye(4).astype(np.float32)
-        lidar2ego[:3, :3] = Quaternion(info["lidar2ego_rotation"]).rotation_matrix
-        lidar2ego[:3, 3] = info["lidar2ego_translation"]
-        input_dict["lidar2ego"] = lidar2ego
 
         if self.modality['use_camera']:
             image_paths = []
             lidar2img_rts = []
             lidar2cam_rts = []
             cam_intrinsics = []
-            input_dict["camera2ego"] = []
-            input_dict["camera_intrinsics"] = []
-            for cam_type, cam_info in info['cams'].items():
-                image_paths.append(cam_info['data_path'])
-                # obtain lidar to image transformation matrix
-                lidar2cam_r = np.linalg.inv(cam_info['sensor2lidar_rotation'])
-                lidar2cam_t = cam_info[
-                    'sensor2lidar_translation'] @ lidar2cam_r.T
-                lidar2cam_rt = np.eye(4)
-                lidar2cam_rt[:3, :3] = lidar2cam_r.T
-                lidar2cam_rt[3, :3] = -lidar2cam_t
-                intrinsic = cam_info['cam_intrinsic']
+            camera2ego_rts = []
+
+            for cam_type, cam_info in info['images'].items():
+                image_paths.append(cam_info['img_path'])
+                lidar2cam = np.array(cam_info['lidar2cam'])
+                intrinsic = np.array(cam_info['cam2img'])
                 viewpad = np.eye(4)
                 viewpad[:intrinsic.shape[0], :intrinsic.shape[1]] = intrinsic
-                lidar2img_rt = (viewpad @ lidar2cam_rt.T)
-                lidar2img_rts.append(lidar2img_rt)
+                
+                # lidar2image
+                #lidar2img_rt = (viewpad @ lidar2cam_rt.T)
+                lidar2img =  viewpad @ lidar2cam
+                lidar2img_rts.append(lidar2img)
 
                 cam_intrinsics.append(viewpad)
-                lidar2cam_rts.append(lidar2cam_rt.T)
+                lidar2cam_rts.append(lidar2cam)
             
                 # camera to ego transform
-                camera2ego = np.eye(4).astype(np.float32)
-                camera2ego[:3, :3] = Quaternion(
-                    cam_info["sensor2ego_rotation"]
-                ).rotation_matrix
-                camera2ego[:3, 3] = cam_info["sensor2ego_translation"]
-                input_dict["camera2ego"].append(camera2ego)
-                # camera intrinsics
-                camera_intrinsics = np.eye(4).astype(np.float32)
-                camera_intrinsics[:3, :3] = cam_info["cam_intrinsic"]
-                input_dict["camera_intrinsics"].append(camera_intrinsics)
+                camera2ego_rts.append(np.array(cam_info['cam2ego']))
 
             input_dict.update(
                 dict(
@@ -1415,19 +1379,20 @@ class NuScenesDatasetVAD(NuScenesDataset):
                     lidar2img=lidar2img_rts,
                     cam_intrinsic=cam_intrinsics,
                     lidar2cam=lidar2cam_rts,
+                    camera2ego=camera2ego_rts,
                 ))
-
-        # NOTE: now we load gt in test_mode for evaluating
-        # if not self.test_mode:
-        #     annos = self.get_ann_info(index)
-        #     input_dict['ann_info'] = annos
-
-        annos = self.get_ann_info(index)
-        input_dict['ann_info'] = annos
-
-        rotation = Quaternion(input_dict['ego2global_rotation'])
-        translation = input_dict['ego2global_translation']
-        can_bus = input_dict['can_bus']
+        
+        lidar2ego = np.array(input_dict['lidar2ego'])
+        ego2global = np.array(input_dict['ego2global'])
+        lidar2global = ego2global @ lidar2ego
+        input_dict['lidar2global'] = lidar2global
+        
+        # can_bus info
+        rotation = ego2global[:3, :3]
+        rotation = Quaternion(matrix=rotation, atol=1e-06)
+        translation = ego2global[:3, 3]
+        
+        can_bus = info['vad']['can_bus']
         can_bus[:3] = translation
         can_bus[3:7] = rotation
         patch_angle = quaternion_yaw(rotation) / np.pi * 180
@@ -1436,14 +1401,15 @@ class NuScenesDatasetVAD(NuScenesDataset):
         can_bus[-2] = patch_angle / 180 * np.pi
         can_bus[-1] = patch_angle
 
-        lidar2ego = np.eye(4)
-        lidar2ego[:3,:3] = Quaternion(input_dict['lidar2ego_rotation']).rotation_matrix
-        lidar2ego[:3, 3] = input_dict['lidar2ego_translation']
-        ego2global = np.eye(4)
-        ego2global[:3,:3] = Quaternion(input_dict['ego2global_rotation']).rotation_matrix
-        ego2global[:3, 3] = input_dict['ego2global_translation']
-        lidar2global = ego2global @ lidar2ego
-        input_dict['lidar2global'] = lidar2global
+        input_dict.update(
+            can_bus=can_bus,
+            scene_token=info['vad']['scene_token'],
+        )
+        
+        # NOTE: now we load gt in test_mode for evaluating
+        if not self.test_mode:
+            ann = self.get_ann_info(info)
+            input_dict['ann_info'] = ann
 
         return input_dict
 

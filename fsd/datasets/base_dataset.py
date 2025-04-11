@@ -22,9 +22,9 @@ from fsd.registry import DATASETS
 
 @DATASETS.register_module()
 class Planning3DDataset(Dataset):
-    """Customized 3D dataset.
+    """Customized 3D dataset for planning.
 
-    This is the base dataset of SUNRGB-D, ScanNet, nuScenes, and KITTI
+    This is the base dataset of nuScenes, and Carla
     dataset.
     
     dataset pipelines:

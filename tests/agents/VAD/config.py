@@ -1,3 +1,11 @@
+#_base_ = [
+#    '../datasets/custom_nus-3d.py',
+#    '../_base_/default_runtime.py'
+#]
+#
+plugin = False
+plugin_dir = 'projects/mmdet3d_plugin/'
+
 # If point cloud range is changed, the models should also change their point
 # cloud range accordingly
 point_cloud_range = [-15.0, -30.0, -2.0, 15.0, 30.0, 2.0]
@@ -20,12 +28,28 @@ map_fixed_ptsnum_per_pred_line = 20
 map_eval_use_same_gt_sample_num_flag = True
 map_num_classes = len(map_classes)
 
+version = 'v1.0-mini'#'v1.0-trainval'
+metainfo = dict(
+    classes=class_names,
+    map_classes=map_classes,
+    version=version)
+
+# camera
 input_modality = dict(
     use_lidar=False,
     use_camera=True,
     use_radar=False,
     use_map=False,
     use_external=True)
+
+cameras = [
+    'CAM_BACK',
+    'CAM_BACK_LEFT',
+    'CAM_BACK_RIGHT',
+    'CAM_FRONT', 
+    'CAM_FRONT_LEFT', 
+    'CAM_FRONT_RIGHT'
+]
 
 _dim_ = 256
 _pos_dim_ = _dim_//2
@@ -332,3 +356,119 @@ model = dict(
             out_size_factor=4)
         )
     )
+
+
+# data
+dataset_type = 'NuScenesDatasetVAD'
+data_root = 'data/nuscenes-v1.0/mini/'
+file_client_args = dict(backend='disk')
+data_prefix = dict(
+    pts='samples/LIDAR_TOP', 
+    img='', # for single view 
+    sweeps='sweeps/LIDAR_TOP',
+    CAM_BACK='samples/CAM_BACK',
+    CAM_BACK_LEFT='samples/CAM_BACK_LEFT',
+    CAM_BACK_RIGHT='samples/CAM_BACK_RIGHT',
+    CAM_FRONT='samples/CAM_FRONT',
+    CAM_FRONT_LEFT='samples/CAM_FRONT_LEFT',
+    CAM_FRONT_RIGHT='samples/CAM_FRONT_RIGHT')
+
+
+train_pipeline = [
+    dict(type='LoadMultiViewImageFromFiles', to_float32=True),
+    dict(type='PhotoMetricDistortionMultiViewImage'),
+    dict(type='LoadAnnotations3D', _scope_='mmdet3d', with_bbox_3d=True, with_label_3d=True, with_attr_label=True),
+    dict(type='CustomObjectRangeFilter', point_cloud_range=point_cloud_range),
+    dict(type='CustomObjectNameFilter', classes=class_names),
+    dict(type='NormalizeMultiviewImage', **img_norm_cfg),
+    dict(type='RandomScaleImageMultiViewImage', scales=[0.8]),
+    dict(type='PadMultiViewImage', size_divisor=32),
+    #TODO: DefaultFormatBundle3D and Collect3D are replaced by Pack3DDetInputs
+    dict(type='CustomDefaultFormatBundle3D', class_names=class_names, with_ego=True),
+    dict(type='CustomCollect3D',\
+         keys=['gt_bboxes_3d', 'gt_labels_3d', 'img', 'ego_his_trajs',
+               'ego_fut_trajs', 'ego_fut_masks', 'ego_fut_cmd', 'ego_lcf_feat', 'gt_attr_labels'])
+    #dict(type='Pack3DDetInputs',
+    #     _scope_='mmdet3d',
+    #     keys=['gt_bboxes_3d', 'gt_labels_3d', 'img', 'ego_his_trajs',
+    #           'ego_fut_trajs', 'ego_fut_masks', 'ego_fut_cmd', 'ego_lcf_feat', 'gt_attr_labels'])
+]
+
+test_pipeline = [
+    dict(type='LoadMultiViewImageFromFiles', to_float32=True),
+    dict(type='LoadPointsFromFile',
+         coord_type='LIDAR',
+         load_dim=5,
+         use_dim=5,
+         file_client_args=file_client_args),
+    dict(type='LoadAnnotations3D', with_bbox_3d=True, with_label_3d=True, with_attr_label=True),
+    dict(type='CustomObjectRangeFilter', point_cloud_range=point_cloud_range),
+    dict(type='CustomObjectNameFilter', classes=class_names),
+    dict(type='NormalizeMultiviewImage', **img_norm_cfg),
+    # dict(type='PadMultiViewImage', size_divisor=32),
+    dict(
+        type='MultiScaleFlipAug3D',
+        img_scale=(1600, 900),
+        pts_scale_ratio=1,
+        flip=False,
+        transforms=[
+            dict(type='RandomScaleImageMultiViewImage', scales=[0.8]),
+            dict(type='PadMultiViewImage', size_divisor=32),
+            dict(type='CustomDefaultFormatBundle3D', class_names=class_names, with_label=False, with_ego=True),
+            dict(type='CustomCollect3D',\
+                 keys=['points', 'gt_bboxes_3d', 'gt_labels_3d', 'img', 'fut_valid_flag',
+                       'ego_his_trajs', 'ego_fut_trajs', 'ego_fut_masks', 'ego_fut_cmd',
+                       'ego_lcf_feat', 'gt_attr_labels'])])
+]
+
+train_dataloader = dict(
+    batch_size=2,
+    num_workers=1,
+    dataset=dict(
+        type=dataset_type,
+        data_root=data_root,
+        data_prefix=data_prefix,
+        ann_file='vad_nuscenes_infos_train.pkl',
+        metainfo=metainfo,
+        pipeline=train_pipeline,
+        modality=input_modality,
+        test_mode=False,
+        use_valid_flag=True,
+        bev_size=(bev_h_, bev_w_),
+        pc_range=point_cloud_range,
+        queue_length=queue_length,
+        map_classes=map_classes,
+        map_fixed_ptsnum_per_line=map_fixed_ptsnum_per_gt_line,
+        map_eval_use_same_gt_sample_num_flag=map_eval_use_same_gt_sample_num_flag,
+        # we use box_type_3d='LiDAR' in kitti and nuscenes dataset
+        # and box_type_3d='Depth' in sunrgbd and scannet dataset.
+        box_type_3d='LiDAR',
+        custom_eval_version='vad_nusc_detection_cvpr_2019'),
+    sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
+    pin_memory=True,
+)
+
+val=dict(type=dataset_type,
+            data_root=data_root,
+            pc_range=point_cloud_range,
+            ann_file=data_root + 'vad_nuscenes_infos_val.pkl',
+            pipeline=test_pipeline,  bev_size=(bev_h_, bev_w_),
+            classes=class_names, modality=input_modality, samples_per_gpu=1,
+            map_classes=map_classes,
+            map_ann_file=data_root + 'nuscenes_map_anns_val.json',
+            map_fixed_ptsnum_per_line=map_fixed_ptsnum_per_gt_line,
+            map_eval_use_same_gt_sample_num_flag=map_eval_use_same_gt_sample_num_flag,
+            use_pkl_result=True,
+            custom_eval_version='vad_nusc_detection_cvpr_2019'),
+test=dict(type=dataset_type,
+            data_root=data_root,
+            pc_range=point_cloud_range,
+            ann_file=data_root + 'vad_nuscenes_infos_val.pkl',
+            pipeline=test_pipeline, bev_size=(bev_h_, bev_w_),
+            classes=class_names, modality=input_modality, samples_per_gpu=1,
+            map_classes=map_classes,
+            map_ann_file=data_root + 'nuscenes_map_anns_val.json',
+            map_fixed_ptsnum_per_line=map_fixed_ptsnum_per_gt_line,
+            map_eval_use_same_gt_sample_num_flag=map_eval_use_same_gt_sample_num_flag,
+            use_pkl_result=True,
+            custom_eval_version='vad_nusc_detection_cvpr_2019')

@@ -79,9 +79,22 @@ When constructing the dataset/dataloader, before entering the data pipeline, the
 
 ## Nuscenes Dataset
 
+Nuscenes data are in Nuscene coordinate.
+
+(1). do the pretrained VAD/BEVFormer models use MMDET3D coordinate or Nuscenes coordinate??
+
+
 ### Raw Nuscences Dataset
 
+NuScenes provides a toolkit for evaluation, in which each box is wrapped into a Box instance. The coordinate system of Box is [different from MMDet LiDAR coordinate system](https://mmdetection3d.readthedocs.io/en/latest/user_guides/coord_sys_tutorial.html) in that the first two elements of the box dimension correspond to $(dy, dx)$, or $(w, l)$, respectively, instead of the reverse. For more details, please refer to the NuScenes tutorial. 
+- The box definition in NuScenes is $(x, y, z, w, l, h)$, where $x, y, z$ are center locations in NuScenes global cooridnate, $(w, l, h)$ are box dimensions.
+- The box definition in MMDet3D is $(x, y, z, dx, dy, dz, yaw)$, where $x, y, z$ are center locations and can be transformed to any desired coordinate, $dx, dy, dz$ are for box dimension, where $dx$ is parallel to the box direction, thus $dx = l$.
+
 ### Convert to Planning Coordinate
+
+**TODOS**:
+- The NuScenes boxes in `mmdetection3d/tools/dataset_converters/nuscenes_converter.py` as [here](https://github.com/open-mmlab/mmdetection3d/blob/fe25f7a51d36e3702f961e198894580d83c4387b/tools/dataset_converters/nuscenes_converter.py#L258) seem never changed from NuScenes Lidar coordinate to MMDet3D Lidar coordinate as claimed in [here](https://github.com/open-mmlab/mmdetection3d/blob/fe25f7a51d36e3702f961e198894580d83c4387b/docs/en/advanced_guides/datasets/nuscenes.md?plain=1#L109).
+
 
 ## Waymo Dataset
 
@@ -96,7 +109,7 @@ When constructing the dataset/dataloader, before entering the data pipeline, the
     2. use `create_data.py` provided by mmdet3d to process the annotation file and raw data to mmdet3d format, which generates a a few *.pkl files
         - the ground truth bboxes are in global frame as descrubed [here](https://github.com/nutonomy/nuscenes-devkit/tree/master/python-sdk/nuscenes/eval/detection), are they processed into lidara frame at this step?
     
-            - **YES**. The ground truth bboxes in global frame are processed into lidar coordinate as shown [here](https://github.com/open-mmlab/mmdetection3d/blob/fe25f7a51d36e3702f961e198894580d83c4387b/tools/dataset_converters/nuscenes_converter.py#L174) 
+            - **YES**. The ground truth bboxes in global frame are processed into lidar coordinate as shown [here](https://github.com/open-mmlab/mmdetection3d/blob/fe25f7a51d36e3702f961e198894580d83c4387b/tools/dataset_converters/nuscenes_converter.py#L174). Box.wlh is for x, y ,z axis, thus in this box convention, x is right, y is front, and z is up -> Nuscenes Lidar coordinate.
 
     3. the mmdet3d dataset then is built on these *.pkl files and raw data
 
