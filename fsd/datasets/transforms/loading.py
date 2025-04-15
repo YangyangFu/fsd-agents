@@ -487,7 +487,7 @@ class LoadAnnotations3D(object):
         Returns:
             dict: The dict containing loaded 3D bounding box annotations.
         """
-        results['gt_bboxes_3d'] = results['anno_info']['gt_bboxes_3d']
+        results['gt_bboxes_3d'] = results['ann_info']['gt_bboxes_3d']
         results['bbox3d_fields'].append('gt_bboxes_3d')
         return results
 
@@ -514,7 +514,7 @@ class LoadAnnotations3D(object):
         Returns:
             dict: The dict containing loaded label annotations.
         """
-        results['gt_labels_3d'] = results['anno_info']['gt_labels_3d'].copy()
+        results['gt_labels_3d'] = results['ann_info']['gt_labels_3d'].copy()
         results['bbox3d_fields'].append('gt_labels_3d')
         return results
 
@@ -527,8 +527,8 @@ class LoadAnnotations3D(object):
         Returns:
             dict: The dict containing loaded label annotations.
         """
-        results['gt_instances_names'] = results['anno_info']['gt_instances_names'].copy()
-        results['bbox3d_fields'].append('gt_instances_names')
+        results['gt_instances_name'] = results['ann_info']['gt_instances_names'].copy()
+        results['bbox3d_fields'].append('gt_instances_name')
         
         return results
 
@@ -627,7 +627,7 @@ class LoadAnnotations3D(object):
         return repr_str
 
 @PIPELINES.register_module()
-class LoadAnnotations3DPlanning(LoadAnnotations3D):
+class LoadAnnotationsPlan3D(LoadAnnotations3D):
     """Load Annotations3D for planning tasks.
 
     Load instance mask and semantic mask of points and
@@ -682,21 +682,21 @@ class LoadAnnotations3DPlanning(LoadAnnotations3D):
         self.with_grids = with_grids
 
     def _load_instances_ids(self, results):
-        ann_gt_inds = results['anno_info']['gt_instances_ids'].copy() 
-        results['gt_instances_ids'] = ann_gt_inds
-        results['bbox3d_fields'].append('gt_instances_ids')
+        ann_gt_inds = results['ann_info']['gt_bboxes_id'].copy() 
+        results['gt_bboxes_id'] = ann_gt_inds
+        results['bbox3d_fields'].append('gt_bboxes_id')
         return results
 
     def _load_ego_traj(self, results):
-        ego_traj = results['anno_info']['gt_ego_traj']
+        ego_traj = results['ann_info']['gt_ego_traj']
         results['gt_ego_traj'] = ego_traj
         results['ego_fields'].append('gt_ego_traj')
         return results
     
     def _load_instances_traj(self, results):
-        instances_traj = results['anno_info']['gt_instances_traj']
-        results['gt_instances_traj'] = instances_traj
-        results['bbox3d_fields'].append('gt_instances_traj')
+        instances_traj = results['ann_info']['gt_bboxes_traj']
+        results['gt_bboxes_traj'] = instances_traj
+        results['bbox3d_fields'].append('gt_bboxes_traj')
         return results
     
     def _load_ego_status(self, results):

@@ -64,24 +64,24 @@ class PlanningDataSample(BaseDataElement):
     
     # properties: instances
     @property
-    def gt_instances(self) -> Instances:
-        return self._gt_instances
-    @gt_instances.setter
-    def gt_instances(self, value: Instances):
-        self.set_field(value, "_gt_instances", dtype=Instances)
-    @gt_instances.deleter
-    def gt_instances(self) -> None:
-        del self._gt_instances
+    def gt_instances_3d(self) -> Instances:
+        return self._gt_instances_3d
+    @gt_instances_3d.setter
+    def gt_instances_3d(self, value: Instances):
+        self.set_field(value, "_gt_instances_3d", dtype=Instances)
+    @gt_instances_3d.deleter
+    def gt_instances_3d(self) -> None:
+        del self._gt_instances_3d
 
     @property
-    def pred_instances(self) -> Instances:
-        return self._pred_instances
-    @pred_instances.setter
+    def pred_instances_3d(self) -> Instances:
+        return self._pred_instances_3d
+    @pred_instances_3d.setter
     def pred_instances(self, value: Instances):
-        self.set_field(value, "_pred_instances", dtype=Instances)
-    @pred_instances.deleter
+        self.set_field(value, "_pred_instances_3d", dtype=Instances)
+    @pred_instances_3d.deleter
     def pred_instances(self) -> None:
-        del self._pred_instances
+        del self._pred_instances_3d
         
     # properties: grids 
     @property

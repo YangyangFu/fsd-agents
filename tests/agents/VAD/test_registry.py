@@ -5,7 +5,7 @@ from fsd.runner import Runner
 
 init_default_scope('fsd')
 
-cfg = Config.fromfile('tests/agents/VAD/config.py')
+cfg = Config.fromfile('tests/agents/VAD/config1.py')
 
 def test_model_registry():
     model = MODELS.build(cfg.model)
@@ -21,6 +21,7 @@ def test_dataloader():
     dataloader = Runner.build_dataloader(cfg.train_dataloader)
     
     sample = next(iter(dataloader))
+    print(sample)
     assert sample is not None
 
 

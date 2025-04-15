@@ -1,18 +1,20 @@
-from collections.abc import Sequence
-
+from typing import List, Sequence, Union
+import mmengine
 import numpy as np
 import torch
-#from fsd.structures.data_container import BaseDataElement as DC
+from mmcv import BaseTransform
+from mmengine.structures import InstanceData, BaseDataElement
+from numpy import dtype
 
-#from mmcv.core.bbox.structures.base_box3d import BaseInstance3DBoxes
-#from mmcv.core.points import BasePoints
-from mmengine.structures import BaseDataElement, InstanceData, PixelData
-from mmdet3d.structures import BaseInstance3DBoxes, BasePoints, PointData
-from mmengine.utils import is_str, is_seq_of
+from mmdet3d.structures import BaseInstance3DBoxes, Det3DDataSample, PointData
+from mmdet3d.structures.points import BasePoints
+
 from fsd.structures import PlanningDataSample, Ego, Instances, Grids
 from fsd.registry import TRANSFORMS
 
-def to_tensor(data):
+def to_tensor(
+    data: Union[torch.Tensor, np.ndarray, Sequence, int,
+                float]) -> torch.Tensor:
     """Convert objects of various python types to :obj:`torch.Tensor`.
 
     Supported types are: :class:`numpy.ndarray`, :class:`torch.Tensor`,
@@ -21,13 +23,20 @@ def to_tensor(data):
     Args:
         data (torch.Tensor | numpy.ndarray | Sequence | int | float): Data to
             be converted.
+
+    Returns:
+        torch.Tensor: the converted data.
     """
 
     if isinstance(data, torch.Tensor):
         return data
     elif isinstance(data, np.ndarray):
+        if data.dtype is dtype('float64'):
+            data = data.astype(np.float32)
         return torch.from_numpy(data)
-    elif isinstance(data, Sequence) and not is_str(data):
+    elif isinstance(data, BaseDataElement):
+        return data.to_tensor()
+    elif isinstance(data, Sequence) and not mmengine.is_str(data):
         return torch.tensor(data)
     elif isinstance(data, int):
         return torch.LongTensor([data])
@@ -38,435 +47,230 @@ def to_tensor(data):
 
 
 @TRANSFORMS.register_module()
-class ToTensor:
-    """Convert some results to :obj:`torch.Tensor` by given keys.
+class Pack3DPlanInputs(BaseTransform):
+    INPUTS_KEYS = ['points', 'img']
+    INSTANCEDATA_3D_KEYS = [
+        'gt_bboxes_3d', 'gt_labels_3d', 'gt_bboxes_traj', 
+        'attr_labels', 'depths', 'centers_2d'
+    ]
+    INSTANCEDATA_2D_KEYS = [
+        'gt_bboxes',
+        'gt_bboxes_labels',
+    ]
 
-    Args:
-        keys (Sequence[str]): Keys that need to be converted to Tensor.
-    """
+    SEG_KEYS = [
+        'gt_seg_map', 'pts_instance_mask', 'pts_semantic_mask',
+        'gt_semantic_seg'
+    ]
 
-    def __init__(self, keys):
-        self.keys = keys
+    EGO_KEYS = [
+        'gt_ego_traj'
+    ]
 
-    def __call__(self, results):
-        """Call function to convert data in results to :obj:`torch.Tensor`.
-
-        Args:
-            results (dict): Result dict contains the data to convert.
-
-        Returns:
-            dict: The result dict contains the data converted
-                to :obj:`torch.Tensor`.
-        """
-        for key in self.keys:
-            results[key] = to_tensor(results[key])
-        return results
-
-    def __repr__(self):
-        return self.__class__.__name__ + f'(keys={self.keys})'
-
-
-@TRANSFORMS.register_module()
-class ImageToTensor:
-    """Convert image to :obj:`torch.Tensor` by given keys.
-
-    The dimension order of input image is (H, W, C). The pipeline will convert
-    it to (C, H, W). If only 2 dimension (H, W) is given, the output would be
-    (1, H, W).
-
-    Args:
-        keys (Sequence[str]): Key of images to be converted to Tensor.
-    """
-
-    def __init__(self, keys):
-        self.keys = keys
-
-    def __call__(self, results):
-        """Call function to convert image in results to :obj:`torch.Tensor` and
-        transpose the channel order.
-
-        Args:
-            results (dict): Result dict contains the image data to convert.
-
-        Returns:
-            dict: The result dict contains the image converted
-                to :obj:`torch.Tensor` and transposed to (C, H, W) order.
-        """
-        for key in self.keys:
-            img = results[key]
-            if len(img.shape) < 3:
-                img = np.expand_dims(img, -1)
-            results[key] = to_tensor(img.transpose(2, 0, 1))
-        return results
-
-    def __repr__(self):
-        return self.__class__.__name__ + f'(keys={self.keys})'
-
-
-@TRANSFORMS.register_module()
-class Transpose:
-    """Transpose some results by given keys.
-
-    Args:
-        keys (Sequence[str]): Keys of results to be transposed.
-        order (Sequence[int]): Order of transpose.
-    """
-
-    def __init__(self, keys, order):
-        self.keys = keys
-        self.order = order
-
-    def __call__(self, results):
-        """Call function to transpose the channel order of data in results.
-
-        Args:
-            results (dict): Result dict contains the data to transpose.
-
-        Returns:
-            dict: The result dict contains the data transposed to \
-                ``self.order``.
-        """
-        for key in self.keys:
-            results[key] = results[key].transpose(self.order)
-        return results
-
-    def __repr__(self):
-        return self.__class__.__name__ + \
-            f'(keys={self.keys}, order={self.order})'
-
-
-@TRANSFORMS.register_module()
-class ToBaseDataElement:
-    """Convert results to :obj:`mmengine.BaseDataElement` by given fields.
-
-    Args:
-        fields (Sequence[dict]): Each field is a dict like
-            ``dict(key='xxx', **kwargs)``. The ``key`` in result will
-            be converted to :obj:`mmengine.BaseDataElement` with ``**kwargs``.
-            Default: ``(dict(key='img', stack=True), dict(key='gt_bboxes'),
-            dict(key='gt_labels'))``.
-    """
-
-    def __init__(self,
-                 fields=(dict(key='img', stack=True), dict(key='gt_bboxes'),
-                         dict(key='gt_labels'))):
-        self.fields = fields
-
-    def __call__(self, results):
-        """Call function to convert data in results to
-        :obj:`mmengine.BaseDataElement`.
-
-        Args:
-            results (dict): Result dict contains the data to convert.
-
-        Returns:
-            dict: The result dict contains the data converted to \
-                :obj:`mmengine.BaseDataElement`.
-        """
-
-        for field in self.fields:
-            field = field.copy()
-            key = field.pop('key')
-            results[key] = BaseDataElement(results[key], **field)
-        return results
-
-    def __repr__(self):
-        return self.__class__.__name__ + f'(fields={self.fields})'
-
-@TRANSFORMS.register_module()
-class WrapFieldsToLists:
-    """Wrap fields of the data dictionary into lists for evaluation.
-
-    This class can be used as a last step of a test or validation
-    pipeline for single image evaluation or inference.
-
-    Example:
-        >>> test_pipeline = [
-        >>>    dict(type='LoadImageFromFile'),
-        >>>    dict(type='Normalize',
-                    mean=[123.675, 116.28, 103.53],
-                    std=[58.395, 57.12, 57.375],
-                    to_rgb=True),
-        >>>    dict(type='Pad', size_divisor=32),
-        >>>    dict(type='ImageToTensor', keys=['img']),
-        >>>    dict(type='Collect', keys=['img']),
-        >>>    dict(type='WrapFieldsToLists')
-        >>> ]
-    """
-
-    def __call__(self, results):
-        """Call function to wrap fields into lists.
-
-        Args:
-            results (dict): Result dict contains the data to wrap.
-
-        Returns:
-            dict: The result dict where value of ``self.keys`` are wrapped \
-                into list.
-        """
-
-        # Wrap dict fields into lists
-        for key, val in results.items():
-            results[key] = [val]
-        return results
-
-    def __repr__(self):
-        return f'{self.__class__.__name__}()'
+    MAP_KEYS = []
     
+    def __init__(
+        self,
+        keys: tuple,
+        meta_keys: tuple = ('img_path', 'ori_shape', 'img_shape', 'lidar2img',
+                            'depth2img', 'cam2img', 'pad_shape',
+                            'scale_factor', 'flip', 'pcd_horizontal_flip',
+                            'pcd_vertical_flip', 'box_mode_3d', 'box_type_3d',
+                            'img_norm_cfg', 'num_pts_feats', 'pcd_trans',
+                            'sample_idx', 'pcd_scale_factor', 'pcd_rotation',
+                            'pcd_rotation_angle', 'lidar_path',
+                            'transformation_3d_flow', 'trans_mat',
+                            'affine_aug', 'sweep_img_metas', 'ori_cam2img',
+                            'cam2global', 'crop_offset', 'img_crop_offset',
+                            'resize_img_shape', 'lidar2cam', 'ori_lidar2img',
+                            'num_ref_frames', 'num_views', 'ego2global',
+                            'axis_align_matrix')
+    ) -> None:
+        self.keys = keys
+        self.meta_keys = meta_keys
 
-#TRANSFORMS._module_dict.pop('DefaultFormatBundle')
-@TRANSFORMS.register_module()
-class DefaultFormatBundle(object):
-    """Default formatting bundle for image data.
-    
-    If the data is a list, a list of 
+    def _remove_prefix(self, key: str) -> str:
+        if key.startswith('gt_'):
+            key = key[3:]
+        return key
 
-    It simplifies the pipeline of formatting common fields, including "img",
-    "proposals", "gt_bboxes", "gt_labels", "gt_masks" and "gt_semantic_seg".
-    These fields are formatted as follows.
-
-    - img: (1)transpose, (2)to tensor, (3)to BaseDataElement (stack=True)
-    - proposals: (1)to tensor, (2)to BaseDataElement
-    - gt_bboxes: (1)to tensor, (2)to BaseDataElement
-    - gt_bboxes_ignore: (1)to tensor, (2)to BaseDataElement
-    - gt_labels: (1)to tensor, (2)to BaseDataElement
-    - gt_masks: (1)to tensor, (2)to BaseDataElement (cpu_only=True)
-    - gt_semantic_seg: (1)unsqueeze dim-0 (2)to tensor, \
-                       (3)to BaseDataElement (stack=True)
-    """
-
-    def __init__(self, ):
-        return
-
-    def __call__(self, results):
-        """Call function to transform and format common fields in results.
+    def transform(self, results: Union[dict,
+                                       List[dict]]) -> Union[dict, List[dict]]:
+        """Method to pack the input data. when the value in this dict is a
+        list, it usually is in Augmentations Testing.
 
         Args:
-            results (dict): Result dict contains the data to convert.
+            results (dict | list[dict]): Result dict from the data pipeline.
 
         Returns:
-            dict: The result dict contains the data that is formatted with
-                default bundle.
+            dict | List[dict]:
+
+            - 'inputs' (dict): The forward data of models. It usually contains
+              following keys:
+
+                - points
+                - img
+
+            - 'data_samples' (:obj:`Det3DDataSample`): The annotation info of
+              the sample.
         """
-        if 'img' in results:
-            if isinstance(results['img'], list):
-                # process multiple imgs in single frame: to (C, H, W)
-                imgs = [img.transpose(2, 0, 1) for img in results['img']]
-                #imgs = np.ascontiguousarray(np.stack(imgs, axis=0))
-                #results['img'] = BaseDataElement(data=to_tensor(imgs))
-                # BaseDataElement with a list in data field cannot use cuda(), to() methods.
-                results['img'] = [to_tensor(img) for img in imgs]
- 
-            else:
-                img = np.ascontiguousarray(results['img'].transpose(2, 0, 1))
-                results['img'] = to_tensor(img)
-        
-        # image gts
-        for key in [
-                'proposals', 'gt_bboxes_ignore', 'gt_labels', 'gt_bboxes' 
-                'pts_instance_mask', 'pts_semantic_mask', 'centers2d', 'depths'
-        ]:
-            if key in results:
-                raise NotImplementedError("Supporting 2-D bboxes are not implemented yet")
-        
-        # bundle img
-        if 'inputs' not in results:
-            results['inputs'] = {}
-        results['inputs']['img'] = results['img']
-        results.pop('img')
+        # augtest
+        if isinstance(results, list):
+            if len(results) == 1:
+                # simple test
+                return self.pack_single_results(results[0])
+            pack_results = []
+            for single_result in results:
+                pack_results.append(self.pack_single_results(single_result))
+            return pack_results
+        # norm training and simple testing
+        elif isinstance(results, dict):
+            return self.pack_single_results(results)
+        else:
+            raise NotImplementedError
 
-        return results
-
-    def __repr__(self):
-        return self.__class__.__name__
-
-@TRANSFORMS.register_module()
-class DefaultFormatBundle3D(DefaultFormatBundle):
-    """Default formatting bundle.
-
-    It simplifies the pipeline of formatting common fields for voxels,
-    including "proposals", "gt_bboxes", "gt_labels", "gt_masks" and
-    "gt_semantic_seg".
-    These fields are formatted as follows.
-
-    - img: (1)transpose, (2)to tensor, (3)to BaseDataElement (stack=True)
-    - proposals: (1)to tensor, (2)to BaseDataElement
-    - gt_bboxes: (1)to tensor, (2)to BaseDataElement
-    - gt_bboxes_ignore: (1)to tensor, (2)to BaseDataElement
-    - gt_labels: (1)to tensor, (2)to BaseDataElement
-    """
-
-    def __init__(self, with_map=False):
-        super(DefaultFormatBundle3D, self).__init__()
-        #TODO: add map data support
-        self.with_map = with_map
-        
-    def __call__(self, results):
-        """Call function to transform and format common fields in results.
+    def pack_single_results(self, results: dict) -> dict:
+        """Method to pack the single input data. when the value in this dict is
+        a list, it usually is in Augmentations Testing.
 
         Args:
-            results (dict): Result dict contains the data to convert.
+            results (dict): Result dict from the data pipeline.
 
         Returns:
-            dict: The result dict contains the data that is formatted with
-                default bundle.
-        """
-        results = super(DefaultFormatBundle3D, self).__call__(results)
-        
-        # Format 3D data: points
-        if 'pts' in results:
-            if not isinstance(results['pts'], BasePoints):
-                results['pts'] = to_tensor(results['pts'])
-        
-        # TODO: need work on voxel interface  
-        for key in ['voxels', 'coors', 'voxel_centers', 'num_points']:
-            if key not in results:
-                continue
-            results[key] = BaseDataElement(data=to_tensor(results[key]))
+            dict: A dict contains
 
-        # bundle inputs
-        if 'inputs' not in results:
-            results['inputs'] = {}
-        results['inputs']['pts'] = results['pts']
-        results.pop('pts')
+            - 'inputs' (dict): The forward data of models. It usually contains
+              following keys:
 
-        # format gt_instances_3d: data related to instances
-        gt_instances_3d = Instances()
-        
-        instances_key_map = {
-            'gt_bboxes_3d': 'bboxes_3d',
-            'gt_labels_3d': 'labels',
-            'gt_instances_traj': 'traj',
-            'gt_instances_ids': 'ids',
-            'gt_instances_names': 'names',
-        }
-        
-        for key in results['bbox3d_fields']:
-            if key in results:
-                # torch cannot convert str to tensor
-                if key == "gt_instances_names":
-                    gt_instances_3d.set_metainfo({instances_key_map[key]: results[key]})
-                elif isinstance(results[key], BaseDataElement):
-                    gt_instances_3d[instances_key_map[key]] = results[key].to_tensor()
-                elif isinstance(results[key], BaseInstance3DBoxes):
-                    gt_instances_3d[instances_key_map[key]] = results[key]
-                # [Trajectory, Trajectory, ...]
-                elif is_seq_of(results[key], BaseDataElement):
-                    gt_instances_3d[instances_key_map[key]] = [de.to_tensor() for de in results[key]]
-                else:
-                    gt_instances_3d[instances_key_map[key]] = to_tensor(results[key])
+                - points
+                - img
 
-                results.pop(key)
-
-        # format gt_ego: data related to ego vehicle
-        gt_ego = Ego()
-        ego_key_map = {
-            "gt_ego_traj": "traj",
-            "ego_ego2world": "pose",
-            "ego_velocity": "velocity",
-            "ego_affected_by_lights": "affected_by_lights",
-            "ego_affected_by_stop_sign": "affected_by_stop_sign",
-            "ego_is_at_junction": "is_at_junction",
-            "ego_size": "size",
-        }
-        
-        for key in results['ego_fields']:
-            if key in results:
-                if isinstance(results[key], BaseDataElement):
-                    gt_ego.set_field(results[key].to_tensor(), ego_key_map[key])
-                elif isinstance(results[key], BaseInstance3DBoxes):
-                    gt_ego.set_field(results[key], ego_key_map[key])
-                else:
-                    gt_ego.set_field(to_tensor(results[key]), ego_key_map[key])
-
-                results.pop(key)
-        
-        # format gt_grids: data related to grids
-        gt_grids = Grids()
-        grids_key_map = {
-            'gt_grid_density': 'density',
-            'gt_grid_occupancy': 'occupancy',
-            'gt_grid_density_mask': 'density_mask',
-            'gt_grid_occupancy_mask': 'occupancy_mask',
-        }
-        for key in results['grid_fields']:
-            if key in results:
-                if isinstance(results[key], BaseDataElement):
-                    gt_grids.set_field(results[key].to_tensor(), grids_key_map[key])
-                else:
-                    gt_grids.set_field(to_tensor(results[key]), grids_key_map[key])
-                results.pop(key)
-        
-        # TODO: add map data
-        # with map
-        
-        data_sample = PlanningDataSample()
-        data_sample.gt_instances = gt_instances_3d
-        data_sample.gt_ego = gt_ego
-        data_sample.gt_grids = gt_grids
-        
-        # metas
-        metainfo = {}
-        if 'img_metas' in results:
-            metainfo['img_metas'] = results['img_metas']
-            results.pop('img_metas')
-        if 'pts_metas' in results:
-            metainfo['pts_metas'] = results['pts_metas']
-            results.pop('pts_metas')
-        data_sample.set_metainfo(metainfo)
-        
-        results['data_samples'] = data_sample
-        
-        return results
-
-    def __repr__(self):
-        """str: Return a string that describes the module."""
-        repr_str = self.__class__.__name__
-        return repr_str
-    
-
-@TRANSFORMS.register_module()
-class VADFormatBundle3D(DefaultFormatBundle3D):
-    """Default formatting bundle.
-    It simplifies the pipeline of formatting common fields for voxels,
-    including "proposals", "gt_bboxes", "gt_labels", "gt_masks" and
-    "gt_semantic_seg".
-    These fields are formatted as follows.
-    - img: (1)transpose, (2)to tensor, (3)to BaseDataElement (stack=True)
-    - proposals: (1)to tensor, (2)to BaseDataElement
-    - gt_bboxes: (1)to tensor, (2)to BaseDataElement
-    - gt_bboxes_ignore: (1)to tensor, (2)to BaseDataElement
-    - gt_labels: (1)to tensor, (2)to BaseDataElement
-    """
-    def __init__(self, class_names, with_gt=True, with_label=True, with_ego=True):
-        super(VADFormatBundle3D, self).__init__(class_names, with_gt, with_label)
-        self.with_ego = with_ego
-
-
-    def __call__(self, results):
-        """Call function to transform and format common fields in results.
-        Args:
-            results (dict): Result dict contains the data to convert.
-        Returns:
-            dict: The result dict contains the data that is formatted with
-                default bundle.
+            - 'data_samples' (:obj:`Det3DDataSample`): The annotation info
+              of the sample.
         """
         # Format 3D data
-        results = super(VADFormatBundle3D, self).__call__(results)
-        # results['gt_map_masks'] = DC(to_tensor(results['gt_map_masks']), stack=True)
-        if self.with_ego:
-            if 'ego_his_trajs' in results:
-                results['ego_his_trajs'] = DC(to_tensor(results['ego_his_trajs'][None, ...]), stack=True)
-            if 'ego_fut_trajs' in results:
-                results['ego_fut_trajs'] = DC(to_tensor(results['ego_fut_trajs'][None, ...]), stack=True)
-            if 'ego_fut_masks' in results:
-                results['ego_fut_masks'] = DC(to_tensor(results['ego_fut_masks'][None, None, ...]), stack=True)
-            if 'ego_fut_cmd' in results:
-                results['ego_fut_cmd'] = DC(to_tensor(results['ego_fut_cmd'][None, None, ...]), stack=True)
-            if 'ego_lcf_feat' in results:
-                results['ego_lcf_feat'] = DC(to_tensor(results['ego_lcf_feat'][None, None, ...]), stack=True)
-            if 'gt_attr_labels' in results:
-                results['gt_attr_labels'] = DC(to_tensor(results['gt_attr_labels']), cpu_only=False)
-                
-        return results
+        if 'points' in results:
+            if isinstance(results['points'], BasePoints):
+                results['points'] = results['points'].tensor
 
+        if 'img' in results:
+            if isinstance(results['img'], list):
+                # process multiple imgs in single frame
+                imgs = np.stack(results['img'], axis=0)
+                if imgs.flags.c_contiguous:
+                    imgs = to_tensor(imgs).permute(0, 3, 1, 2).contiguous()
+                else:
+                    imgs = to_tensor(
+                        np.ascontiguousarray(imgs.transpose(0, 3, 1, 2)))
+                results['img'] = imgs
+            else:
+                img = results['img']
+                if len(img.shape) < 3:
+                    img = np.expand_dims(img, -1)
+                # To improve the computational speed by by 3-5 times, apply:
+                # `torch.permute()` rather than `np.transpose()`.
+                # Refer to https://github.com/open-mmlab/mmdetection/pull/9533
+                # for more details
+                if img.flags.c_contiguous:
+                    img = to_tensor(img).permute(2, 0, 1).contiguous()
+                else:
+                    img = to_tensor(
+                        np.ascontiguousarray(img.transpose(2, 0, 1)))
+                results['img'] = img
+
+        for key in [
+                'proposals', 'gt_bboxes', 'gt_bboxes_ignore', 'gt_labels',
+                'gt_bboxes_labels', 'attr_labels', 'pts_instance_mask',
+                'pts_semantic_mask', 'centers_2d', 'depths', 'gt_labels_3d',
+                'gt_bboxes_traj', 'gt_ego_traj'
+        ]:
+            if key not in results:
+                continue
+            if isinstance(results[key], list):
+                results[key] = [to_tensor(res) for res in results[key]]
+            else:
+                results[key] = to_tensor(results[key])
+        if 'gt_bboxes_3d' in results:
+            if not isinstance(results['gt_bboxes_3d'], BaseInstance3DBoxes):
+                results['gt_bboxes_3d'] = to_tensor(results['gt_bboxes_3d'])
+        
+        if 'gt_semantic_seg' in results:
+            results['gt_semantic_seg'] = to_tensor(
+                results['gt_semantic_seg'][None])
+        if 'gt_seg_map' in results:
+            results['gt_seg_map'] = results['gt_seg_map'][None, ...]
+
+        data_sample = PlanningDataSample()
+        gt_instances_3d = Instances()
+        gt_ego = Ego()
+        gt_pts_seg = PointData()
+
+        data_metas = {}
+        for key in self.meta_keys:
+            if key in results:
+                data_metas[key] = results[key]
+            elif 'images' in results:
+                if len(results['images'].keys()) == 1:
+                    cam_type = list(results['images'].keys())[0]
+                    # single-view image
+                    if key in results['images'][cam_type]:
+                        data_metas[key] = results['images'][cam_type][key]
+                else:
+                    # multi-view image
+                    img_metas = []
+                    cam_types = list(results['images'].keys())
+                    for cam_type in cam_types:
+                        if key in results['images'][cam_type]:
+                            img_metas.append(results['images'][cam_type][key])
+                    if len(img_metas) > 0:
+                        data_metas[key] = img_metas
+            elif 'lidar_points' in results:
+                if key in results['lidar_points']:
+                    data_metas[key] = results['lidar_points'][key]
+        data_sample.set_metainfo(data_metas)
+
+        inputs = {}
+        for key in self.keys:
+            if key in results:
+                if key in self.INPUTS_KEYS:
+                    inputs[key] = results[key]
+                elif key in self.INSTANCEDATA_3D_KEYS:
+                    print(key)
+                    gt_instances_3d[self._remove_prefix(key)] = results[key]
+                elif key in self.INSTANCEDATA_2D_KEYS:
+                    if key == 'gt_bboxes_labels':
+                        gt_instances_3d['labels'] = results[key]
+                    else:
+                        gt_instances_3d[self._remove_prefix(key)] = results[key]
+                elif key in self.SEG_KEYS:
+                    gt_pts_seg[self._remove_prefix(key)] = results[key]
+                elif key in self.EGO_KEYS:
+                    if key == 'gt_ego_traj':
+                        gt_ego.traj = results[key]
+                else:
+                    raise NotImplementedError(f'Please modified '
+                                              f'`Pack3DDetInputs` '
+                                              f'to put {key} to '
+                                              f'corresponding field')
+
+        data_sample.gt_instances_3d = gt_instances_3d
+        data_sample.gt_ego = gt_ego
+
+        data_sample.gt_pts_seg = gt_pts_seg
+        if 'eval_ann_info' in results:
+            data_sample.eval_ann_info = results['eval_ann_info']
+        else:
+            data_sample.eval_ann_info = None
+
+        packed_results = dict()
+        packed_results['data_samples'] = data_sample
+        packed_results['inputs'] = inputs
+
+        return packed_results
+
+    def __repr__(self) -> str:
+        """str: Return a string that describes the module."""
+        repr_str = self.__class__.__name__
+        repr_str += f'(keys={self.keys})'
+        repr_str += f'(meta_keys={self.meta_keys})'
+        return repr_str

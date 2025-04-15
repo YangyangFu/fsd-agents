@@ -5,15 +5,14 @@ from mmengine.registry import HOOKS
 from mmengine.hooks import Hook
 #from mmengine.runner.hooks import HOOKS, Hook
 from mmengine.structures import BaseDataElement
-from fsd.datasets.transforms import (DefaultFormatBundle3D,
-                                        LoadAnnotations3D,
+from fsd.datasets.transforms import (LoadAnnotations3D,
                                         LoadImageFromFileMono3D,
                                         LoadMultiViewImageFromFiles,
                                         LoadPointsFromFileCarlaDataset,
                                         LoadPointsFromMultiSweeps,
                                         MultiScaleFlipAug3D,
                                         PointSegClassMapping,
-                                        Collect3D)
+                                        )
 from fsd.datasets.transforms import LoadImageFromFile
 from mmdet.models.dense_heads import GARPNHead, RPNHead
 from mmdet.models.roi_heads.mask_heads import FusedSemanticHead
@@ -146,8 +145,8 @@ def is_loading_function(transform):
     # TODO: use more elegant way to distinguish loading modules
     loading_functions = (LoadImageFromFile, LoadPointsFromFileCarlaDataset,
                          LoadAnnotations3D, LoadMultiViewImageFromFiles,
-                         LoadPointsFromMultiSweeps, DefaultFormatBundle3D,
-                         Collect3D, LoadImageFromFileMono3D,
+                         LoadPointsFromMultiSweeps,
+                         LoadImageFromFileMono3D,
                          PointSegClassMapping)
     if isinstance(transform, dict):
         obj_cls = TRANSFORMS.get(transform['type'])
