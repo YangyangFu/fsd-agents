@@ -264,6 +264,9 @@ def _fill_trainval_infos(nusc,
             # we need to convert box size to
             # the format of our lidar coordinate system
             # which is x_size, y_size, z_size (corresponding to l, w, h)
+            #TODO: this is still in nuscenes lidar coordinate with box defined as 
+            # (x, y, z, dx, dy, dz, yaw) where dx is the parallel to 
+            # the heading direction of the box, ie.e., length of the box
             gt_boxes = np.concatenate([locs, dims[:, [1, 0, 2]], rots], axis=1)
             assert len(gt_boxes) == len(
                 annotations), f'{len(gt_boxes)}, {len(annotations)}'

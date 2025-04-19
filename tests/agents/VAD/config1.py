@@ -360,7 +360,7 @@ model = dict(
 
 
 # data
-dataset_type = 'PlanDataset'
+dataset_type = 'NuscenesDatasetPlan3D'
 data_root = 'data/nuscenes/'
 file_client_args = dict(backend='disk')
 data_prefix = dict(
@@ -436,6 +436,8 @@ train_dataloader = dict(
         metainfo=metainfo,
         pipeline=train_pipeline,
         modality=input_modality,
+        box_type_3d_original='LiDAR', # original box in nuscenes are acatually Depth box in mmdet3d. 
+        box_type_3d='LiDAR',
         test_mode=False,
         #use_valid_flag=True,
         #bev_size=(bev_h_, bev_w_),

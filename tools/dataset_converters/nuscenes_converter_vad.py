@@ -346,9 +346,10 @@ def _fill_trainval_infos(nusc,
                 if names[i] in NuScenesNameMapping:
                     names[i] = NuScenesNameMapping[names[i]]
             names = np.array(names)
-            # we need to convert rot to SECOND format.
-            # box convention changes: lidar coord -> world or ego coord
-            # the pos are still in lidar coord
+            # we need to convert rot to SECOND lidar format.
+            # SECOND lidar yaw is left-handed definition. This is still in 
+            # Nuscenes lidar coord system but the box definition is following SECOND format.
+            ##!! change the rot format will break all checkpoint, so...
             gt_boxes = np.concatenate([locs, dims, -rots - np.pi / 2], axis=1)
             assert len(gt_boxes) == len(
                 annotations), f'{len(gt_boxes)}, {len(annotations)}'

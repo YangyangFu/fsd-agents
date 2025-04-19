@@ -20,11 +20,11 @@ def test_dataloader_registry():
 def test_dataloader():
     dataloader = Runner.build_dataloader(cfg.train_dataloader)
     
-    sample = next(iter(dataloader))
-    print(sample)
-    assert sample is not None
-
-
+    for i, data in enumerate(dataloader):
+        if i > 10:
+            break
+        print(data)
+        assert data is not None
 
 #test_model_registry()
 #test_dataloader_registry()
