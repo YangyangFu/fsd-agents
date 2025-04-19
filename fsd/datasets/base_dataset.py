@@ -24,35 +24,16 @@ from fsd.structures import TrajectoryData
 from fsd.datasets.utils import extract_result_dict, get_loading_pipeline
 from fsd.registry import DATASETS
 
+
 @DATASETS.register_module()
-class PlanDataset(BaseDataset):
+class BasePlanDataset(BaseDataset):
     """Base Class for 3D planning dataset.
     """
 
     # transformation matrix from dataset lidar coordinate to mmdet3d lidar
     # default is identity matrix
     TO_MMDET3D_LIDAR = np.eye(4)
-
-    #TODO: this should be removed once finished as this is a base class
-    METAINFO = {
-        'classes':
-        ('car', 'truck', 'trailer', 'bus', 'construction_vehicle', 'bicycle',
-         'motorcycle', 'pedestrian', 'traffic_cone', 'barrier'),
-        'version':
-        'v1.0-trainval',
-        'palette': [
-            (255, 158, 0),  # Orange
-            (255, 99, 71),  # Tomato
-            (255, 140, 0),  # Darkorange
-            (255, 127, 80),  # Coral
-            (233, 150, 70),  # Darksalmon
-            (220, 20, 60),  # Crimson
-            (255, 61, 99),  # Red
-            (0, 0, 230),  # Blue
-            (47, 79, 79),  # Darkslategrey
-            (112, 128, 144),  # Slategrey
-        ]
-    }
+    METAINFO = {}
     
     def __init__(self,
                  data_root: Optional[str] = None,
@@ -129,7 +110,7 @@ class PlanDataset(BaseDataset):
             self.label_mapping[-1] = -1
             self.num_ins_per_cat = [0] * len(self.METAINFO['classes'])
             
-        super(PlanDataset, self).__init__(
+        super(BasePlanDataset, self).__init__(
             ann_file=ann_file,
             metainfo=metainfo,
             data_root=data_root,
@@ -401,21 +382,24 @@ class PlanDataset(BaseDataset):
         xyr = np.zeros((self.past_steps + 1 + self.planning_steps, 3)) # past + current + future
         mask = np.zeros((self.past_steps + 1 + self.planning_steps,)) 
 
-        # current frame: 0 centered
+        # current frame: 0
+        # TODO: why not use ego2lidar instead of 0?
+        xyr[self.past_steps, :2] = 0
+        xyr[self.past_steps, 2] = 0 # yaw angle
+        mask[self.past_steps] = 1
         
         # past/future frames
         for i, idx in enumerate(index_list):
             # skip the current frame
             if idx == index:
-                mask[i] = 1
                 continue
             # check if index is within range
             if idx < 0 or idx >= len(self):
-                break 
+                continue
             # check if the the frames are from the same scene
             adj_info = self.get_data_info(idx)
             if curr_info['scene_token'] != adj_info['scene_token']:
-                break
+                continue
             
             lidar_adj2ego_adj = adj_info['lidar_points']['lidar2ego']
             ego_adj2world = adj_info['ego2global'] 
@@ -426,12 +410,17 @@ class PlanDataset(BaseDataset):
             xyr[i, 2] = np.arctan2(adj2curr[1, 0], adj2curr[0, 0]) # [-pi, pi]
             mask[i] = 1
             
-        return TrajectoryData(metainfo=dict(num_past_steps=self.past_steps, 
-                                            num_future_steps=self.planning_steps,
-                                            time_step=self.sample_interval/self.FPS), 
-                              data=xyr.astype(np.float32), 
-                              mask=mask.astype(np.bool_))
-            
+        traj = TrajectoryData(
+                metainfo=dict(mode='accumulated',
+                    num_past_steps=self.past_steps, 
+                    num_future_steps=self.planning_steps,
+                    time_step=self.sample_interval/self.FPS), 
+                data=xyr.astype(np.float32), 
+                mask=mask.astype(np.bool_)
+                )
+        traj.convert_to_mode('difference')
+        return traj
+    
     def _generate_past_future_instances_trajectory(self, index, curr_info):
         """Generate past and future trajectories for instances, 
             centered at the lidar coords in the current frame.
@@ -457,27 +446,28 @@ class PlanDataset(BaseDataset):
         # for each instance in the current frame, find its past and future trajectory
         for i, instance_id in enumerate(instances_ids):
             # TODO: should use accumulative points for the trajectory. if no more data, use the last point
+            # TODO: using diff in traj will have an issue when the instance is missing in some frame and appears again
             xyr = np.zeros((self.past_steps + 1 + self.planning_steps, 3)) # (T, 3)
             mask = np.zeros((self.past_steps + 1 + self.planning_steps,)) # (T,)    
             
-            # 
-            instance2lidar_curr = world2lidar_curr @ curr_info['ann_info']['gt_bboxes_pose'][i, :] # (4, 4)
-            xy_curr = instance2lidar_curr[:2, 3]
-            r_curr = np.arctan2(instance2lidar_curr[1, 0], instance2lidar_curr[0, 0]) # [-pi, pi]
+            # box to lidar_curr
+            instance2lidar_curr = world2lidar_curr @ curr_info['ann_info']['gt_bboxes_pose'][i] # (4, 4)
+            xyr[self.past_steps, :2] = instance2lidar_curr[:2, 3]
+            xyr[self.past_steps, 2] = np.arctan2(instance2lidar_curr[1, 0], instance2lidar_curr[0, 0]) # [-pi, pi]
+            mask[self.past_steps] = 1
             
             for j, idx in enumerate(index_list):
                 # skip the current frame
                 if idx == index:
-                    mask[j] = 1
                     continue
                 
                 # check if index is within range
                 if idx < 0 or idx >= len(self):
-                    break
+                    continue
                 # check if the the frames are from the same scene
                 adj_info = self.get_data_info(idx)
-                if curr_info['scene_token'] != adj_info['scene_token']:
-                    break
+                if curr_info['scene_token'] != adj_info['scene_token']:                    
+                    continue
                 # instance not found in the adjacent frame
                 if instance_id not in adj_info['ann_info']['gt_bboxes_id']:
                     continue
@@ -490,23 +480,26 @@ class PlanDataset(BaseDataset):
                 # viewing instance in adj frame lidar coords from the current frame's lidar coord
                 adj2curr = world2lidar_curr @ adj_info['ann_info']['gt_bboxes_pose'][adj_idx]
 
-                # 
-                xy_adj = adj2curr[:2, 3]
-                r_adj = np.arctan2(adj2curr[1, 0], adj2curr[0, 0]) # [-pi, pi]
-                
-                xyr[j, :2] = xy_adj - xy_curr
-                #TODO: should we normalize the yaw angle?
-                xyr[j, 2] = r_adj - r_curr # 
+                ## 
+                xyr[j, :2] = adj2curr[:2, 3]
+                xyr[j, 2] = np.arctan2(adj2curr[1, 0], adj2curr[0, 0]) # [-pi, pi]
                 mask[j] = 1
-        
-            trajs.append(TrajectoryData(metainfo=dict(num_past_steps=self.past_steps, 
-                                                num_future_steps=self.planning_steps,
-                                                time_step=self.sample_interval/self.FPS), 
-                                    data=xyr.astype(np.float32),
-                                    mask=mask.astype(np.bool_))
-        )
-        return trajs
+                 
+            # save as TrajectoryData
+            traj = TrajectoryData(
+                metainfo=dict(mode='accumulated',
+                    num_past_steps=self.past_steps, 
+                    num_future_steps=self.planning_steps,
+                    time_step=self.sample_interval/self.FPS), 
+                data=xyr.astype(np.float32), 
+                mask=mask.astype(np.bool_)
+            )
+            traj.convert_to_mode('difference')
                 
+            trajs.append(traj)
+        
+        return trajs
+
     def pre_pipeline(self, results):
         """Initialization before data preparation.
 

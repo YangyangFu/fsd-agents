@@ -34,6 +34,24 @@ class TrajectoryData(BaseDataElement):
     TrajectoryData also supports slicing, indexing and arithmetic addition and subtraction.
     
     """
+    def __init__(self, *args, **kwargs):
+        """Initialize the TrajectoryData.
+        Args:
+            mode (str): The mode of the trajectory data.
+                - 'accumulated': The trajectory data is accumulated over time, 
+                    i.e., the absolute position of the trajectory.
+                - 'difference': The trajectory data is the difference 
+                    between two consecutive points with 0 as the given center.
+                    i.e., the relative position of the trajectory.
+        """
+        super().__init__(*args, **kwargs)
+
+        if self.get('mode') == 'accumulated' and \
+            self.get('data') is not None \
+                and self.get('mask') is not None:
+            data = self._fill_nan(self.data, self.mask)
+            self.data = data
+            
     def __setattr__(self, name: str, value: Union[torch.Tensor, np.ndarray]):
         """setattr is only used to set data.
 
@@ -171,7 +189,6 @@ class TrajectoryData(BaseDataElement):
             return self._data
         
         return None
-        
     @data.setter
     def data(self, value: Array):
         """ Trajectory data
@@ -195,8 +212,13 @@ class TrajectoryData(BaseDataElement):
         #    assert value.shape[0] == nsteps, \
         #        "The trajectory steps in the data coordinates is not consistent with the meta info"
         
+        # if accumulated, fill the nan values: mask=false    
+        if self.get('mode') == 'accumulated' and self.get('mask') is not None:
+            value = self._fill_nan(value, self.mask)
+        # save to data
         self.set_field(value, '_data', dtype=type(value))
-        
+        self.set_center()
+    
     @data.deleter
     def data(self):
         del self._data
@@ -249,19 +271,123 @@ class TrajectoryData(BaseDataElement):
         """
         NotImplementedError("Concatenation of TrajectoryData is not supported")
 
-    @classmethod
-    def interpolate(self, timestamps)-> 'TrajectoryData':
-        """Interpolate the trajectory data to the given timestamps
+
+    def _fill_nan(self, data, mask)-> 'TrajectoryData':
+        """Fill the missing trajectory data between steps
+        """
+        data_type = type(data)
+        mask = mask.astype(bool)
+        
+        if data is None or mask is None:
+            return 
+        
+        # to numpy
+        if data_type == torch.Tensor:
+            data = data.cpu().numpy()
+
+        rows, cols = data.shape[:2]
+        index = np.arange(rows)
+        index_valid = index[mask]
+        
+        # fill the invalid data with interpolation/extrapolation
+        for col in range(cols):
+            col_data = data[:, col]        
+            data[:, col] = np.interp(index, index_valid, col_data[mask])
+            
+        # save back to the data
+        if data_type == torch.Tensor:
+            data = torch.from_numpy(data)
+        
+        return data
+        
+    def set_mode(self, mode: str):
+        """Set the mode of the trajectory data
         
         Args:
-            timestamps (torch.Tensor): The timestamps to interpolate the trajectory data to.
+            mode (str): The mode of the trajectory data.
+                - 'accumulated': The trajectory data is accumulated over time, 
+                    i.e., the absolute position of the trajectory.
+                - 'difference': The trajectory data is the difference 
+                    between two consecutive points with 0 as the given center.
+                    i.e., the relative position of the trajectory.
+        """
+        if mode not in ['accumulated', 'difference']:
+            raise ValueError("The mode of the trajectory data should be either 'accumulated' or 'difference'")
+        
+        self.set_field(mode, 'mode', field_type='metainfo')
+    
+    def set_center(self, center = None):
+        """Set the center of the trajectory data
+        
+        The center is the position of the trajectory at the given timestamp.
+        """
+        if center is None:
+            if self.data is not None:
+                center = self.data[self.num_past_steps, :]
+        else:
+            assert isinstance(center, (torch.Tensor, np.ndarray)), \
+                "Center should be a tensor"
+            assert center.ndim == 1, "Center should be a 1D tensor"
+
+        self.set_field(center, 'center', field_type='metainfo')
+            
+    def convert_to_mode(self, target_mode) -> 'TrajectoryData':
+        """Convert the trajectory data to the target mode
+        
+        Args:
+            target_mode (str): The target mode of the trajectory data.
+                - 'accumulated': The trajectory data is accumulated over time, 
+                    i.e., the absolute position of the trajectory.
+                - 'difference': The trajectory data is the difference 
+                    between two consecutive points with 0 as the given center.
+                    i.e., the relative position of the trajectory.
         
         Returns:
-            TrajectoryData: The interpolated trajectory data.
+            TrajectoryData: The converted trajectory data.
         """
-        raise NotImplementedError("Interpolation of TrajectoryData is not supported")
+        if self.get('mode') == target_mode:
+            return 
+        
+        if self.get('mode') == 'accumulated':
+            self.set_mode(target_mode)
+            orig_center = self.get('center')
+            # convert to difference
+            if isinstance(self.data, np.ndarray):
+                past_diff = np.diff(self.data[:self.num_past_steps+1, :], axis=0)
+                future_diff = np.diff(self.data[self.num_past_steps:, :], axis=0)
+                data = np.concatenate((past_diff, np.zeros_like(orig_center).reshape(1,-1), future_diff), axis=0)
+                # keep the center position for converting to accumulated mode
+                self.data = data
+                self.set_center(orig_center)
+            elif isinstance(self.data, torch.Tensor):
+                past_diff = torch.diff(self.data[:self.num_past_steps+1, :], dim=0)
+                future_diff = torch.diff(self.data[self.num_past_steps:, :], dim=0)
+                data = torch.cat((past_diff, torch.zeros_like(orig_center)[None, ...], future_diff), dim=0)
+                
+                # keep the center position for converting to accumulated mode
+                self.data = data
+                self.set_center(orig_center)
+                
+        elif self.get('mode') == 'difference':
+            self.set_mode(target_mode)
+            # convert to accumulated
+            data = self.data
+            data[self.num_past_steps, :] = self.get('center')
+            
+            if isinstance(self.data, np.ndarray):
+                past_diff = -data[:self.num_past_steps, :][::-1, :]
+                past_accum = np.cumsum(np.concatenate((self.center.reshape(1, -1), past_diff), axis=0), axis=0)[::-1, :]
+                future_accum = np.cumsum(data[self.num_past_steps:, :], axis=0) 
+                data = np.concatenate((past_accum[:self.num_past_steps], future_accum), axis=0)
+                self.data = data
+            elif isinstance(self.data, torch.Tensor):
+                past_diff = -data[:self.num_past_steps, :][::-1, :]
+                past_accum = torch.cumsum(torch.cat((self.center.reshape(1, -1), past_diff), dim=0), dim=0)[::-1, :]
+                future_accum = torch.cumsum(data[self.num_past_steps:, :], dim=0) 
+                data = torch.cat((past_accum[:self.num_past_steps], future_accum), dim=0)
+                self.data = data
 
-
+    
 class MultiModalTrajectoryData(TrajectoryData):
     """Multi-modal trajectory data structure to support multiple trajectories for one instance
     
@@ -628,18 +754,18 @@ class Instances(InstanceData):
     
     # gt labels
     @property
-    def labels(self) -> torch.Tensor:
+    def labels_3d(self) -> torch.Tensor:
         """The class labels of the instances
         
         Returns:
             torch.Tensor: The class labels of the instances
         """
-        if hasattr(self, '_labels'):
-            return self._labels
+        if hasattr(self, '_labels_3d'):
+            return self._labels_3d
         return None
 
-    @labels.setter
-    def labels(self, value: torch.Tensor):
+    @labels_3d.setter
+    def labels_3d(self, value: torch.Tensor):
         """The class labels of the instances
         
         Args:
@@ -650,11 +776,11 @@ class Instances(InstanceData):
         
         assert value.ndim == 1, "Class labels should be a 1D tensor"
         
-        self.set_field(value, '_labels', dtype=type(value))
+        self.set_field(value, '_labels_3d', dtype=type(value))
     
-    @labels.deleter
-    def labels(self):
-        del self._labels
+    @labels_3d.deleter
+    def labels_3d(self):
+        del self._labels_3d
     
     # pred scores of the labels
     @property

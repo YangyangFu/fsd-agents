@@ -3,7 +3,7 @@ import mmengine
 import numpy as np
 import torch
 from mmcv import BaseTransform
-from mmengine.structures import InstanceData, BaseDataElement
+from mmengine.structures import BaseDataElement
 from numpy import dtype
 
 from mmdet3d.structures import BaseInstance3DBoxes, Det3DDataSample, PointData
@@ -52,10 +52,6 @@ class Pack3DPlanInputs(BaseTransform):
     INSTANCEDATA_3D_KEYS = [
         'gt_bboxes_3d', 'gt_labels_3d', 'gt_bboxes_traj', 
         'attr_labels', 'depths', 'centers_2d'
-    ]
-    INSTANCEDATA_2D_KEYS = [
-        'gt_bboxes',
-        'gt_bboxes_labels',
     ]
 
     SEG_KEYS = [
@@ -235,11 +231,8 @@ class Pack3DPlanInputs(BaseTransform):
                 if key in self.INPUTS_KEYS:
                     inputs[key] = results[key]
                 elif key in self.INSTANCEDATA_3D_KEYS:
-                    print(key)
-                    gt_instances_3d[self._remove_prefix(key)] = results[key]
-                elif key in self.INSTANCEDATA_2D_KEYS:
-                    if key == 'gt_bboxes_labels':
-                        gt_instances_3d['labels'] = results[key]
+                    if key == 'gt_bboxes_traj':
+                        gt_instances_3d.traj = results[key]
                     else:
                         gt_instances_3d[self._remove_prefix(key)] = results[key]
                 elif key in self.SEG_KEYS:
@@ -255,8 +248,8 @@ class Pack3DPlanInputs(BaseTransform):
 
         data_sample.gt_instances_3d = gt_instances_3d
         data_sample.gt_ego = gt_ego
-
         data_sample.gt_pts_seg = gt_pts_seg
+        
         if 'eval_ann_info' in results:
             data_sample.eval_ann_info = results['eval_ann_info']
         else:
