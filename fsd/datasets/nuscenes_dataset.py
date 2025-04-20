@@ -17,9 +17,6 @@ from nuscenes.can_bus.can_bus_api import NuScenesCanBus
 from nuscenes.eval.common.utils import quaternion_yaw
 from pyquaternion import Quaternion
 
-# ego size in nuscenes
-ego_width, ego_length = 1.85, 4.084
-
 @DATASETS.register_module()
 class NuScenesDatasetPlan3D(BasePlanDataset):
     """NuScenes dataset for 3D planning tasks.
@@ -46,6 +43,10 @@ class NuScenesDatasetPlan3D(BasePlanDataset):
             (112, 128, 144),  # Slategrey
         ]
     }
+    
+    # TODO: find a better way for EGO
+    EGO_LENGTH = 1.85
+    EGO_WIDTH = 4.084
     
     def __init__(self,
                  data_root: Optional[str] = None,
