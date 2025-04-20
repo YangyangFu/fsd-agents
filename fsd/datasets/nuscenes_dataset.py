@@ -2,7 +2,6 @@
 from os import path as osp
 from typing import Callable, List, Union, Optional
 import numpy as np 
-from pyquaternion import Quaternion
 
 from mmengine.fileio import load
 from mmdet3d.structures import limit_period, CameraInstance3DBoxes, LiDARInstance3DBoxes
@@ -10,15 +9,19 @@ from mmdet3d.datasets import Det3DDataset
 from fsd.datasets import BasePlanDataset
 from fsd.datasets.convert_utils import nus_categories, NuScenesNameMapping
 from fsd.structures import TrajectoryData
-from fsd.utils import one_hot_encoding
 from fsd.registry import DATASETS
 
 # FOR NUSCENES
 from nuscenes.nuscenes import NuScenes
+from nuscenes.can_bus.can_bus_api import NuScenesCanBus
+from nuscenes.eval.common.utils import quaternion_yaw
 from pyquaternion import Quaternion
 
+# ego size in nuscenes
+ego_width, ego_length = 1.85, 4.084
+
 @DATASETS.register_module()
-class NuscenesDatasetPlan3D(BasePlanDataset):
+class NuScenesDatasetPlan3D(BasePlanDataset):
     """NuScenes dataset for 3D planning tasks.
     
     """
@@ -64,6 +67,7 @@ class NuscenesDatasetPlan3D(BasePlanDataset):
                  test_mode: bool = False,
                  load_eval_anns: bool = True,
                  show_ins_var: bool = False,
+                 with_can_bus: bool = True,
                  **kwargs) -> None:
         
         super().__init__(
@@ -90,6 +94,74 @@ class NuscenesDatasetPlan3D(BasePlanDataset):
         
         # add nuscenes 
         self.nusc = NuScenes(version=self.metainfo['version'], dataroot=self.data_root, verbose=False)
+        self.with_can_bus = with_can_bus
+        if self.with_can_bus:
+            self.can_bus = NuScenesCanBus(dataroot=self.data_root)
+            
+    def _get_can_bus_info(self, input_dict):
+        """Get can_bus information given the sample token in the input_dict.
+        
+        Returns:
+            input_dict (dict): Updated input_dict with 'can_bus' key.
+        """
+        sample_token = input_dict['token']
+        sample = self.nusc.get('sample', sample_token)
+        scene_token = sample['scene_token']
+        scene_name = self.nusc.get('scene', scene_token)['name']
+        sample_timestamp = sample['timestamp']
+        
+        # get can bus information
+        try:
+            pose_list = self.can_bus.get_messages(scene_name, 'pose')
+            can_bus = []
+            # during each scene, the first timestamp of can_bus may be large than the first sample's timestamp
+            last_pose = pose_list[0]
+            for i, pose in enumerate(pose_list):
+                if pose['utime'] > sample_timestamp:
+                    break
+                last_pose = pose
+            # first 16 elements (x, y, z, qx, qy, qz, qw, ax, ay, az, rx, ry, rz, vx, vy, vz)
+            pos = last_pose['pos'] # 3
+            orientation = last_pose['orientation'] # 4
+            can_bus.extend(pos) 
+            can_bus.extend(orientation)
+            for key in ['accel', 'rotation_rate', 'vel']:
+                can_bus.extend(pose[key])  
+            # the last two numbers are reserved for later calculation of rotation angle.
+            can_bus.extend([0., 0.])
+
+            # update pose from calibrated sensor data
+            ego2global_cs = np.array(input_dict['ego2global'])
+            rotation = Quaternion(matrix=ego2global_cs[:3, :3], atol=1e-6)
+            translation = ego2global_cs[:3, 3]
+            can_bus[:3] = translation
+            can_bus[3:7] = rotation
+            
+            # calculate yaw angle
+            patch_angle = quaternion_yaw(rotation)
+            if patch_angle < 0:
+                patch_angle += 2*np.pi
+            can_bus[-2] = patch_angle
+            
+            # get steering
+            steer_list = self.can_bus.get_messages(scene_name, 'steeranglefeedback')
+            last_steer = steer_list[0]
+            for i, steer in enumerate(steer_list):
+                if steer['utime'] > sample_timestamp:
+                    break
+                last_steer = steer
+            steer = last_steer['value']
+            can_bus[-1] = steer
+            
+        except:
+            can_bus = [0]*18  # server scenes do not have can bus information.
+            
+        # save to input_dict
+        input_dict.update(
+            can_bus=np.array(can_bus).astype(np.float32),
+        )
+        
+        return input_dict
     
     def _get_nuscenes_box_pose(self, sample_annotation):
         """Get the pose of the box in the world coordinate system.
@@ -102,7 +174,7 @@ class NuscenesDatasetPlan3D(BasePlanDataset):
         
         return box_pose
     
-    def _generate_past_future_instances_trajectory1(self, index, curr_info):
+    def _generate_past_future_instances_trajectory(self, index, curr_info):
         """Generate past and future trajectories for instances, 
             centered at the lidar coords in the current frame.
 
@@ -201,6 +273,32 @@ class NuscenesDatasetPlan3D(BasePlanDataset):
         return trajs
           
 
-    
-    
-    
+    def prepare_train_data(self, index):
+        """Training data preparation.
+
+        Args:
+            index (int): Index for accessing the target data.
+
+        Returns:
+            dict: Training data dict of the corresponding index.
+        """
+        # get data info
+        input_dict = self.get_data_info(index)
+        if not input_dict:
+            return None
+        
+        # can bus information
+        if self.with_can_bus:
+            input_dict = self._get_can_bus_info(input_dict)
+        
+        # add past/future annotation info, such as future trajectory
+        input_dict = self.generate_past_future_info(index, input_dict)
+         
+        # assemble for data pipeline
+        self.pre_pipeline(input_dict)
+        example = self.pipeline(input_dict)
+        if self.filter_empty_gt and \
+                (example is None or
+                    ~(example['data_samples'].gt_instances_3d.labels_3d != -1).any()):
+            return None
+        return example
