@@ -1,7 +1,9 @@
 # Nuscenes dataset for planning tasks
+import os
 from os import path as osp
 from typing import Callable, List, Union, Optional
 import numpy as np 
+import copy
 
 from mmengine.fileio import load
 from mmdet3d.structures import limit_period, CameraInstance3DBoxes, LiDARInstance3DBoxes
@@ -45,8 +47,8 @@ class NuScenesDatasetPlan3D(BasePlanDataset):
     }
     
     # TODO: find a better way for EGO
-    EGO_LENGTH = 1.85
-    EGO_WIDTH = 4.084
+    EGO_LENGTH = 4.084
+    EGO_WIDTH = 1.85
     
     def __init__(self,
                  data_root: Optional[str] = None,
@@ -71,6 +73,15 @@ class NuScenesDatasetPlan3D(BasePlanDataset):
                  with_can_bus: bool = True,
                  **kwargs) -> None:
         
+        # attribute
+        self.with_can_bus = with_can_bus
+        if self.with_can_bus:
+            self.can_bus = NuScenesCanBus(dataroot=data_root)
+            
+        # add nuscenes before super().__init__() 
+        version = metainfo.get('version', self.METAINFO['version'])
+        self.nusc = NuScenes(version=version, dataroot=data_root, verbose=False)
+                    
         super().__init__(
             data_root=data_root,
             ann_file=ann_file,
@@ -93,15 +104,23 @@ class NuScenesDatasetPlan3D(BasePlanDataset):
             show_ins_var=show_ins_var,
             **kwargs)
         
-        # add nuscenes 
-        self.nusc = NuScenes(version=self.metainfo['version'], dataroot=self.data_root, verbose=False)
-        self.with_can_bus = with_can_bus
-        if self.with_can_bus:
-            self.can_bus = NuScenesCanBus(dataroot=self.data_root)
-            
     def _get_can_bus_info(self, input_dict):
         """Get can_bus information given the sample token in the input_dict.
         
+        can_bus is a list of 18 elements:
+            [x, y, z, qw, qx, qy, qz, ax, ay, az, rx, ry, rz, vx, vy, vz, yaw, steer]
+            where:
+            - x, y, z are the translation of the ego vehicle in the world coordinate system in meters,
+            - qw, qx, qy, qz are the rotation vector in the ego vehicle frame
+            - ax, ay, az are the acceleration vector in the ego vehicle frame in m/s^2
+            - rx, ry, rz are the angular velocity vector in the ego vehicle frame in rad/s
+            - vx, vy, vz are the velocity in the ego vehicle frame in m/s
+            - yaw is the yaw angle in the ego vehicle frame in radians
+            - steer is the steering angle in radians in range [-7.7, 6.3]. 
+                0 indicates no steering, positive values indicate left turns, 
+                negative values right turns.
+
+            
         Returns:
             input_dict (dict): Updated input_dict with 'can_bus' key.
         """
@@ -114,49 +133,59 @@ class NuScenesDatasetPlan3D(BasePlanDataset):
         # get can bus information
         try:
             pose_list = self.can_bus.get_messages(scene_name, 'pose')
-            can_bus = []
-            # during each scene, the first timestamp of can_bus may be large than the first sample's timestamp
-            last_pose = pose_list[0]
-            for i, pose in enumerate(pose_list):
-                if pose['utime'] > sample_timestamp:
-                    break
-                last_pose = pose
-            # first 16 elements (x, y, z, qx, qy, qz, qw, ax, ay, az, rx, ry, rz, vx, vy, vz)
-            pos = last_pose['pos'] # 3
-            orientation = last_pose['orientation'] # 4
-            can_bus.extend(pos) 
-            can_bus.extend(orientation)
-            for key in ['accel', 'rotation_rate', 'vel']:
-                can_bus.extend(pose[key])  
-            # the last two numbers are reserved for later calculation of rotation angle.
-            can_bus.extend([0., 0.])
-
-            # update pose from calibrated sensor data
-            ego2global_cs = np.array(input_dict['ego2global'])
-            rotation = Quaternion(matrix=ego2global_cs[:3, :3], atol=1e-6)
-            translation = ego2global_cs[:3, 3]
-            can_bus[:3] = translation
-            can_bus[3:7] = rotation
-            
-            # calculate yaw angle
-            patch_angle = quaternion_yaw(rotation)
-            if patch_angle < 0:
-                patch_angle += 2*np.pi
-            can_bus[-2] = patch_angle
-            
-            # get steering
             steer_list = self.can_bus.get_messages(scene_name, 'steeranglefeedback')
-            last_steer = steer_list[0]
-            for i, steer in enumerate(steer_list):
-                if steer['utime'] > sample_timestamp:
-                    break
-                last_steer = steer
-            steer = last_steer['value']
-            can_bus[-1] = steer
-            
         except:
-            can_bus = [0]*18  # server scenes do not have can bus information.
+            # if no can bus information, return a default value
+            can_bus = [0]*18
+            input_dict.update(
+                can_bus=np.array(can_bus).astype(np.float32),
+            )
+            return input_dict
             
+        can_bus = []
+        # during each scene, the first timestamp of can_bus may be large than the first sample's timestamp
+        last_pose = pose_list[0]
+        for i, pose in enumerate(pose_list):
+            if pose['utime'] > sample_timestamp:
+                break
+            last_pose = pose
+        # first 16 elements (x, y, z, qx, qy, qz, qw, ax, ay, az, rx, ry, rz, vx, vy, vz)
+        pos = last_pose['pos'] # 3
+        orientation = last_pose['orientation'] # 4
+        can_bus.extend(pos) 
+        can_bus.extend(orientation)
+        for key in ['accel', 'rotation_rate', 'vel']:
+            can_bus.extend(pose[key])  
+        # the last two numbers are reserved for later calculation of rotation angle.
+        can_bus.extend([0., 0.])
+
+        # update pose from calibrated sensor data
+        ego2global_cs = np.array(input_dict['ego2global'])
+        # q =-q due to sign ambiguity in quaternion representation
+        rotation = Quaternion(matrix=ego2global_cs[:3, :3], atol=1e-6)
+        if rotation.w < 0:
+            rotation = -rotation
+        translation = ego2global_cs[:3, 3]
+        can_bus[:3] = translation
+        can_bus[3:7] = rotation
+        
+        # calculate yaw angle
+        yaw_angle = quaternion_yaw(rotation)
+        can_bus[-2] = yaw_angle
+        
+        # get steering: positive means turn left
+        # note in left-handed system, this may need to be flipped to keep consistent with
+        # the right-handed system when data are collected from different driving systems.
+        # TODO: add singpore for left-handed system 
+        last_steer = steer_list[0]
+        for i, steer in enumerate(steer_list):
+            if steer['utime'] > sample_timestamp:
+                break
+            last_steer = steer
+        steer = last_steer['value']
+        can_bus[-1] = steer
+        
+
         # save to input_dict
         input_dict.update(
             can_bus=np.array(can_bus).astype(np.float32),
@@ -272,8 +301,64 @@ class NuScenesDatasetPlan3D(BasePlanDataset):
             trajs.append(traj)
             
         return trajs
-          
 
+    def parse_data_info(self, info: dict) -> dict:
+        """Process the raw data info.
+
+        Convert all relative path of needed modality data file to
+        the absolute path. And process the `instances` field to
+        `ann_info` in training stage.
+
+        Args:
+            info (dict): Raw info dict.
+
+        Returns:
+            dict: Has `ann_info` in training stage. And
+            all path has been converted to absolute path.
+        """
+        info = copy.deepcopy(info)
+        if self.modality['use_lidar']:
+            info['lidar_points']['lidar_path'] = \
+                osp.join(
+                    self.data_prefix.get('pts', ''),
+                    info['lidar_points']['lidar_path'])
+
+            info['num_pts_feats'] = info['lidar_points']['num_pts_feats']
+            info['lidar_path'] = info['lidar_points']['lidar_path']
+            if 'lidar_sweeps' in info:
+                for sweep in info['lidar_sweeps']:
+                    file_suffix = sweep['lidar_points']['lidar_path'].split(
+                        os.sep)[-1]
+                    if 'samples' in sweep['lidar_points']['lidar_path']:
+                        sweep['lidar_points']['lidar_path'] = osp.join(
+                            self.data_prefix['pts'], file_suffix)
+                    else:
+                        sweep['lidar_points']['lidar_path'] = osp.join(
+                            self.data_prefix['sweeps'], file_suffix)
+
+        if self.modality['use_camera']:
+            for cam_id, img_info in info['images'].items():
+                if 'img_path' in img_info:
+                    if cam_id in self.data_prefix:
+                        cam_prefix = self.data_prefix[cam_id]
+                    else:
+                        cam_prefix = self.data_prefix.get('img', '')
+                    img_info['img_path'] = osp.join(cam_prefix,
+                                                    img_info['img_path'])
+
+        # add can bus info: info['can_bus']
+        if self.with_can_bus:
+            info = self._get_can_bus_info(info)
+        
+        # add anno info
+        if not self.test_mode:
+            # used in training
+            info['ann_info'] = self.parse_ann_info(info)
+        if self.test_mode and self.load_eval_anns:
+            info['eval_ann_info'] = self.parse_ann_info(info)
+
+        return info
+              
     def prepare_train_data(self, index):
         """Training data preparation.
 
