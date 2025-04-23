@@ -830,8 +830,8 @@ class Instances(InstanceData):
         Args:
             value (TrajectoryData): The trajectory of the instances
         """
-        assert isinstance(value, list) and isinstance(value[0], TrajectoryData), \
-            "trajectory should be a TrajectoryData object"
+        assert isinstance(value, list) and (len(value) == 0 or isinstance(value[0], TrajectoryData)), \
+            "trajectory should be a TrajectoryData object or empty"
         
         self.set_field(value, '_traj', dtype=type(value))
     
