@@ -492,8 +492,6 @@ class BasePlanDataset(BaseDataset):
                 
         # for each instance in the current frame, find its past and future trajectory
         for i, instance_id in enumerate(instances_ids):
-            # TODO: should use accumulative points for the trajectory. if no more data, use the last point
-            # TODO: using diff in traj will have an issue when the instance is missing in some frame and appears again
             xyr = np.zeros((self.past_steps + 1 + self.planning_steps, 3)) # (T, 3)
             mask = np.zeros((self.past_steps + 1 + self.planning_steps,)) # (T,)    
             
