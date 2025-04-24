@@ -55,8 +55,45 @@ class BasePlanDataset(BaseDataset):
                  test_mode: bool = False,
                  load_eval_anns: bool = True,
                  show_ins_var: bool = False,
+                 with_goal_points: bool = True,
                  **kwargs) -> None:
-
+        
+        """Initialize the dataset.
+        
+        Args:
+            data_root (str): Root directory path of the dataset.
+            ann_file (str): Path to the annotation file.
+            metainfo (dict): Metainfo of the dataset.
+            data_prefix (dict): Prefix of the dataset.
+                - pts (str): Prefix of point cloud data.
+                - img (str): Prefix of image data.
+            pipeline (list[dict | callable]): Processing pipeline.
+            modality (dict): Modality of the dataset.
+                - use_lidar (bool): Whether to use lidar data.
+                - use_camera (bool): Whether to use camera data.
+            camera_sensors (list[str]): List of camera sensors.
+            lidar_sensors (list[str]): List of lidar sensors.
+            box_type_3d_original (str): Box type of MMDet3D boxes in the original annotation file.
+                - Depth: depth coordinate
+                - Lidar: lidar coordinate
+                - Camera: camera coordinate
+            box_type_3d (str): targeted box type of MMDet3D for the dataset.
+                - Depth: depth coordinate
+                - Lidar: lidar coordinate
+                - Camera: camera coordinate
+            filter_empty_gt (bool): Whether to filter empty ground truth. Usually used after pipeline.
+            past_steps (int): Number of past steps for trajectory generation.
+            prediction_steps (int): Number of prediction steps for agent trajectory generation.
+            planning_steps (int): Number of planning steps for ego trajectory generation.
+            sample_interval (int): Sample interval for trajectory generation.
+            FPS (int): Frame per second in original data
+            test_mode (bool): Whether the dataset is in test mode.
+            load_eval_anns (bool): Whether to load evaluation annotations.
+            show_ins_var (bool): Whether to show instance variation.
+            with_goal_points (bool): Whether to add goal points to trajectory.
+        
+        """ 
+        
         self.camera_sensors = [sensor.upper() for sensor in camera_sensors] if camera_sensors is not None else None
         self.lidar_sensors = [sensor.upper() for sensor in lidar_sensors] if lidar_sensors is not None else None
         self.filter_empty_gt = filter_empty_gt
@@ -68,6 +105,9 @@ class BasePlanDataset(BaseDataset):
         self.planning_steps = planning_steps
         self.sample_interval = sample_interval
         self.FPS = FPS
+        
+        # add goal points to trajectory
+        self.with_goal_points = with_goal_points
         
         # modality
         _default_modality_keys = ('use_lidar', 'use_camera')
@@ -418,7 +458,14 @@ class BasePlanDataset(BaseDataset):
                 data=xyr.astype(np.float32), 
                 mask=mask.astype(np.bool_)
                 )
+        # get goal point
+        if self.with_goal_points:
+            #TODO: bugs when indexing
+            traj.set_field(traj.data[-1, :], 'goal', field_type='metainfo')
+        
+        # difference mode for traj
         traj.convert_to_mode('difference')
+        
         return traj
     
     def _generate_past_future_instances_trajectory(self, index, curr_info):
@@ -494,6 +541,11 @@ class BasePlanDataset(BaseDataset):
                 data=xyr.astype(np.float32), 
                 mask=mask.astype(np.bool_)
             )
+            
+            if self.with_goal_points:
+                #TODO: bugs when indexing
+                traj.set_field(traj.data[-1, :], 'goal', field_type='metainfo')
+            
             traj.convert_to_mode('difference')
                 
             trajs.append(traj)

@@ -3,7 +3,7 @@ from os import path as osp
 from typing import Callable, List, Union, Optional
 import numpy as np 
 from mmengine.fileio import load
-from mmdet3d.structures import limit_period, CameraInstance3DBoxes, LiDARInstance3DBoxes
+from mmdet3d.structures import limit_period, CameraInstance3DBoxes, LiDARInstance3DBoxes, DepthInstance3DBoxes
 
 from fsd.datasets import NuScenesDatasetPlan3D
 from fsd.datasets.convert_utils import nus_categories, NuScenesNameMapping
@@ -138,7 +138,6 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
 
         return local
 
-    
     def _get_agents_local_context(self, input_dict: dict) -> np.ndarray:
         """Get local context feature for agents. Shape is (N, 9), where N is the number of agents.
             - x, y: position in lidar frame
@@ -167,7 +166,62 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         
         return local 
     
-    
+    def _get_agents_goal_direction(self, trajs: list) -> np.ndarray:
+                
+        num_agents = len(trajs)
+        directions = np.zeros((num_agents, 1), dtype=np.float32)
+        
+        directions = []
+        for i in range(num_agents):
+            traj = trajs[i]
+            # get the last point of the trajectory
+            center = traj.center[:2]
+            goal = traj.goal[:2]
+            diff = goal - center
+            if diff.max() < 1.0: # static
+                direction = 9
+            else:
+                box_yaw = np.arctan2(diff[1], diff[0]) + np.pi # [0, 2pi]
+                direction = box_yaw // (np.pi / 4) # 0-8
+            directions.append(direction)
+
+        return np.array(directions, dtype=np.int8)
+   
+    def _add_agents_attributes(self, input_dict: dict) -> None:
+        """Add agent attributes to the input dict.
+           [future_traj, future_traj_mask, goal, local_context, yaw]
+
+        Args:
+            input_dict (dict): Input data dictionary.
+            
+        """
+        fut_traj = []
+        fut_traj_mask = []
+        goal = []
+        trajs = input_dict['ann_info']['gt_bboxes_traj'] if 'ann_info' in input_dict else input_dict['eval_ann_info']['gt_bboxes_traj']
+        for traj in trajs:
+            fut_traj.append(traj.data[-self.prediction_steps:, :])
+            fut_traj_mask.append(traj.mask[-self.prediction_steps:])
+            goal.append(traj.goal)
+        fut_traj = np.stack(fut_traj, axis=0)
+        fut_traj_mask = np.stack(fut_traj_mask, axis=0)
+        goal = np.stack(goal, axis=0)
+        
+        # extrack goal direction
+        goal_direction = self._get_agents_goal_direction(trajs)
+        
+        
+        attr = np.concatenate([fut_traj[:, :, :2].reshape(-1, self.prediction_steps * 2), 
+                fut_traj_mask, 
+                goal_direction.reshape(-1, 1),
+                input_dict['agent_local_context'],
+                fut_traj[:, :, -1]
+                ], 
+            axis=-1
+        ).astype(np.float32)
+        
+        input_dict['gt_bboxes_attr'] = attr 
+         
     def prepare_train_data(self, index):
         """Training data preparation.
 
@@ -183,19 +237,20 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
             return None
         
         # get ego local context feature
-        ego_local = self._get_ego_local_context(input_dict)
-        input_dict['ego_local_context'] = ego_local
-        agent_local = self._get_agents_local_context(input_dict)
-        input_dict['agent_local_context'] = agent_local
-        
+        input_dict['ego_local_context'] = self._get_ego_local_context(input_dict)
+        input_dict['agent_local_context'] = self._get_agents_local_context(input_dict)
+
         # add past/future annotation info, such as future trajectory
         input_dict = self.generate_past_future_info(index, input_dict)
-         
+        
+        # add agent attributes as in original VAD paper
+        self._add_agents_attributes(input_dict)
+        
         # assemble for data pipeline
         self.pre_pipeline(input_dict)
         example = self.pipeline(input_dict)
         if self.filter_empty_gt and \
                 (example is None or
-                    ~(example['data_samples'].gt_instances_3d.labels_3d != -1).any()):
+                    ~(example['data_samples'].gt_instances_3d.gt_labels_3d != -1).any()):
             return None
         return example

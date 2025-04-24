@@ -295,6 +295,10 @@ class NuScenesDatasetPlan3D(BasePlanDataset):
             traj.data=xyr.astype(np.float32)
             traj.mask=mask.astype(np.bool_)
             
+            if self.with_goal_points:
+                #TODO: bugs when indexing
+                traj.set_field(traj.data[-1, :], 'goal', field_type='metainfo')
+                
             # to diff mode
             traj.convert_to_mode('difference')
             # save
