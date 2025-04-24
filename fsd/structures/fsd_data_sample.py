@@ -77,10 +77,10 @@ class PlanningDataSample(BaseDataElement):
     def pred_instances_3d(self) -> Instances:
         return self._pred_instances_3d
     @pred_instances_3d.setter
-    def pred_instances(self, value: Instances):
+    def pred_instances_3d(self, value: Instances):
         self.set_field(value, "_pred_instances_3d", dtype=Instances)
     @pred_instances_3d.deleter
-    def pred_instances(self) -> None:
+    def pred_instances_3d(self) -> None:
         del self._pred_instances_3d
         
     # properties: grids 

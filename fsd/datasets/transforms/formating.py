@@ -50,8 +50,8 @@ def to_tensor(
 class Pack3DPlanInputs(BaseTransform):
     INPUTS_KEYS = ['points', 'img']
     INSTANCEDATA_3D_KEYS = [
-        'gt_bboxes_3d', 'gt_labels_3d', 'gt_bboxes_traj', 
-        'attr_labels', 'depths', 'centers_2d'
+        'gt_bboxes_3d', 'gt_labels_3d', 'gt_bboxes_traj', 'gt_bboxes_goal',
+        'bboxes_context', 'depths', 
     ]
 
     SEG_KEYS = [
@@ -60,7 +60,7 @@ class Pack3DPlanInputs(BaseTransform):
     ]
 
     EGO_KEYS = [
-        'gt_ego_traj'
+        'gt_ego_traj', 'ego_context', 'ego_goal'
     ]
 
     MAP_KEYS = []
@@ -173,12 +173,14 @@ class Pack3DPlanInputs(BaseTransform):
                     img = to_tensor(
                         np.ascontiguousarray(img.transpose(2, 0, 1)))
                 results['img'] = img
-
+                
+        # format annotations
         for key in [
-                'proposals', 'gt_bboxes', 'gt_bboxes_ignore', 'gt_labels',
-                'gt_bboxes_labels', 'attr_labels', 'pts_instance_mask',
-                'pts_semantic_mask', 'centers_2d', 'depths', 'gt_labels_3d',
-                'gt_bboxes_traj', 'gt_ego_traj'
+                'gt_labels_3d', 'gt_bboxes_traj',
+                'bboxes_context', 'pts_instance_mask',
+                'pts_semantic_mask', 'gt_ego_traj', 'ego_context',
+                'depths', 'proposals' 
+                
         ]:
             if key not in results:
                 continue
@@ -231,15 +233,18 @@ class Pack3DPlanInputs(BaseTransform):
                 if key in self.INPUTS_KEYS:
                     inputs[key] = results[key]
                 elif key in self.INSTANCEDATA_3D_KEYS:
-                    if key == 'gt_bboxes_traj':
-                        gt_instances_3d.traj = results[key]
+                    if key == 'gt_labels_3d':
+                        gt_instances_3d['label'] = results[key]
+                    elif key == 'gt_bboxes_3d':
+                        gt_instances_3d['bbox'] = results[key]
                     else:
-                        gt_instances_3d[self._remove_prefix(key)] = results[key]
+                        _key = key.split('_')[-1]
+                        gt_instances_3d[_key] = results[key]
                 elif key in self.SEG_KEYS:
                     gt_pts_seg[self._remove_prefix(key)] = results[key]
                 elif key in self.EGO_KEYS:
-                    if key == 'gt_ego_traj':
-                        gt_ego.traj = results[key]
+                    _key = key.split('_')[-1]
+                    gt_ego[_key] = results[key]
                 else:
                     raise NotImplementedError(f'Please modified '
                                               f'`Pack3DDetInputs` '

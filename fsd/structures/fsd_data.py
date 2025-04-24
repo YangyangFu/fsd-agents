@@ -525,28 +525,46 @@ class Ego(BaseDataElement):
     """ Data structure for ego vehicle information
     
     Attributes:
-        - goal_point (torch.Tensor): The goal point of the ego vehicle.
-        - ego2world (torch.Tensor): The transformation matrix from ego to world coordinates.
-        - gt_traj (TrajectoryData): The trajectory of the ego vehicle.
-        - pred_traj (TrajectoryData): The predicted trajectory of the ego vehicle.
+        - pose (torch.Tensor): The transformation matrix from ego to world coordinates.
+        - traj (TrajectoryData): The trajectory of the ego vehicle.
+        - goal (torch.Tensor): The goal point of the ego vehicle.
+        - context (torch.Tensor): The local context features of the ego vehicle.
     """
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __setattr__(self, name: str, value: Sized):
+        """setattr is only used to set data.
+
+        The value must have the attribute of `__len__` and have the same length
+        of `InstanceData`.
+        """
+        if name in ('_metainfo_fields', '_data_fields'):
+            if not hasattr(self, name):
+                super().__setattr__(name, value)
+            else:
+                raise AttributeError(f'{name} has been used as a '
+                                     'private attribute, which is immutable.')
+
+        else:
+            assert isinstance(value,
+                              Sized), 'value must contain `__len__` attribute'
+
+            super().__setattr__(name, value)
+
+    __setitem__ = __setattr__
     
     @property
-    def goal_point(self) -> torch.Tensor:
+    def goal(self) -> torch.Tensor:
         """The goal point of the ego vehicle
         
         Returns:
             torch.Tensor: The goal point of the ego vehicle
         """
-        if hasattr(self, '_goal_point'):
+        if hasattr(self, '_goal'):
             return self._goal_point
         return None
     
-    @goal_point.setter
-    def goal_point(self, value: torch.Tensor):
+    @goal.setter
+    def goal(self, value: torch.Tensor):
         """Goal point of the ego vehicle
         
         Args:
@@ -556,11 +574,11 @@ class Ego(BaseDataElement):
             "Goal point should be a tensor"
         
         assert value.ndim == 1, "Goal point should be a 1D tensor"        
-        self.set_field(value, '_goal_point', dtype=type(value))
+        self.set_field(value, '_goal', dtype=type(value))
     
-    @goal_point.deleter
-    def goal_point(self):
-        del self._goal_point
+    @goal.deleter
+    def goal(self):
+        del self._goal
     
     @property
     def pose(self) -> torch.Tensor:
@@ -603,7 +621,6 @@ class Ego(BaseDataElement):
         if hasattr(self, '_traj'):
             return self._traj
         return None
-    
     @traj.setter
     def traj(self, value: Union[TrajectoryData, MultiModalTrajectoryData]):
         """The trajectory of the ego vehicle
@@ -615,42 +632,71 @@ class Ego(BaseDataElement):
             "Trajectory should be a TrajectoryData object"
         
         self.set_field(value, '_traj', dtype=type(value))
-    
     @traj.deleter
     def traj(self):
         del self._traj
- 
- 
+    
+    # local context
+    @property
+    def context(self) -> torch.Tensor:
+        """The local context features of the ego vehicle
+        
+        Returns:
+            torch.Tensor: The local context features of the ego vehicle
+        """
+        if hasattr(self, '_context'):
+            return self._context
+        return None
+    @context.setter
+    def context(self, value: torch.Tensor):
+        """The local context features of the ego vehicle
+        
+        Args:
+            value (torch.Tensor): The local context features of the ego vehicle
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)), \
+            "Local context should be a tensor"
+        
+        self.set_field(value, '_context', dtype=type(value))
+    @context.deleter
+    def context(self):
+        del self._context
+    
+    # 
+    def __len__(self) -> int:
+        """int: The length of Ego."""
+        if len(self._data_fields) > 0:
+            return len(self.values()[0])
+        else:
+            return 0
 class Instances(InstanceData):
     """ Data structure for instance annotations
     
     Attributes:
         - ids (torch.Tensor): The instance ids of the instances.
-        - bboxes_mask (torch.Tensor): mask of the instances to be ignored.
+        - mask (torch.Tensor): mask of the instances to be ignored.
         - pose (torch.Tensor): The transformation matrix from the instances to world coordinates.
         
-        - gt_bboxes_3d (torch.Tensor): The bounding boxes of the instances, typically in lidary coord
-        - pred_bboxes_3d (torch.Tensor): The predicted bounding boxes of the instances, typically in lidar coord
-        - gt_labels (torch.Tensor): The class labels of the instances.
-        - pred_labels (torch.Tensor): The predicted class labels of the instances.
-        - pred_scores (torch.Tensor): The predicted scores of the instances.
-        - gt_traj (TrajectoryData): The past trajectory of the instances, typically in lidar coord
-        - pred_traj (TrajectoryData): The future trajectory of the instances, typicall in lidar coord
+        - bboxes (torch.Tensor): The bounding boxes of the instances, typically in lidary coord.
+        - labels (torch.Tensor): The class labels of the instances.
+        - scores (torch.Tensor): The predicted scores of the instances.
+        - traj (TrajectoryData): The trajectory of the instances, typically in lidar coord.
+        - context (torch.Tensor): The local context features of the instances.  
     """
 
     @property
-    def ids(self) -> torch.Tensor:
+    def id(self) -> torch.Tensor:
         """The instance ids of the instances
         
         Returns:
             torch.Tensor: The instance ids of the instances
         """
-        if hasattr(self, '_ids'):
-            return self._ids
+        if hasattr(self, '_id'):
+            return self._id
         return None
     
-    @ids.setter
-    def ids(self, value: torch.Tensor):
+    @id.setter
+    def id(self, value: torch.Tensor):
         """The instance ids of the instances
         
         Args:
@@ -661,14 +707,14 @@ class Instances(InstanceData):
         
         assert value.ndim == 1, "Instance ids should be a 1D tensor"
         
-        self.set_field(value, '_ids', dtype=type(value))
+        self.set_field(value, '_id', dtype=type(value))
     
-    @ids.deleter
-    def ids(self):
-        del self._ids
+    @id.deleter
+    def id(self):
+        del self._id
     
     @property
-    def bboxes_mask(self) -> torch.Tensor:
+    def mask(self) -> torch.Tensor:
         """The mask of the instances
         
         Returns:
@@ -678,8 +724,8 @@ class Instances(InstanceData):
             return self._bboxes_mask
         return None
     
-    @bboxes_mask.setter
-    def bboxes_mask(self, value: torch.Tensor):
+    @mask.setter
+    def mask(self, value: torch.Tensor):
         """The mask of the instances
         
         Args:
@@ -692,23 +738,23 @@ class Instances(InstanceData):
         
         self.set_field(value, '_bboxes_mask', dtype=type(value))
     
-    @bboxes_mask.deleter
-    def bboxes_mask(self):
+    @mask.deleter
+    def mask(self):
         del self._bboxes_mask
     
     @property
-    def poses(self) -> torch.Tensor:
+    def pose(self) -> torch.Tensor:
         """The transformation matrix from the instances to world coordinates
         
         Returns:
             torch.Tensor: The transformation matrix from the instances to world coordinates
         """
-        if hasattr(self, '_poses'):
-            return self._poses
+        if hasattr(self, '_pose'):
+            return self._pose
         return None
 
-    @poses.setter
-    def poses(self, value: torch.Tensor):
+    @pose.setter
+    def pose(self, value: torch.Tensor):
         """The transformation matrix from the instances to world coordinates
         
         Args:
@@ -719,25 +765,25 @@ class Instances(InstanceData):
         
         assert value.shape[-2:] == (4, 4), "Transformation matrix for each isntance should be a 4x4 tensor"
 
-        self.set_field(value, '_poses', dtype=type(value))
+        self.set_field(value, '_pose', dtype=type(value))
     
-    @poses.deleter
-    def poses(self):
-        del self._poses
+    @pose.deleter
+    def pose(self):
+        del self._pose
     
     @property
-    def bboxes_3d(self) -> torch.Tensor:
-        """The bounding boxes of the instances
+    def bbox(self) -> torch.Tensor:
+        """The 3D bounding boxes of the instances
         
         Returns:
             torch.Tensor: The bounding boxes of the instances
         """
-        if hasattr(self, '_bboxes_3d'):
-            return self._bboxes_3d
+        if hasattr(self, '_bbox'):
+            return self._bbox
         return None
     
-    @bboxes_3d.setter
-    def bboxes_3d(self, value: torch.Tensor):
+    @bbox.setter
+    def bbox(self, value: torch.Tensor):
         """The bounding boxes of the instances
         
         Args:
@@ -746,26 +792,26 @@ class Instances(InstanceData):
         assert isinstance(value, BaseInstance3DBoxes), \
             "Bounding boxes should be a BaseInstance3DBoxes object"
         
-        self.set_field(value, '_bboxes_3d', dtype=type(value))
+        self.set_field(value, '_bbox', dtype=type(value))
     
-    @bboxes_3d.deleter
-    def bboxes_3d(self):
-        del self._bboxes_3d
+    @bbox.deleter
+    def bbox(self):
+        del self._bbox
     
     # gt labels
     @property
-    def labels_3d(self) -> torch.Tensor:
+    def label(self) -> torch.Tensor:
         """The class labels of the instances
         
         Returns:
             torch.Tensor: The class labels of the instances
         """
-        if hasattr(self, '_labels_3d'):
-            return self._labels_3d
+        if hasattr(self, '_label'):
+            return self._label
         return None
 
-    @labels_3d.setter
-    def labels_3d(self, value: torch.Tensor):
+    @label.setter
+    def label(self, value: torch.Tensor):
         """The class labels of the instances
         
         Args:
@@ -776,26 +822,26 @@ class Instances(InstanceData):
         
         assert value.ndim == 1, "Class labels should be a 1D tensor"
         
-        self.set_field(value, '_labels_3d', dtype=type(value))
+        self.set_field(value, '_label', dtype=type(value))
     
-    @labels_3d.deleter
-    def labels_3d(self):
-        del self._labels_3d
+    @label.deleter
+    def label(self):
+        del self._label
     
     # pred scores of the labels
     @property
-    def scores(self) -> torch.Tensor:
+    def score(self) -> torch.Tensor:
         """The scores of the instances
         
         Returns:
             torch.Tensor: The scores of the instances
         """
-        if hasattr(self, '_scores'):
-            return self._scores
+        if hasattr(self, '_score'):
+            return self._score
         return None
     
-    @scores.setter
-    def scores(self, value: torch.Tensor):
+    @score.setter
+    def score(self, value: torch.Tensor):
         """The scores of the instances
         
         Args:
@@ -804,11 +850,11 @@ class Instances(InstanceData):
         assert isinstance(value, (torch.Tensor, np.ndarray)), \
             "Scores should be a tensor"
                 
-        self.set_field(value, '_scores', dtype=type(value))
+        self.set_field(value, '_score', dtype=type(value))
     
-    @scores.deleter
-    def scores(self):
-        del self._scores
+    @score.deleter
+    def score(self):
+        del self._score
     
     
     # trajectories
@@ -839,6 +885,33 @@ class Instances(InstanceData):
     def traj(self):
         del self._traj
     
+    
+    @property
+    def context(self) -> torch.Tensor:
+        """The local context features of the instances
+        
+        Returns:
+            torch.Tensor: The local context features of the instances
+        """
+        if hasattr(self, '_context'):
+            return self._context
+        return None
+    
+    @context.setter
+    def context(self, value: torch.Tensor):
+        """The local context features of the instances
+        
+        Args:
+            value (torch.Tensor): The local context features of the instances
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)), \
+            "Context should be a tensor"
+                
+        self.set_field(value, '_context', dtype=type(value))
+    
+    @context.deleter
+    def context(self):
+        del self._context
     
     #TODO: use recursion to supported nested sequence of data
     # Mainly to support convert a list of trajectory data

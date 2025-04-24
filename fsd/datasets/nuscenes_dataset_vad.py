@@ -210,17 +210,19 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         # extrack goal direction
         goal_direction = self._get_agents_goal_direction(trajs)
         
+        # local features from agents
+        local = self._get_agents_local_context(input_dict)
         
         attr = np.concatenate([fut_traj[:, :, :2].reshape(-1, self.prediction_steps * 2), 
                 fut_traj_mask, 
                 goal_direction.reshape(-1, 1),
-                input_dict['agent_local_context'],
+                local,
                 fut_traj[:, :, -1]
                 ], 
             axis=-1
         ).astype(np.float32)
         
-        input_dict['gt_bboxes_attr'] = attr 
+        input_dict['bboxes_context'] = attr 
          
     def prepare_train_data(self, index):
         """Training data preparation.
@@ -237,9 +239,8 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
             return None
         
         # get ego local context feature
-        input_dict['ego_local_context'] = self._get_ego_local_context(input_dict)
-        input_dict['agent_local_context'] = self._get_agents_local_context(input_dict)
-
+        input_dict['ego_context'] = self._get_ego_local_context(input_dict)
+        
         # add past/future annotation info, such as future trajectory
         input_dict = self.generate_past_future_info(index, input_dict)
         
@@ -251,6 +252,6 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         example = self.pipeline(input_dict)
         if self.filter_empty_gt and \
                 (example is None or
-                    ~(example['data_samples'].gt_instances_3d.gt_labels_3d != -1).any()):
+                    ~(example['data_samples'].gt_instances_3d.label != -1).any()):
             return None
         return example

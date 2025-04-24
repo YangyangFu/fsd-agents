@@ -1667,7 +1667,8 @@ class ObjectRangeFilter(object):
 
         self.keys = [
             'gt_bboxes_3d', 'gt_labels_3d', 'gt_bboxes_mask',
-            'gt_bboxes_id', 'gt_bboxes_anno_token', 'gt_bboxes_traj'
+            'gt_bboxes_id', 'gt_bboxes_anno_token', 'gt_bboxes_traj', 
+            'gt_bboxes_goal', 'bboxes_context'
             ]
         
     def __call__(self, input_dict):
@@ -1732,7 +1733,8 @@ class ObjectNameFilter(object):
         self.labels = list(range(len(self.classes)))
         self.keys = [
             'gt_bboxes_3d', 'gt_labels_3d', 'gt_bboxes_mask',
-            'gt_bboxes_id', 'gt_bboxes_anno_token', 'gt_bboxes_traj'
+            'gt_bboxes_id', 'gt_bboxes_anno_token', 'gt_bboxes_traj',
+            'gt_bboxes_goal', 'bboxes_context'
             ]
         
     def __call__(self, input_dict):
