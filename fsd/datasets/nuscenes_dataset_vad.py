@@ -6,6 +6,7 @@ from mmengine.fileio import load
 from mmdet3d.structures import limit_period, CameraInstance3DBoxes, LiDARInstance3DBoxes, DepthInstance3DBoxes
 
 from fsd.datasets import NuScenesDatasetPlan3D
+from fsd.datasets.map_utils.vector_map import VectorizedLocalMap
 from fsd.datasets.convert_utils import nus_categories, NuScenesNameMapping
 from fsd.structures import TrajectoryData
 from fsd.utils import one_hot_encoding
@@ -29,6 +30,7 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
     METAINFO = {
         'name': 'nuscenes-vad',
         'classes': nus_categories,
+        'map_classes': ('divider', 'ped_crossing','boundary'),
         'version': 'v1.0-trainval',
         'palette': [
             (255, 158, 0),  # Orange
@@ -45,11 +47,34 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
     }
     
     def __init__(self,
+                 point_cloud_range: Union[List[float], np.ndarray] = [-15, -30, -2.0, 15, 30, 2.0],
+                 map_fixed_ptsnum_per_line: int = 20,
+                 map_sample_dist: float = 1,
+                 map_sample_nums: int = 250,
+                 map_padding_value: float = -10000,
                  *args,
                  **kwargs) -> None:
         
         super().__init__(*args, **kwargs)
-    
+
+        # local map
+        self.point_cloud_range = point_cloud_range
+        patch_h = self.point_cloud_range[4] - self.point_cloud_range[1]
+        patch_w = self.point_cloud_range[3] - self.point_cloud_range[0]
+        self.map_patch_size = (patch_h, patch_w)
+        self.map_padding_value = map_padding_value
+        self.map_fixed_ptsnum_per_line = map_fixed_ptsnum_per_line
+        self.map_sample_dist = map_sample_dist
+        self.map_sample_nums = map_sample_nums
+        self.local_map = VectorizedLocalMap(
+            data_root=self.data_root,
+            patch_size=self.map_patch_size,
+            map_classes=self.metainfo['map_classes'],
+            fixed_ptsnum_per_line=self.map_fixed_ptsnum_per_line,
+            sample_dist=self.map_sample_dist,
+            num_samples=self.map_sample_nums,
+            padding_value=self.map_padding_value
+        )
     
     def _get_ego_local_context(self, input_dict: dict) -> np.ndarray:
         """Get ego local context feature as a vector of size 9, 
@@ -223,7 +248,59 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         ).astype(np.float32)
         
         input_dict['bboxes_context'] = attr 
-         
+    
+    # parse local map based on ego position
+    def parse_map_ann_info(self, input_dict):
+        """Get local map in lidar coord.
+
+        Args:
+            input_dict (dict): Input data dictionary.
+
+        Returns:
+            np.ndarray: Local map.
+        """
+        # lidar2ego 
+        lidar2ego = input_dict['lidar_points']['lidar2ego']
+        # ego2global
+        ego2global = input_dict['ego2global']
+        
+        # lidar2global
+        lidar2global = np.array(ego2global) @ np.array(lidar2ego)
+        translation = lidar2global[:3, 3]
+        rotation = list(Quaternion(matrix=lidar2global[:3, :3], atol=1e-6).q)
+        # get local map
+        ann_map = self.local_map.gen_vectorized_samples(
+            location=input_dict['map_location'],
+            lidar2global_translation=translation.tolist(),
+            lidar2global_rotation=rotation
+        )
+
+        return ann_map
+    
+    def get_map_info(self, input_dict):
+        """Get local map info.
+
+        Args:
+            input_dict (dict): Input data dictionary.
+
+        Returns:
+            dict: Local map info.
+        """
+        # get map location
+        input_dict = self._get_map_location(input_dict)
+        # get local map ann
+        ann_map = self.parse_map_ann_info(input_dict)
+        
+        # add to input dict
+        if not self.test_mode:
+            input_dict['ann_info']['gt_map_vectors_pt'] = ann_map['gt_vecs_pts_loc']
+            input_dict['ann_info']['gt_map_vectors_label'] = ann_map['gt_vecs_label']
+        else:
+            input_dict['eval_ann_info']['gt_map_vectors_pt'] = ann_map['gt_vecs_pts_loc']
+            input_dict['eval_ann_info']['gt_map_vectors_label'] = ann_map['gt_vecs_label']
+            
+        return input_dict
+    
     def prepare_train_data(self, index):
         """Training data preparation.
 
@@ -237,6 +314,8 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         input_dict = self.get_data_info(index)
         if not input_dict:
             return None
+        # add local map annotations
+        input_dict = self.get_map_info(input_dict)
         
         # get ego local context feature
         input_dict['ego_context'] = self._get_ego_local_context(input_dict)

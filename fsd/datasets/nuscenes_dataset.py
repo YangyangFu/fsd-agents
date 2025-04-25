@@ -103,6 +103,17 @@ class NuScenesDatasetPlan3D(BasePlanDataset):
             load_eval_anns=load_eval_anns,
             show_ins_var=show_ins_var,
             **kwargs)
+    
+    def _get_map_location(self, input_dict):
+        """Get map city name information given the sample token in the input_dict.
+        """
+        map_location = self.nusc.get('log', self.nusc.get('scene', input_dict['scene_token'])['log_token'])['location']
+        
+        # update input_dict
+        input_dict.update(
+            map_location=map_location,
+        )
+        return input_dict
         
     def _get_can_bus_info(self, input_dict):
         """Get can_bus information given the sample token in the input_dict.
@@ -125,10 +136,11 @@ class NuScenesDatasetPlan3D(BasePlanDataset):
             input_dict (dict): Updated input_dict with 'can_bus' key.
         """
         sample_token = input_dict['token']
+        scene_token = input_dict['scene_token']
         sample = self.nusc.get('sample', sample_token)
-        scene_token = sample['scene_token']
         scene_name = self.nusc.get('scene', scene_token)['name']
         sample_timestamp = sample['timestamp']
+        map_location = self.nusc.get('log', self.nusc.get('scene', scene_token)['log_token'])['location']
         
         # get can bus information
         try:
@@ -174,18 +186,18 @@ class NuScenesDatasetPlan3D(BasePlanDataset):
         can_bus[-2] = yaw_angle
         
         # get steering: positive means turn left
-        # note in left-handed system, this may need to be flipped to keep consistent with
-        # the right-handed system when data are collected from different driving systems.
-        # TODO: add singpore for left-handed system 
         last_steer = steer_list[0]
         for i, steer in enumerate(steer_list):
             if steer['utime'] > sample_timestamp:
                 break
             last_steer = steer
         steer = last_steer['value']
+        # flip x axis if in left hand traffic, e.g., singapore
+        left_hand_traffic = True if 'singapore' in map_location else False
+        if left_hand_traffic:
+            steer = -steer
         can_bus[-1] = steer
         
-
         # save to input_dict
         input_dict.update(
             can_bus=np.array(can_bus).astype(np.float32),
@@ -215,9 +227,6 @@ class NuScenesDatasetPlan3D(BasePlanDataset):
         Returns:
             TrajectoryData: Trajectory data for N instances, with a length of (past_steps + 1 + planning_steps)
         """
-        index_list = range(index - self.past_steps * self.sample_interval, 
-                           index + self.planning_steps * self.sample_interval + 1, 
-                           self.sample_interval)
         instances_ids = curr_info['ann_info']['gt_bboxes_id']
         lidar2ego = curr_info['lidar_points']['lidar2ego']
         ego2world = curr_info['ego2global']

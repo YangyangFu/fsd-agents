@@ -6,10 +6,10 @@ from mmcv import BaseTransform
 from mmengine.structures import BaseDataElement
 from numpy import dtype
 
-from mmdet3d.structures import BaseInstance3DBoxes, Det3DDataSample, PointData
+from mmdet3d.structures import BaseInstance3DBoxes, PointData
 from mmdet3d.structures.points import BasePoints
 
-from fsd.structures import PlanningDataSample, Ego, Instances, Grids
+from fsd.structures import PlanningDataSample, Ego, Instances, Grids, VectorMap
 from fsd.registry import TRANSFORMS
 
 def to_tensor(
@@ -63,7 +63,7 @@ class Pack3DPlanInputs(BaseTransform):
         'gt_ego_traj', 'ego_context', 'ego_goal'
     ]
 
-    MAP_KEYS = []
+    MAP_KEYS = ['gt_map_vectors_pt', 'gt_map_vectors_label']
     
     def __init__(
         self,
@@ -179,6 +179,7 @@ class Pack3DPlanInputs(BaseTransform):
                 'gt_labels_3d', 'gt_bboxes_traj',
                 'bboxes_context', 'pts_instance_mask',
                 'pts_semantic_mask', 'gt_ego_traj', 'ego_context',
+                'gt_map_vectors_label',
                 'depths', 'proposals' 
                 
         ]:
@@ -202,7 +203,8 @@ class Pack3DPlanInputs(BaseTransform):
         gt_instances_3d = Instances()
         gt_ego = Ego()
         gt_pts_seg = PointData()
-
+        gt_map = VectorMap()
+        
         data_metas = {}
         for key in self.meta_keys:
             if key in results:
@@ -245,6 +247,9 @@ class Pack3DPlanInputs(BaseTransform):
                 elif key in self.EGO_KEYS:
                     _key = key.split('_')[-1]
                     gt_ego[_key] = results[key]
+                elif key in self.MAP_KEYS:
+                    _key = key.split('_')[-1]
+                    gt_map[_key] = results[key]
                 else:
                     raise NotImplementedError(f'Please modified '
                                               f'`Pack3DDetInputs` '
@@ -254,6 +259,7 @@ class Pack3DPlanInputs(BaseTransform):
         data_sample.gt_instances_3d = gt_instances_3d
         data_sample.gt_ego = gt_ego
         data_sample.gt_pts_seg = gt_pts_seg
+        data_sample.gt_map_vectors = gt_map
         
         if 'eval_ann_info' in results:
             data_sample.eval_ann_info = results['eval_ann_info']

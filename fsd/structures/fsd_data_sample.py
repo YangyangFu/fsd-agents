@@ -38,7 +38,7 @@ class PlanningDataSample(BaseDataElement):
     - gt_pts_seg (PixelData): Ground truth of point cloud segmentation.
     
     # To-be-added
-    - gt_map (PixelData): Ground truth of the map.  
+    - gt_map (): Ground truth of the map.  
     """
 
     # properties: ego
@@ -131,3 +131,30 @@ class PlanningDataSample(BaseDataElement):
     def pred_pts(self) -> None:
         del self._pred_pts
     
+    # map: BaseDataElement
+    @property
+    def gt_map_vectors(self) -> BaseDataElement:
+        if hasattr(self, "_gt_map_vectors"):
+            return self._gt_map_vectors
+        else:
+            return None
+    @gt_map_vectors.setter
+    def gt_map_vectors(self, value: BaseDataElement):
+        self.set_field(value, "_gt_map_vectors", dtype=BaseDataElement)
+    @gt_map_vectors.deleter
+    def gt_map_vectors(self) -> None:
+        del self._gt_map_vectors
+        
+    @property
+    def pred_map_vectors(self) -> BaseDataElement:
+        if hasattr(self, "_pred_map_vectors"):
+            return self._pred_map_vectors
+        else:
+            return None
+    @pred_map_vectors.setter
+    def pred_map_vectors(self, value: BaseDataElement):
+        self.set_field(value, "_pred_map_vectors", dtype=BaseDataElement)
+    @pred_map_vectors.deleter
+    def pred_map_vectors(self) -> None:
+        del self._pred_map_vectors
+        

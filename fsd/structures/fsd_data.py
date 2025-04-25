@@ -1080,4 +1080,44 @@ class Grids(BaseDataElement):
     @density.deleter
     def density(self):
         del self._density
- 
+
+class BaseMap(BaseDataElement):
+    """Base class for map-like data structure
+    
+    Attributes:
+        - map (torch.Tensor): The map of the data
+        - mask (torch.Tensor): The mask of the data
+    """
+    
+    def __setattr__(self, name: str, value: Sized):
+        """setattr is only used to set data.
+
+        The value must have the attribute of `__len__` and have the same length
+        of `InstanceData`.
+        """
+        if name in ('_metainfo_fields', '_data_fields'):
+            if not hasattr(self, name):
+                super().__setattr__(name, value)
+            else:
+                raise AttributeError(f'{name} has been used as a '
+                                     'private attribute, which is immutable.')
+
+        else:
+            #assert isinstance(value,
+            #                  Sized), 'value must contain `__len__` attribute'
+
+            super().__setattr__(name, value)
+
+    # this enables the use of __setitem__ to set attributes
+    __setitem__ = __setattr__
+
+class VectorMap(BaseMap):
+    """VectorMap data structure
+    """
+    # do nothing for now
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+    
+class DenseMap(BaseMap):
+    pass

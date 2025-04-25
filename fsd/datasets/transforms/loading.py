@@ -674,13 +674,15 @@ class LoadAnnotationsPlan3D(LoadAnnotations3D):
                  with_instances_traj=False,
                  with_instances_ids=False,
                  with_grids=False,
+                 with_vector_map=False,
                  **kwargs):
         super().__init__(**kwargs)
         self.with_ego_status = with_ego_status
         self.with_instances_traj = with_instances_traj
         self.with_instances_ids = with_instances_ids
         self.with_grids = with_grids
-
+        self.with_vector_map = with_vector_map
+        
     def _load_instances_ids(self, results):
         ann_gt_inds = results['ann_info']['gt_bboxes_id'].copy() 
         results['gt_bboxes_id'] = ann_gt_inds
@@ -723,6 +725,20 @@ class LoadAnnotationsPlan3D(LoadAnnotations3D):
                 results['grid_fields'].append(grid)
         return results
     
+    def _load_vector_map(self, results):
+        """Load vector map if available in the dataset.
+
+        Args:
+            results (_type_): _description_
+        """
+        keys = ['gt_map_vectors', 'gt_map_vectors_pt', 'gt_map_vectors_label']
+        for key in keys:
+            if key in results['ann_info']:
+                results[key] = results['ann_info'][key]
+                results['map_fields'].append(key)
+            
+        return results
+    
     def __call__(self, results):
         results = super().__call__(results)
         
@@ -740,6 +756,10 @@ class LoadAnnotationsPlan3D(LoadAnnotations3D):
         # load grids
         if self.with_grids:
             results = self._load_grids(results)
+        
+        # load vector map
+        if self.with_vector_map:
+            results = self._load_vector_map(results)
         
         return results
 

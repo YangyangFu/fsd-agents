@@ -360,7 +360,7 @@ model = dict(
 
 
 # data
-dataset_type = 'NuscenesDatasetPlan3D'
+dataset_type = 'NuScenesDatasetVAD'#'NuScenesDatasetPlan3D'
 data_root = 'data/nuscenes/'
 file_client_args = dict(backend='disk')
 data_prefix = dict(
@@ -383,7 +383,8 @@ train_pipeline = [
         with_bbox_3d=True, 
         with_label_3d=True, 
         with_instances_traj=True,
-        with_instances_ids=True),
+        with_instances_ids=True,
+        with_vector_map=True,),
     dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
     dict(type='ObjectNameFilter', classes=class_names),
     dict(type='NormalizeMultiviewImage', **img_norm_cfg, divider=1.0),
@@ -395,7 +396,9 @@ train_pipeline = [
     #     keys=['gt_bboxes_3d', 'gt_labels_3d', 'img', 'ego_his_trajs',
     #           'ego_fut_trajs', 'ego_fut_masks', 'ego_fut_cmd', 'ego_lcf_feat', 'gt_attr_labels'])
     dict(type='Pack3DPlanInputs',
-         keys=['gt_bboxes_3d', 'gt_labels_3d', 'img', 'gt_bboxes_traj', 'gt_ego_traj'])
+         keys=['gt_bboxes_3d', 'gt_labels_3d', 'img', 'gt_bboxes_traj', 
+               'gt_ego_traj', 'ego_context', 'bboxes_context', 'gt_map_vectors_pt', 
+               'gt_map_vectors_label'])
 ]
 
 test_pipeline = [
@@ -422,7 +425,8 @@ test_pipeline = [
             dict(type='CustomCollect3D',\
                  keys=['points', 'gt_bboxes_3d', 'gt_labels_3d', 'img', 'fut_valid_flag',
                        'ego_his_trajs', 'ego_fut_trajs', 'ego_fut_masks', 'ego_fut_cmd',
-                       'ego_lcf_feat', 'gt_attr_labels'])])
+                       'ego_lcf_feat', 'gt_attr_labels', 'gt_map_vectors_pt', 
+                       'gt_map_vectors_label'])])
 ]
 
 train_dataloader = dict(
@@ -439,6 +443,8 @@ train_dataloader = dict(
         box_type_3d_original='LiDAR', # original box in nuscenes are acatually Depth box in mmdet3d. 
         box_type_3d='LiDAR',
         test_mode=False,
+        with_can_bus=True,
+        with_goal_points=True,
         #use_valid_flag=True,
         #bev_size=(bev_h_, bev_w_),
         #pc_range=point_cloud_range,

@@ -316,7 +316,7 @@ class BasePlanDataset(BaseDataset):
         
         return ann_info
     
-    def parse_map_info(self, info):
+    def get_map_info(self, info):
         """Get map data info from the given info. 
         """
         pass
@@ -567,7 +567,7 @@ class BasePlanDataset(BaseDataset):
         results['img_fields'] = []
         results['pts_fields'] = []
         results['ego_fields'] = [] # ['gt_ego_traj']
-        results['map_fileds'] = []
+        results['map_fields'] = []
         results['bbox3d_fields'] = []
         results['pts_seg_fields'] = []
         results['grid_fields'] = [] 
