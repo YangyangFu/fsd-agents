@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from mmengine.utils import digit_version
 TORCH_VERSION = tuple(int(x) for x in torch.__version__.split('.')[:2])
 from mmengine.model import bias_init_with_prob, xavier_init
+from mmengine.structures import InstanceData
 from mmcv.cnn import Linear
 from mmcv.cnn.bricks.transformer import build_transformer_layer_sequence
 from mmdet.models.dense_heads import DETRHead
@@ -16,7 +17,7 @@ from mmdet.utils import reduce_mean
 from mmdet3d.models.task_modules.builder import build_bbox_coder
 
 from fsd.registry import TASK_UTILS, MODELS, HEADS
-from fsd.models.detectors.bevformer.task_modules.bbox.util import normalize_bbox
+from fsd.models.detectors.bevformer.task_modules.bbox.util import normalize_bbox 
 
 from .utils import get_traj_warmup_loss_weight
 from .utils import (normalize_2d_pts, 
@@ -912,19 +913,32 @@ class VADHead(DETRHead):
         gt_bbox_c = gt_bboxes.shape[-1]
         num_gt_bbox, gt_traj_c = gt_fut_trajs.shape
 
-        assign_result = self.assigner.assign(bbox_pred, cls_score, gt_bboxes,
-                                             gt_labels, gt_bboxes_ignore)
+        # packet input
+        gt_instances = InstanceData(
+            bboxes=gt_bboxes,
+            labels=gt_labels)
+            
+        pred_instances = InstanceData(
+            bboxes=bbox_pred,
+            labels=cls_score.argmax(dim=-1),
+            scores=cls_score)
+        assign_result = self.assigner.assign(pred_instances=pred_instances,
+                                             gt_instances=gt_instances)
 
-        sampling_result = self.sampler.sample(assign_result, bbox_pred,
-                                              gt_bboxes)
-        pos_inds = sampling_result.pos_inds
-        neg_inds = sampling_result.neg_inds
-
+        #sampling_result = self.sampler.sample(assign_result, bbox_pred,
+        # replacing sampler                                      gt_bboxes)
+        pos_inds = torch.nonzero(
+            assign_result.gt_inds > 0, as_tuple=False).squeeze(-1).unique()
+        neg_inds = torch.nonzero(
+            assign_result.gt_inds == 0, as_tuple=False).squeeze(-1).unique()
+        pos_assigned_gt_inds = assign_result.gt_inds[pos_inds] - 1
+        pos_gt_bboxes = gt_bboxes[pos_assigned_gt_inds.long(), :]
+        
         # label targets
         labels = gt_bboxes.new_full((num_bboxes,),
                                     self.num_classes,
                                     dtype=torch.long)
-        labels[pos_inds] = gt_labels[sampling_result.pos_assigned_gt_inds]
+        labels[pos_inds] = gt_labels[pos_assigned_gt_inds]
         label_weights = gt_bboxes.new_ones(num_bboxes)
 
         # bbox targets
@@ -935,13 +949,13 @@ class VADHead(DETRHead):
         # trajs targets
         traj_targets = torch.zeros((num_bboxes, gt_traj_c), dtype=torch.float32, device=bbox_pred.device)
         traj_weights = torch.zeros_like(traj_targets)
-        traj_targets[pos_inds] = gt_fut_trajs[sampling_result.pos_assigned_gt_inds]
+        traj_targets[pos_inds] = gt_fut_trajs[pos_assigned_gt_inds]
         traj_weights[pos_inds] = 1.0
 
         # Filter out invalid fut trajs
         traj_masks = torch.zeros_like(traj_targets)  # [num_bboxes, fut_ts*2]
         gt_fut_masks = gt_fut_masks.unsqueeze(-1).repeat(1, 1, 2).view(num_gt_bbox, -1)  # [num_gt_bbox, fut_ts*2]
-        traj_masks[pos_inds] = gt_fut_masks[sampling_result.pos_assigned_gt_inds]
+        traj_masks[pos_inds] = gt_fut_masks[pos_assigned_gt_inds]
         traj_weights = traj_weights * traj_masks
 
         # Extra future timestamp mask for controlling pred horizon
@@ -952,7 +966,7 @@ class VADHead(DETRHead):
         traj_weights = traj_weights * fut_ts_mask
 
         # DETR
-        bbox_targets[pos_inds] = sampling_result.pos_gt_bboxes
+        bbox_targets[pos_inds] = pos_gt_bboxes
 
         return (
             labels, label_weights, bbox_targets, bbox_weights, traj_targets,
@@ -998,15 +1012,20 @@ class VADHead(DETRHead):
                                              gt_bboxes, gt_labels, gt_shifts_pts,
                                              gt_bboxes_ignore)
 
-        sampling_result = self.map_sampler.sample(assign_result, bbox_pred,
-                                              gt_bboxes)
-        pos_inds = sampling_result.pos_inds
-        neg_inds = sampling_result.neg_inds
+        #sampling_result = self.map_sampler.sample(assign_result, bbox_pred,
+        #                                      gt_bboxes)
+        pos_inds = torch.nonzero(
+            assign_result.gt_inds > 0, as_tuple=False).squeeze(-1).unique()
+        neg_inds = torch.nonzero(
+            assign_result.gt_inds == 0, as_tuple=False).squeeze(-1).unique()
+        pos_assigned_gt_inds = assign_result.gt_inds[pos_inds] - 1
+        pos_gt_bboxes = gt_bboxes[pos_assigned_gt_inds.long(), :]
+        
         # label targets
         labels = gt_bboxes.new_full((num_bboxes,),
                                     self.map_num_classes,
                                     dtype=torch.long)
-        labels[pos_inds] = gt_labels[sampling_result.pos_assigned_gt_inds]
+        labels[pos_inds] = gt_labels[pos_assigned_gt_inds]
         label_weights = gt_bboxes.new_ones(num_bboxes)
         # bbox targets
         bbox_targets = torch.zeros_like(bbox_pred)[..., :gt_c]
@@ -1014,16 +1033,16 @@ class VADHead(DETRHead):
         bbox_weights[pos_inds] = 1.0
         # pts targets
         if order_index is None:
-            assigned_shift = gt_labels[sampling_result.pos_assigned_gt_inds]
+            assigned_shift = gt_labels[pos_assigned_gt_inds]
         else:
-            assigned_shift = order_index[sampling_result.pos_inds, sampling_result.pos_assigned_gt_inds]
+            assigned_shift = order_index[pos_inds, pos_assigned_gt_inds]
         pts_targets = pts_pred.new_zeros((pts_pred.size(0),
                         pts_pred.size(1), pts_pred.size(2)))
         pts_weights = torch.zeros_like(pts_targets)
         pts_weights[pos_inds] = 1.0
         # DETR
-        bbox_targets[pos_inds] = sampling_result.pos_gt_bboxes
-        pts_targets[pos_inds] = gt_shifts_pts[sampling_result.pos_assigned_gt_inds,assigned_shift,:,:]
+        bbox_targets[pos_inds] = pos_gt_bboxes
+        pts_targets[pos_inds] = gt_shifts_pts[pos_assigned_gt_inds,assigned_shift,:,:]
         return (labels, label_weights, bbox_targets, bbox_weights,
                 pts_targets, pts_weights,
                 pos_inds, neg_inds)
@@ -1200,7 +1219,7 @@ class VADHead(DETRHead):
             weight=ego_fut_masks
         )
 
-        if digit_version(TORCH_VERSION) >= digit_version('1.8'):
+        if TORCH_VERSION >= digit_version('1.8'):
             loss_plan_l1 = torch.nan_to_num(loss_plan_l1)
             loss_plan_bound = torch.nan_to_num(loss_plan_bound)
             loss_plan_col = torch.nan_to_num(loss_plan_col)
@@ -1323,7 +1342,7 @@ class VADHead(DETRHead):
             traj_cls_scores, traj_labels, label_weights, avg_factor=traj_cls_avg_factor
         )
 
-        if digit_version(TORCH_VERSION) >= digit_version('1.8'):
+        if TORCH_VERSION >= digit_version('1.8'):
             loss_cls = torch.nan_to_num(loss_cls)
             loss_bbox = torch.nan_to_num(loss_bbox)
             loss_traj = torch.nan_to_num(loss_traj)
@@ -1509,7 +1528,7 @@ class VADHead(DETRHead):
             bbox_weights[isnotnan, :4], 
             avg_factor=num_total_pos)
 
-        if digit_version(TORCH_VERSION) >= digit_version('1.8'):
+        if TORCH_VERSION >= digit_version('1.8'):
             loss_cls = torch.nan_to_num(loss_cls)
             loss_bbox = torch.nan_to_num(loss_bbox)
             loss_iou = torch.nan_to_num(loss_iou)

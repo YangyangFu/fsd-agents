@@ -17,7 +17,6 @@ class VAD(MVXTwoStageDetector):
     """
     def __init__(self,
                  use_grid_mask=False,
-                 pts_voxel_layer=None,
                  pts_voxel_encoder=None,
                  pts_middle_encoder=None,
                  pts_fusion_layer=None,
@@ -37,7 +36,7 @@ class VAD(MVXTwoStageDetector):
                  ):
 
         super(VAD,
-              self).__init__(pts_voxel_layer, pts_voxel_encoder,
+              self).__init__(pts_voxel_encoder,
                              pts_middle_encoder, pts_fusion_layer,
                              img_backbone, pts_backbone, img_neck, pts_neck,
                              pts_bbox_head, img_roi_head, img_rpn_head,
@@ -147,7 +146,11 @@ class VAD(MVXTwoStageDetector):
         dummy_metas = None
         return self.forward_test(img=img, img_metas=[[dummy_metas]])
 
-    def forward(self, return_loss=True, **kwargs):
+    def forward(self,
+                inputs: Dict[str, Union[torch.Tensor, List[torch.Tensor]]], 
+                data_samples: List[Dict], 
+                mode: str = 'loss', 
+                **kwargs) -> Union[torch.Tensor, Dict, List[Dict]]:
         """Calls either forward_train or forward_test depending on whether
         return_loss=True.
         Note this setting will change the expected inputs. When
@@ -157,10 +160,10 @@ class VAD(MVXTwoStageDetector):
         list[list[dict]]), with the outer list indicating test time
         augmentations.
         """
-        if return_loss:
-            return self.forward_train(**kwargs)
+        if mode == 'loss':
+            return self.forward_train(inputs, data_samples, **kwargs)
         else:
-            return self.forward_test(**kwargs)
+            return self.forward_test(inputs, data_samples, **kwargs)
     
     def obtain_history_bev(self, imgs_queue, img_metas_list):
         """Obtain history BEV features iteratively. To save GPU memory, gradients are not calculated.
@@ -173,7 +176,8 @@ class VAD(MVXTwoStageDetector):
             imgs_queue = imgs_queue.reshape(bs*len_queue, num_cams, C, H, W)
             img_feats_list = self.extract_feat(img=imgs_queue, len_queue=len_queue)
             for i in range(len_queue):
-                img_metas = [each[i] for each in img_metas_list]
+                # for each in a history sequence
+                img_metas = [batch[i] for batch in img_metas_list]
                 # img_feats = self.extract_feat(img=img, img_metas=img_metas)
                 img_feats = [each_scale[:, i] for each_scale in img_feats_list]
                 prev_bev = self.pts_bbox_head(
@@ -182,123 +186,156 @@ class VAD(MVXTwoStageDetector):
             return prev_bev
 
     def forward_train(self,
-                      points=None,
-                      img_metas=None,
-                      gt_bboxes_3d=None,
-                      gt_labels_3d=None,
-                      map_gt_bboxes_3d=None,
-                      map_gt_labels_3d=None,
-                      gt_labels=None,
-                      gt_bboxes=None,
-                      img=None,
-                      proposals=None,
-                      gt_bboxes_ignore=None,
-                      map_gt_bboxes_ignore=None,
-                      img_depth=None,
-                      img_mask=None,
-                      ego_his_trajs=None,
-                      ego_fut_trajs=None,
-                      ego_fut_masks=None,
-                      ego_fut_cmd=None,
-                      ego_lcf_feat=None,
-                      gt_attr_labels=None
-                      ):
+                      inputs: Dict[str, Union[torch.Tensor, List[torch.Tensor]]],
+                      data_samples,
+                      **kwargs) -> Dict[str, torch.Tensor]:
+        
         """Forward training function.
         Args:
-            points (list[torch.Tensor], optional): Points of each sample.
-                Defaults to None.
-            img_metas (list[dict], optional): Meta information of each sample.
-                Defaults to None.
-            gt_bboxes_3d (list[:obj:`BaseInstance3DBoxes`], optional):
-                Ground truth 3D boxes. Defaults to None.
-            gt_labels_3d (list[torch.Tensor], optional): Ground truth labels
-                of 3D boxes. Defaults to None.
-            gt_labels (list[torch.Tensor], optional): Ground truth labels
-                of 2D boxes in images. Defaults to None.
-            gt_bboxes (list[torch.Tensor], optional): Ground truth 2D boxes in
-                images. Defaults to None.
-            img (torch.Tensor optional): Images of each sample with shape
-                (N, C, H, W). Defaults to None.
-            proposals ([list[torch.Tensor], optional): Predicted proposals
-                used for training Fast RCNN. Defaults to None.
-            gt_bboxes_ignore (list[torch.Tensor], optional): Ground truth
-                2D boxes in images to be ignored. Defaults to None.
         Returns:
             dict: Losses of different branches.
         """
         
-        len_queue = img.size(1)
-        prev_img = img[:, :-1, ...]
-        img = img[:, -1, ...]
+        imgs = inputs['img']
+        bev_img_metas = [sample.bev_metas for sample in data_samples]
+        device = imgs[0].device
+        len_queue = imgs[0].size(0)
+        
+        # (B, len_queue, num_cams, C, H, W)
+        prev_img = torch.stack([img[:-1, ...] for img in imgs], dim=0).to(device)
+        curr_img = torch.stack([img[-1, ...] for img in imgs], dim=0).to(device)
 
-        prev_img_metas = copy.deepcopy(img_metas)
-        # prev_bev = self.obtain_history_bev(prev_img, prev_img_metas)
-        # import pdb;pdb.set_trace()
-        prev_bev = self.obtain_history_bev(prev_img, prev_img_metas) if len_queue > 1 else None
+        prev_img_metas = [each[:-1] for each in bev_img_metas]
+        prev_bev = None
+        if len_queue > 1:
+            prev_bev = self.obtain_history_bev(prev_img, prev_img_metas)
 
-        img_metas = [each[len_queue-1] for each in img_metas]
-        img_feats = self.extract_feat(img=img, img_metas=img_metas)
+        curr_img_metas = [each[-1] for each in bev_img_metas]
+        curr_img_feats = self.extract_feat(img=curr_img, img_metas=curr_img_metas)
+        
+        # loss
+        gt_bboxes_3d = [sample.gt_instances_3d.bbox for sample in data_samples]
+        gt_labels_3d = [sample.gt_instances_3d.label for sample in data_samples]
+        map_gt_bboxes_3d = [sample.gt_map_vectors.pt for sample in data_samples]
+        map_gt_labels_3d = [sample.gt_map_vectors.label for sample in data_samples]
+        # (B, 1, num_steps, 2)
+        #ego_his_trajs = [sample.gt_ego.traj.data[:sample.gt_ego.traj.num_past_steps, :2] for sample in data_samples]
+        ego_his_trajs = [sample.gt_ego.history_traj[:, :2] for sample in data_samples]
+        ego_his_trajs = torch.stack(ego_his_trajs)[:, None, :, :]
+        #ego_fut_trajs = [sample.gt_ego.traj.data[-sample.gt_ego.traj.num_future_steps:, :2] for sample in data_samples]
+        ego_fut_trajs = [sample.gt_ego.traj[:, :2] for sample in data_samples]
+        ego_fut_trajs = torch.stack(ego_fut_trajs)[:, None, :, :]
+        
+        # (B, 1, 1, num_steps)
+        #ego_fut_masks = [sample.gt_ego.traj.mask[-sample.gt_ego.traj.num_future_steps:] for sample in data_samples]
+        ego_fut_masks = [sample.gt_ego.traj_mask for sample in data_samples]
+        ego_fut_masks = torch.stack(ego_fut_masks)[:, None, None, :]
+        # (B, 1, 1, 3)
+        ego_fut_cmd = [sample.gt_ego.command for sample in data_samples]
+        ego_fut_cmd = torch.stack(ego_fut_cmd)[:, None, None, :]
+        
+        # (B, 1, 1, 9)
+        ego_lcf_feat = [sample.gt_ego.context for sample in data_samples]
+        ego_lcf_feat = torch.stack(ego_lcf_feat)[:, None, None, :]
+        # list(num_agents, 34)
+        bbox_lcf_feat = [sample.gt_instances_3d.context for sample in data_samples]
+        
         losses = dict()
-        losses_pts = self.forward_pts_train(img_feats, gt_bboxes_3d, gt_labels_3d,
-                                            map_gt_bboxes_3d, map_gt_labels_3d, img_metas,
-                                            gt_bboxes_ignore, map_gt_bboxes_ignore, prev_bev,
-                                            ego_his_trajs=ego_his_trajs, ego_fut_trajs=ego_fut_trajs,
-                                            ego_fut_masks=ego_fut_masks, ego_fut_cmd=ego_fut_cmd,
-                                            ego_lcf_feat=ego_lcf_feat, gt_attr_labels=gt_attr_labels)
+        losses_pts = self.forward_pts_train(
+            pts_feats=curr_img_feats, 
+            gt_bboxes_3d=gt_bboxes_3d, 
+            gt_labels_3d=gt_labels_3d,
+            map_gt_bboxes_3d=map_gt_bboxes_3d, 
+            map_gt_labels_3d=map_gt_labels_3d, 
+            img_metas=curr_img_metas,
+            gt_bboxes_ignore=None, 
+            map_gt_bboxes_ignore=None, 
+            prev_bev=prev_bev,
+            ego_his_trajs=ego_his_trajs, 
+            ego_fut_trajs=ego_fut_trajs,
+            ego_fut_masks=ego_fut_masks,
+            ego_fut_cmd=ego_fut_cmd,
+            ego_lcf_feat=ego_lcf_feat, 
+            gt_attr_labels=bbox_lcf_feat)
 
         losses.update(losses_pts)
         return losses
 
     def forward_test(
         self,
-        img_metas,
-        gt_bboxes_3d,
-        gt_labels_3d,
-        img=None,
-        ego_his_trajs=None,
-        ego_fut_trajs=None,
-        ego_fut_cmd=None,
-        ego_lcf_feat=None,
-        gt_attr_labels=None,
+        inputs: Dict[str, Union[torch.Tensor, List[torch.Tensor]]],
+        data_samples,
         **kwargs
     ):
-        for var, name in [(img_metas, 'img_metas')]:
-            if not isinstance(var, list):
-                raise TypeError('{} must be a list, but got {}'.format(
-                    name, type(var)))
-        img = [img] if img is None else img
 
-        if img_metas[0][0]['scene_token'] != self.prev_frame_info['scene_token']:
+        #img = [img] if img is None else img
+
+        imgs = torch.stack(inputs['img'])
+        bev_img_metas = [sample.bev_metas for sample in data_samples]
+
+        ## do not support batch_size > 1 now
+        if bev_img_metas[0][0]['scene_token'] != self.prev_frame_info['scene_token']:
             # the first sample of each scene is truncated
             self.prev_frame_info['prev_bev'] = None
         # update idx
-        self.prev_frame_info['scene_token'] = img_metas[0][0]['scene_token']
+        self.prev_frame_info['scene_token'] = bev_img_metas[0][0]['scene_token']
 
         # do not use temporal information
         if not self.video_test_mode:
             self.prev_frame_info['prev_bev'] = None
 
         # Get the delta of ego position and angle between two timestamps.
-        tmp_pos = copy.deepcopy(img_metas[0][0]['can_bus'][:3])
-        tmp_angle = copy.deepcopy(img_metas[0][0]['can_bus'][-1])
+        tmp_pos = copy.deepcopy(bev_img_metas[0][0]['bev_attr'][:3])
+        tmp_angle = copy.deepcopy(bev_img_metas[0][0]['bev_attr'][-1])
         if self.prev_frame_info['prev_bev'] is not None:
-            img_metas[0][0]['can_bus'][:3] -= self.prev_frame_info['prev_pos']
-            img_metas[0][0]['can_bus'][-1] -= self.prev_frame_info['prev_angle']
+            bev_img_metas[0][0]['bev_attr'][:3] -= self.prev_frame_info['prev_pos']
+            bev_img_metas[0][0]['bev_attr'][-1] -= self.prev_frame_info['prev_angle']
         else:
-            img_metas[0][0]['can_bus'][-1] = 0
-            img_metas[0][0]['can_bus'][:3] = 0
+            bev_img_metas[0][0]['bev_attr'][-1] = 0
+            bev_img_metas[0][0]['bev_attr'][:3] = 0
 
+        # prepare inputs
+        gt_bboxes_3d = [sample.gt_instances_3d.bbox for sample in data_samples]
+        gt_labels_3d = [sample.gt_instances_3d.label for sample in data_samples]
+        map_gt_bboxes_3d = [sample.gt_map_vectors.pt for sample in data_samples]
+        map_gt_labels_3d = [sample.gt_map_vectors.label for sample in data_samples]        
+        
+        # (B, 1, num_steps, 2)
+        #ego_his_trajs = [sample.gt_ego.traj.data[:sample.gt_ego.traj.num_past_steps, :2] for sample in data_samples]
+        ego_his_trajs = [sample.gt_ego.history_traj[:, :2] for sample in data_samples]
+        ego_his_trajs = torch.stack(ego_his_trajs)[:, None, :, :]
+        #ego_fut_trajs = [sample.gt_ego.traj.data[-sample.gt_ego.traj.num_future_steps:, :2] for sample in data_samples]
+        ego_fut_trajs = [sample.gt_ego.traj[:, :2] for sample in data_samples]
+        ego_fut_trajs = torch.stack(ego_fut_trajs)[:, None, :, :]
+        # (B, 1, 1, num_steps)
+        #ego_fut_masks = [sample.gt_ego.traj.mask[-sample.gt_ego.traj.num_future_steps:] for sample in data_samples]
+        ego_fut_masks = [sample.gt_ego.traj_mask for sample in data_samples]
+        fut_valid_flag = [torch.all(mask) for mask in ego_fut_masks]
+        ego_fut_masks = torch.stack(ego_fut_masks)[:, None, None, :]
+        # (B, 1, 1, 3)
+        ego_fut_cmd = [sample.gt_ego.command for sample in data_samples]
+        ego_fut_cmd = torch.stack(ego_fut_cmd)[:, None, None, :]
+        
+        # (B, 1, 1, 9)
+        ego_lcf_feat = [sample.gt_ego.context for sample in data_samples]
+        ego_lcf_feat = torch.stack(ego_lcf_feat)[:, None, None, :]
+        # list(num_agents, 34)
+        bbox_lcf_feat = [sample.gt_instances_3d.context for sample in data_samples]
+        
+        
+        
         new_prev_bev, bbox_results = self.simple_test(
-            img_metas=img_metas[0],
-            img=img[0],
+            img_metas=bev_img_metas[0],
+            img=imgs,
             prev_bev=self.prev_frame_info['prev_bev'],
             gt_bboxes_3d=gt_bboxes_3d,
             gt_labels_3d=gt_labels_3d,
+            fut_valid_flag=fut_valid_flag,
             ego_his_trajs=ego_his_trajs[0],
             ego_fut_trajs=ego_fut_trajs[0],
             ego_fut_cmd=ego_fut_cmd[0],
             ego_lcf_feat=ego_lcf_feat[0],
-            gt_attr_labels=gt_attr_labels,
+            gt_attr_labels=bbox_lcf_feat,
             **kwargs
         )
         # During inference, we save the BEV features and ego motion of each timestamp.
@@ -393,13 +430,13 @@ class VAD(MVXTwoStageDetector):
             c_bbox_results = copy.deepcopy(bbox_results)
 
             bbox_result = c_bbox_results[0]
-            gt_bbox = gt_bboxes_3d[0][0]
-            gt_label = gt_labels_3d[0][0].to('cpu')
-            gt_attr_label = gt_attr_labels[0][0].to('cpu')
-            fut_valid_flag = bool(fut_valid_flag[0][0])
+            gt_bbox = gt_bboxes_3d[0].to('cpu')
+            gt_label = gt_labels_3d[0].to('cpu')
+            gt_attr_label = gt_attr_labels[0].to('cpu')
+            fut_valid_flag = bool(fut_valid_flag[0])
             # filter pred bbox by score_threshold
             mask = bbox_result['scores_3d'] > score_threshold
-            bbox_result['boxes_3d'] = bbox_result['boxes_3d'][mask]
+            bbox_result['bboxes_3d'] = bbox_result['bboxes_3d'][mask]
             bbox_result['scores_3d'] = bbox_result['scores_3d'][mask]
             bbox_result['labels_3d'] = bbox_result['labels_3d'][mask]
             bbox_result['trajs_3d'] = bbox_result['trajs_3d'][mask]
@@ -414,8 +451,8 @@ class VAD(MVXTwoStageDetector):
             # ego planning metric
             assert ego_fut_trajs.shape[0] == 1, 'only support batch_size=1 for testing'
             ego_fut_preds = bbox_result['ego_fut_preds']
-            ego_fut_trajs = ego_fut_trajs[0, 0]
-            ego_fut_cmd = ego_fut_cmd[0, 0, 0]
+            ego_fut_trajs = ego_fut_trajs.to('cpu')[0]
+            ego_fut_cmd = ego_fut_cmd[0, 0]
             ego_fut_cmd_idx = torch.nonzero(ego_fut_cmd)[0, 0]
             ego_fut_pred = ego_fut_preds[ego_fut_cmd_idx]
             ego_fut_pred = ego_fut_pred.cumsum(dim=-2)
@@ -486,7 +523,7 @@ class VAD(MVXTwoStageDetector):
         matched_bbox_result = torch.ones(
             (len(gt_bbox)), dtype=torch.long) * -1  # -1: not assigned
         gt_centers = gt_bbox.center[:, :2]
-        pred_centers = bbox_result['boxes_3d'].center[:, :2]
+        pred_centers = bbox_result['bboxes_3d'].center[:, :2]
         dist = torch.linalg.norm(pred_centers[:, None, :] - gt_centers[None, :, :], dim=-1)
         pred_not_dyn = [label not in dynamic_list for label in bbox_result['labels_3d']]
         gt_not_dyn = [label not in dynamic_list for label in gt_label]

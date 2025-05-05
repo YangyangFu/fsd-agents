@@ -5,7 +5,7 @@ from fsd.runner import Runner
 
 init_default_scope('fsd')
 
-cfg = Config.fromfile('tests/agents/VAD/config1.py')
+cfg = Config.fromfile('fsd/configs/VAD/test_only.py')
 
 def test_model_registry():
     model = MODELS.build(cfg.model)
@@ -18,13 +18,19 @@ def test_dataloader_registry():
 
 
 def test_dataloader():
-    dataloader = Runner.build_dataloader(cfg.train_dataloader)
+    dataloader = Runner.build_dataloader(cfg.test_dataloader)
     for i, data in enumerate(dataloader):
         if i > 10:
             break
         print(len(data['data_samples']))
         #assert data is not None
 
+def test_train():
+    runner = RUNNERS.build(cfg)
+    #runner.train()
+    runner.test()
+    
 #test_model_registry()
 #test_dataloader_registry()
-test_dataloader()
+#test_dataloader()
+test_train()

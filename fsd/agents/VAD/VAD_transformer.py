@@ -220,12 +220,12 @@ class VADPerceptionTransformer(BaseModule):
         bev_pos = bev_pos.flatten(2).permute(2, 0, 1)
 
         # obtain rotation angle and shift with ego motion
-        delta_x = np.array([each['can_bus'][0]
+        delta_x = np.array([each['bev_attr'][0]
                            for each in kwargs['img_metas']])
-        delta_y = np.array([each['can_bus'][1]
+        delta_y = np.array([each['bev_attr'][1]
                            for each in kwargs['img_metas']])
         ego_angle = np.array(
-            [each['can_bus'][-2] / np.pi * 180 for each in kwargs['img_metas']])
+            [each['bev_attr'][-2] / np.pi * 180 for each in kwargs['img_metas']])
         grid_length_y = grid_length[0]
         grid_length_x = grid_length[1]
         translation_length = np.sqrt(delta_x ** 2 + delta_y ** 2)
@@ -246,10 +246,10 @@ class VADPerceptionTransformer(BaseModule):
             if self.rotate_prev_bev:
                 for i in range(bs):
                     # num_prev_bev = prev_bev.size(1)
-                    rotation_angle = kwargs['img_metas'][i]['can_bus'][-1]
+                    rotation_angle = kwargs['img_metas'][i]['bev_attr'][-1]
                     tmp_prev_bev = prev_bev[:, i].reshape(
                         bev_h, bev_w, -1).permute(2, 0, 1)
-                    tmp_prev_bev = rotate(tmp_prev_bev, rotation_angle,
+                    tmp_prev_bev = rotate(tmp_prev_bev, float(rotation_angle),
                                           center=self.rotate_center)
                     tmp_prev_bev = tmp_prev_bev.permute(1, 2, 0).reshape(
                         bev_h * bev_w, 1, -1)
@@ -257,7 +257,7 @@ class VADPerceptionTransformer(BaseModule):
 
         # add can bus signals
         can_bus = bev_queries.new_tensor(
-            [each['can_bus'] for each in kwargs['img_metas']])  # [:, :]
+            [each['bev_attr'] for each in kwargs['img_metas']])  # [:, :]
         can_bus = self.can_bus_mlp(can_bus)[None, :, :]
         bev_queries = bev_queries + can_bus * self.use_can_bus
 

@@ -8,7 +8,7 @@ try:
     from scipy.optimize import linear_sum_assignment
 except ImportError:
     linear_sum_assignment = None
-
+from mmdet3d.structures import BaseInstance3DBoxes
 from fsd.registry import TASK_UTILS
 
 @TASK_UTILS.register_module()
@@ -81,11 +81,11 @@ class HungarianAssigner3D(BaseAssigner):
         Returns:
             :obj:`AssignResult`: The assigned result.
         """
-        assert isinstance(gt_instances.labels_3d, torch.Tensor)
+        assert isinstance(gt_instances.labels, torch.Tensor)
         
         #num_gts, num_bboxes = gt_bboxes.size(0), bbox_pred.size(0)
         num_gts, num_preds = len(gt_instances), len(pred_instances)
-        gt_labels = gt_instances.labels_3d
+        gt_labels = gt_instances.labels
         device = gt_labels.device
         
         # 1. assign -1 by default
@@ -111,10 +111,12 @@ class HungarianAssigner3D(BaseAssigner):
         # 2. compute the weighted costs
         # classification and bboxcost.
         #cls_cost = self.cls_cost(cls_pred, gt_labels)
-        cls_cost = self.cls_cost(pred_instances.scores, gt_labels)
+        cls_cost = self.cls_cost(pred_instances, gt_instances)
         # regression L1 cost
-        bbox_pred = pred_instances.bboxes_3d
-        gt_bboxes = gt_instances.bboxes_3d.tensor
+        bbox_pred = pred_instances.bboxes
+        gt_bboxes = gt_instances.bboxes
+        if isinstance(gt_bboxes, BaseInstance3DBoxes):
+            gt_bboxes = gt_bboxes.tensor
         
         normalized_gt_bboxes = normalize_bbox(gt_bboxes, self.pc_range)
         

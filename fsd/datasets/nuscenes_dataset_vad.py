@@ -137,7 +137,7 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         local[7] = can_bus[13]
         
         # curvature
-        steer = can_bus[10]
+        steer = can_bus[16]
         # if left-driving cities: steer *= -1
         local[8] = steer * 2 / 2.588
 
@@ -238,7 +238,27 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
                                traj_yaw.reshape(-1, 1)], axis=-1)
         
         return traj, traj_mask
+    
+    def _update_can_bus_info(self, input_dict: dict) -> dict:
+        """Update can bus info for the current sample to follow VAD paper.
         
+        - remove (steer, throttle, brake) from original can bus
+        - add yaw in radians and yaw in degrees
+        
+        Args:
+            input_dict (dict): Raw info dict.
+        """
+        # get can bus info
+        can_bus = copy.deepcopy(input_dict['ego_can_bus'])[:-3]
+        
+        # add yaw in radians and yaw in degrees
+        yaw = quaternion_yaw(Quaternion(can_bus[3:7]))
+        yaw_degree = yaw / np.pi * 180
+        can_bus = np.concatenate([can_bus, [yaw, yaw_degree]])
+        
+        input_dict['ego_can_bus'] = can_bus
+        return input_dict 
+
     # parse local map based on ego position
     def parse_map_ann_info(self, input_dict):
         """Get local map in lidar coord.
@@ -292,9 +312,7 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         input_dict = self.get_data_info(index)
         if not input_dict:
             return None
-        # add local map annotations
-        #input_dict = self.get_map_info(input_dict)
-                    
+                            
         # add agent attributes as in original VAD paper
         self._add_agents_attributes(input_dict)
         
@@ -305,6 +323,10 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         # local context
         input_dict['ego_context'] = self._get_ego_local_context(input_dict)
 
+        # update can bus for bev use
+        if self.with_can_bus:
+            input_dict = self._update_can_bus_info(input_dict)
+        
         return input_dict
     
     def prepare_train_data(self, index):
@@ -362,7 +384,7 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
                 bev_metas[idx]['prev_bev_exists'] = False
                 bev_attr = None
                 if self.with_can_bus:
-                    bev_attr = copy.deepcopy(bev_metas[idx]['can_bus'])
+                    bev_attr = copy.deepcopy(bev_metas[idx]['ego_can_bus'])
                     prev_pos = copy.deepcopy(bev_attr[0:3]) # in world frame
                     prev_yaw = float(bev_attr[-2]/np.pi * 180) # radians to degree
                     bev_attr[0:3] = 0
@@ -371,7 +393,7 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
                 bev_metas[idx]['prev_bev_exists'] = True
                 if self.with_can_bus:
                     # get the previous can_bus
-                    bev_attr = copy.deepcopy(bev_metas[idx]['can_bus'])
+                    bev_attr = copy.deepcopy(bev_metas[idx]['ego_can_bus'])
                     temp_pos = copy.deepcopy(bev_attr[0:3])
                     temp_yaw = float(bev_attr[-2]/np.pi * 180)
                     bev_attr[0:3] -= prev_pos
@@ -410,4 +432,12 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         self.pre_pipeline(input_dict)
         example = self.pipeline(input_dict)
         
+        # add bev_attr for test
+        bev_metas = [{}]
+        if self.with_can_bus:
+            bev_metas[0] = example['data_samples'].metainfo
+            bev_attr = copy.deepcopy(example['data_samples'].metainfo['ego_can_bus'])
+            bev_metas[0]['bev_attr'] = bev_attr
+            example['data_samples'].set_metainfo({'bev_metas': bev_metas})
+            
         return example

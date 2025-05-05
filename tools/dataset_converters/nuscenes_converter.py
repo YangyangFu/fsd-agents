@@ -162,9 +162,9 @@ def _get_can_bus_info(nusc, nusc_can_bus, sample):
     """
     Ref: https://github.com/nutonomy/nuscenes-devkit/blob/master/python-sdk/nuscenes/can_bus/README.md
     
-    (x, y, z, qx, qy, qz, qw, ax, ay, az, rx, ry, rz, vx, vy, vz, steering, throttle, brake) 
+    (x, y, z, qw, qx, qy, qz, ax, ay, az, rx, ry, rz, vx, vy, vz, steering, throttle, brake) 
     - x, y, z: position in world frame, in m
-    - qx, qy, qz, qw: ego frame orientation
+    - qw, qx, qy, qz: ego frame orientation
     - ax, ay, az: acceleration in ego vehicle frame, in m/s^2
     - rx, ry, rz: angular velocity in ego vehicle frame, in rad/s
     - vx, vy, vz: velocity in ego vehicle frame, in m/s
@@ -195,7 +195,7 @@ def _get_can_bus_info(nusc, nusc_can_bus, sample):
             break
         last_pose = pose
     # get the can bus information
-    # (x, y, z, qx, qy, qz, qw, ax, ay, az, rx, ry, rz, vx, vy, vz)
+    # (x, y, z, qw, qx, qy, qz, ax, ay, az, rx, ry, rz, vx, vy, vz)
     for key in ['pos', 'orientation', 'accel', 'rotation_rate', 'vel']:
         can_bus.extend(last_pose[key])  
     

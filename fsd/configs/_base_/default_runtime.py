@@ -1,10 +1,11 @@
 default_scope = 'fsd'
+work_dir = '.'
 
 default_hooks = dict(
     timer=dict(type='IterTimerHook'),
     logger=dict(
         type='LoggerHook', 
-        interval=50
+        interval=50,
     ),
     checkpoint=dict(
         type='CheckpointHook', 
@@ -23,6 +24,6 @@ log_processor = dict(type='LogProcessor', window_size=50, by_epoch=True)
 
 log_level = 'INFO'
 load_from = None
-resume = False
+resume=False
 
 # TODO: support auto scaling lr

@@ -28,6 +28,11 @@ map_fixed_ptsnum_per_pred_line = 20
 map_eval_use_same_gt_sample_num_flag = True
 map_num_classes = len(map_classes)
 
+# plannign settings
+past_steps = 2 # past trajectory length
+agent_fut_steps = 6 # motion prediction length if any
+ego_fut_steps = 6 # planning length
+
 version = 'v1.0-mini'#'v1.0-trainval'
 metainfo = dict(
     classes=class_names,
@@ -359,7 +364,7 @@ model = dict(
 
 
 # data
-dataset_type = 'NuScenesDatasetVAD'#'NuScenesDatasetPlan3D'
+dataset_type = 'NuScenesDatasetVAD'#NuScenesDatasetPlan3D
 data_root = 'data/nuscenes/'
 file_client_args = dict(backend='disk')
 data_prefix = dict(
@@ -372,7 +377,6 @@ data_prefix = dict(
     CAM_FRONT='samples/CAM_FRONT',
     CAM_FRONT_LEFT='samples/CAM_FRONT_LEFT',
     CAM_FRONT_RIGHT='samples/CAM_FRONT_RIGHT')
-
 
 train_pipeline = [
     dict(type='LoadMultiViewImageFromFiles', _scope_='mmdet3d', to_float32=True, num_views=len(cameras)),
@@ -390,14 +394,17 @@ train_pipeline = [
     dict(type='RandomScaleImageMultiViewImage', scales=[0.8]),
     dict(type='PadMultiViewImage', size_divisor=32),
     dict(type='Pack3DPlanInputs',
-         keys=['gt_bboxes_3d', 'gt_labels_3d', 'img', 'gt_bboxes_traj', 
-               'gt_ego_traj', 'ego_context', 'bboxes_context', 'gt_map_vectors_pt', 
-               'gt_map_vectors_label'])
+         keys=['img', 'gt_bboxes_3d', 'gt_labels_3d', 'gt_bboxes_traj', 'gt_bboxes_traj_mask', 'bboxes_context', 
+               'gt_ego_traj', 'gt_ego_traj_mask', 'ego_command', 'ego_context', 'ego_history_traj', 'ego_history_mask', 
+               'gt_map_vectors_pt', 'gt_map_vectors_label'])
 ]
 
 train_dataloader = dict(
-    batch_size=2,
-    num_workers=1,
+    batch_size=1,
+    num_workers=4,
+    persistent_workers=True,
+    sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
+    pin_memory=True,
     dataset=dict(
         type=dataset_type,
         data_root=data_root,
@@ -408,35 +415,103 @@ train_dataloader = dict(
         modality=input_modality,
         box_type_3d_original='LiDAR', # original box in nuscenes are acatually Depth box in mmdet3d. 
         box_type_3d='LiDAR',
+        past_steps=past_steps, # past trajectory length
+        prediction_steps=agent_fut_steps, # motion prediction length if any
+        planning_steps=ego_fut_steps, # planning length
         test_mode=False,
         with_can_bus=True,
-        with_goal_points=True,
         point_cloud_range=point_cloud_range,
         bev_size=(bev_h_, bev_w_),
         bev_queue_length=queue_length,
         map_fixed_ptsnum_per_line = map_fixed_ptsnum_per_gt_line,
         map_sample_dist=1.0,
         map_sample_nums=250,
-        #map_fixed_ptsnum_per_line=map_fixed_ptsnum_per_gt_line,
-        #map_eval_use_same_gt_sample_num_flag=map_eval_use_same_gt_sample_num_flag,
-        # we use box_type_3d='LiDAR' in kitti and nuscenes dataset
-        # and box_type_3d='Depth' in sunrgbd and scannet dataset.
-        #box_type_3d='LiDAR',
-        #custom_eval_version='vad_nusc_detection_cvpr_2019'
-        ),
-    sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
-    pin_memory=True,
+        )
 )
 
+test_pipeline = [
+    dict(type='LoadMultiViewImageFromFiles', _scope_='mmdet3d', to_float32=True, num_views=len(cameras)),
+#    dict(type='LoadPointsFromFile',
+#         _scope_='mmdet3d',
+#         coord_type='LIDAR',
+#         load_dim=5,
+#         use_dim=5),
+    dict(type='LoadAnnotationsPlan3D', 
+        with_bbox_3d=True, 
+        with_label_3d=True, 
+        with_instances_traj=True,
+        with_instances_ids=True,
+        with_vector_map=True),
+    dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
+    dict(type='ObjectNameFilter', classes=class_names),
+    dict(type='NormalizeMultiviewImage', **img_norm_cfg, divider=1.0),
+    dict(type='RandomScaleImageMultiViewImage', scales=[0.8]),
+    dict(type='PadMultiViewImage', size_divisor=32),
+    dict(type='Pack3DPlanInputs',
+        keys=['img', 'gt_bboxes_3d', 'gt_labels_3d', 'gt_bboxes_traj', 'gt_bboxes_traj_mask', 'bboxes_context', 
+            'gt_ego_traj', 'gt_ego_traj_mask', 'ego_command', 'ego_context', 'ego_history_traj', 'ego_history_mask', 
+            'gt_map_vectors_pt', 'gt_map_vectors_label'])
+]
 
-total_epochs = 24
+val_dataloader = dict(
+    batch_size=1,
+    num_workers=4,
+    persistent_workers=True,
+    sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
+    pin_memory=True,
+    dataset=dict(
+        type=dataset_type,
+        data_root=data_root,
+        data_prefix=data_prefix,
+        ann_file='nuscenes_infos_train.pkl',
+        metainfo=metainfo,
+        pipeline=test_pipeline,
+        modality=input_modality,
+        box_type_3d_original='LiDAR', # original box in nuscenes are acatually Depth box in mmdet3d. 
+        box_type_3d='LiDAR',
+        past_steps=past_steps, # past trajectory length
+        prediction_steps=agent_fut_steps, # motion prediction length if any
+        planning_steps=ego_fut_steps, # planning length
+        test_mode=True,
+        with_can_bus=True,
+        point_cloud_range=point_cloud_range,
+        bev_size=(bev_h_, bev_w_),
+        bev_queue_length=queue_length,
+        map_fixed_ptsnum_per_line = map_fixed_ptsnum_per_gt_line,
+        map_sample_dist=1.0,
+        map_sample_nums=250,
+        )
+)
+
+test_dataloader = val_dataloader
+
 train_cfg = dict(
     type='EpochBasedTrainLoop', 
     max_epochs=total_epochs, 
-    #val_interval=1
+    val_interval=1
 )
 
+val_cfg = dict(
+    type='ValLoop'
+)
 
+test_cfg = dict(
+    type='TestLoop'
+    )
+
+#TODO: this is faked evaluator, need to be changed
+val_evaluator = dict(
+    type="NuScenesMetric",
+    _scope_="mmdet3d",
+    data_root=data_root,
+    ann_file=data_root + '/nuscenes_infos_val.pkl',\
+    modality=input_modality,
+    metric='bbox',
+    jsonfile_prefix='eval')
+
+test_evaluator = val_evaluator
+
+# seed
 randomness = dict(seed=2024)
 
 # optimizer
@@ -444,19 +519,22 @@ optimizer = dict(
     type='AdamW',
     lr=2e-4,
     weight_decay=0.01)
+
 # parameter-lever learning rate and weight decay settings
 paramwise_cfg=dict(
     custom_keys={
         'img_backbone': dict(lr_mult=0.1),
     })
 
+# optimizer wrapper 
 optim_wrapper = dict(
     type="OptimWrapper",
     _scope_="mmdet",
     optimizer=optimizer,
     paramwise_cfg=paramwise_cfg,
     clip_grad=dict(
-        max_norm=35, norm_type=2
+        max_norm=35, 
+        norm_type=2
     )
 )
 
@@ -468,14 +546,31 @@ lr_config = dict(
     warmup_ratio=1.0 / 3,
     min_lr_ratio=1e-3)
 
-#evaluation = dict(interval=1, pipeline=test_pipeline)
+# eval
+evaluation = dict(interval=1, pipeline=test_pipeline)
 
-#load_from = 'ckpts/bevformer_r101_dcn_24ep.pth'
-log_config = dict(
-    interval=50,
-    hooks=[
-        dict(type='TextLoggerHook'),
-        dict(type='TensorboardLoggerHook')
-    ])
+# default hooks
+default_hooks = dict(
+    checkpoint=dict(
+        type='CheckpointHook', 
+        save_begin=0,
+        interval=1, 
+        by_epoch=True,
+        save_best='auto',
+        max_keep_ckpts=3,
+    ),
+)
 
-checkpoint_config = dict(interval=1)
+# training log
+vis_backends = [
+    dict(type='TensorboardVisBackend'),
+    dict(type='LocalVisBackend'),
+]
+visualizer = dict(
+    type='Visualizer',
+    vis_backends=vis_backends,
+    name='visualizer',
+)
+
+load_from = './ckpts/vad_base.pth'
+resume = False

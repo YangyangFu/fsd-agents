@@ -108,7 +108,15 @@ class MapHungarianAssigner3D(BaseAssigner):
 
         # 2. compute the weighted costs
         # classification and bboxcost.
-        cls_cost = self.cls_cost(cls_pred, gt_labels)
+        pred_instances = InstanceData(
+            bboxes=bbox_pred,
+            scores=cls_pred,
+        )
+        gt_instances = InstanceData(
+            bboxes=gt_bboxes,
+            labels=gt_labels,
+        )
+        cls_cost = self.cls_cost(pred_instances, gt_instances)
         # regression L1 cost
         
         normalized_gt_bboxes = normalize_2d_bbox(gt_bboxes, self.pc_range)
