@@ -67,13 +67,44 @@ def get_empty_instance():
         annotation_token=None,
         # (list[str], optional): unique id of the instance 
         # for tracking/prediction related tasks
-        id_token=None,
+        id=None,
         # Pose of the instance in the world coordinate system
         # (list[float], optional): 4x4 matrix
         pose=None,
+        # future trajectory of the instance 
+        future_trajectory=None,
+        future_yaw=None,
+        future_mask=None,
+        goal=None
         )
     return instance
 
+def get_empty_ego():
+    """Empty annotation for ego vehicle."""
+    ego = dict(
+        # (list[float], required): list of 3 numbers representing
+        # the size of the ego vehicle, in (l,w, h) order.
+        size=None,
+        # (list[float], optional): The goal pose of the ego vehicle.
+        # (x, y, z, yaw)
+        goal=None, 
+        # velocity in world coordinate
+        velocity=None,
+        # (float, optional): The yaw angle speed of the ego vehicle.
+        yaw_velocity=None,
+        # (list[float], optional): The can bus data of the ego vehicle.
+        can_bus=None,
+        # (list[float], optional): history trajectory of the ego vehicle
+        history_trajectory=None,
+        history_yaw=None,
+        history_mask=None,
+        # (list[float], optional): future trajectory of the ego vehicle
+        future_trajectory=None,
+        future_yaw=None,
+        future_mask=None,
+        future_command=None     
+    )
+    return ego
 
 def get_empty_multicamera_instances(camera_types):
 
@@ -188,7 +219,10 @@ def get_empty_standard_data_info(
         # (str, optional): Path of semantic labels for each point.
         pts_semantic_mask_path=None,
         # (str, optional): Path of instance labels for each point.
-        pts_instance_mask_path=None)
+        pts_instance_mask_path=None,
+        # (str, optional): Ego vehicle 
+        ego=get_empty_ego(),
+        )
     return data_info
 
 
@@ -370,7 +404,7 @@ def update_nuscenes_infos(pkl_path, out_dir):
                 # annotation token for current annotation
                 empty_instance['annotation_token'] = ori_info_dict['gt_annotation_tokens'][i]
                 # pose: 4x4
-                empty_instance['pose'] = ori_info_dict['gt_poses'][i].tolist()
+                #empty_instance['pose'] = ori_info_dict['gt_poses'][i].tolist()
                 
                 # velocity
                 empty_instance['velocity'] = ori_info_dict['gt_velocity'][
@@ -381,8 +415,52 @@ def update_nuscenes_infos(pkl_path, out_dir):
                     'num_radar_pts'][i]
                 empty_instance['bbox_3d_isvalid'] = ori_info_dict[
                     'valid_flag'][i]
+                
+                # future trajectory
+                empty_instance['future_trajectory'] = ori_info_dict[
+                    'gt_boxes_fut_traj'][i, :, :].tolist()
+                empty_instance['future_yaw'] = ori_info_dict[
+                    'gt_boxes_fut_yaw'][i, :].tolist()
+                empty_instance['future_mask'] = ori_info_dict[
+                    'gt_boxes_fut_mask'][i, :].tolist()
+                empty_instance['goal'] = ori_info_dict[
+                    'gt_boxes_fut_goal'][i, :].tolist()
+                
                 empty_instance = clear_instance_unused_keys(empty_instance)
                 temp_data_info['instances'].append(empty_instance)
+            
+            # ego vehicle
+            empty_ego = get_empty_ego()
+            empty_ego['size'] = ori_info_dict['ego_size'].tolist()
+            empty_ego['goal'] = ori_info_dict[
+                'ego_fut_goal'].tolist()
+            empty_ego['velocity'] = ori_info_dict['ego_velocity'].tolist()
+            empty_ego['yaw_velocity'] = float(ori_info_dict[
+                'ego_yaw_velocity'])
+            empty_ego['can_bus'] = ori_info_dict['can_bus'].tolist()
+            empty_ego['history_trajectory'] = ori_info_dict[
+                'gt_ego_his_traj'].tolist()
+            empty_ego['history_yaw'] = ori_info_dict[
+                'gt_ego_his_yaw'].tolist()
+            empty_ego['history_mask'] = ori_info_dict[
+                'gt_ego_his_mask'].tolist()
+            
+            empty_ego['future_trajectory'] = ori_info_dict[
+                'gt_ego_fut_traj'].tolist()
+            empty_ego['future_yaw'] = ori_info_dict[
+                'gt_ego_fut_yaw'].tolist()
+            empty_ego['future_mask'] = ori_info_dict[
+                'gt_ego_fut_mask'].tolist()
+            empty_ego['command'] = ori_info_dict[
+                'gt_ego_fut_cmd'].tolist()
+            empty_ego = clear_instance_unused_keys(empty_ego)
+            temp_data_info['ego'] = empty_ego
+            
+            # map information
+            temp_data_info['map'] = dict() 
+            temp_data_info['map']['location']= ori_info_dict['map_location']
+            
+            # camera instances
             temp_data_info[
                 'cam_instances'] = generate_nuscenes_camera_instances(
                     ori_info_dict, nusc)
