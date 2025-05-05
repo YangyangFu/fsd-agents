@@ -628,7 +628,8 @@ class Ego(BaseDataElement):
         Args:
             value (TrajectoryData): The trajectory of the ego vehicle
         """
-        assert isinstance(value, TrajectoryData), \
+        assert isinstance(value, (np.ndarray, torch.Tensor)) \
+            or isinstance(value, TrajectoryData), \
             "Trajectory should be a TrajectoryData object"
         
         self.set_field(value, '_traj', dtype=type(value))
@@ -661,6 +662,33 @@ class Ego(BaseDataElement):
     @context.deleter
     def context(self):
         del self._context
+    
+    # commmand: turn left/right, go straight, etc
+    @property
+    def command(self) -> torch.Tensor:
+        """The command of the ego vehicle
+        
+        Returns:
+            torch.Tensor: The command of the ego vehicle
+        """
+        if hasattr(self, '_command'):
+            return self._command
+        return None
+    @command.setter
+    def command(self, value: torch.Tensor):
+        """The command of the ego vehicle
+        
+        Args:
+            value (torch.Tensor): The command of the ego vehicle
+        """
+        assert isinstance(value, (torch.Tensor, np.ndarray)), \
+            "Command should be a tensor"
+        
+        self.set_field(value, '_command', dtype=type(value))
+    @command.deleter
+    def command(self):
+        del self._command
+    
     
     # 
     def __len__(self) -> int:
@@ -870,14 +898,15 @@ class Instances(InstanceData):
         return None
 
     @traj.setter
-    def traj(self, value: Union[TrajectoryData, MultiModalTrajectoryData]):
+    def traj(self, value: Union[Array, TrajectoryData, MultiModalTrajectoryData]):
         """The trajectory of the instances
         
         Args:
             value (TrajectoryData): The trajectory of the instances
         """
-        assert isinstance(value, list) and (len(value) == 0 or isinstance(value[0], TrajectoryData)), \
-            "trajectory should be a TrajectoryData object or empty"
+        assert isinstance(value, (torch.Tensor, np.ndarray)) \
+            or (isinstance(value, list) and (len(value) == 0 or isinstance(value[0], TrajectoryData))), \
+            "trajectory should be an array-like or TrajectoryData object or empty"
         
         self.set_field(value, '_traj', dtype=type(value))
     
