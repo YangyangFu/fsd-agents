@@ -263,7 +263,7 @@ class BasePlanDataset(BaseDataset):
         gt_bboxes_mask = np.array([instance['bbox_3d_isvalid'] for instance in info['instances']]).astype(np.bool_)
         gt_bboxes_velocity = np.array([instance['velocity'] for instance in info['instances']]).astype(np.float32)
         gt_bboxes_id = np.array([instance['id'] for instance in info['instances']]).astype(np.str_)
-        gt_bboxes_pose = np.array([instance['pose'] for instance in info['instances']]).astype(np.float32)
+        #gt_bboxes_pose = np.array([instance['pose'] for instance in info['instances']]).astype(np.float32)
         
         # labels as int might change due to user-defined mapping
         gt_labels_3d = [instance['bbox_label_3d'] for instance in info['instances']]
@@ -292,16 +292,27 @@ class BasePlanDataset(BaseDataset):
             box_dim=gt_bboxes_3d.shape[-1],
             origin=(0.5, 0.5, 0.5)).convert_to(self.box_mode_3d)
         
-        # planning annotations
-        #gt_instances_traj = info.pop('gt_instances_traj')
-        #gt_ego_traj = info.pop('gt_ego_traj')
+        # planning annotations for future steps
+        # bboxes
+        gt_bboxes_future_trajectory = np.array([instance['future_trajectory'] for instance in info['instances']]).astype(np.float32)
+        gt_bboxes_future_yaws = np.array([instance['future_yaw'] for instance in info['instances']]).astype(np.float32)
+        gt_bboxes_future_masks = np.array([instance['future_mask'] for instance in info['instances']]).astype(np.bool_)
+        gt_bboxes_goal = np.array([instance['goal'] for instance in info['instances']]).astype(np.float32)
         
+        # (num_boxes, fut, 4) : (x, y, z, yaw)
+        gt_bboxes_traj = np.concatenate(
+            [gt_bboxes_future_trajectory, gt_bboxes_future_yaws[:, :, None]], 
+            axis=-1)
+                
+        # construct anno info
         ann_info = dict(
             gt_bboxes_3d=gt_bboxes_3d,
             gt_labels_3d=gt_labels_3d,
             gt_bboxes_mask=gt_bboxes_mask,
             gt_bboxes_id=gt_bboxes_id,
-            gt_bboxes_pose=gt_bboxes_pose,
+            gt_bboxes_traj=gt_bboxes_traj,
+            gt_bboxes_traj_mask=gt_bboxes_future_masks,
+            gt_bboxes_goal=gt_bboxes_goal,
             )
         if gt_bboxes_anno_token is not None:
             ann_info['gt_bboxes_anno_token'] = gt_bboxes_anno_token
@@ -313,6 +324,19 @@ class BasePlanDataset(BaseDataset):
         for label in ann_info['gt_labels_3d']:
             if label != -1:
                 self.num_ins_per_cat[label] += 1
+        
+        # add ego annotation
+        gt_ego_future_trajs = np.array(info['ego']['future_trajectory']).astype(np.float32)
+        gt_ego_future_yaws = np.array(info['ego']['future_yaw']).astype(np.float32)
+        gt_ego_future_masks = np.array(info['ego']['future_mask']).astype(np.bool_)
+        gt_ego_traj = np.concatenate(
+            [gt_ego_future_trajs, gt_ego_future_yaws[:, None]], 
+            axis=-1)
+        
+        ann_info.update(
+            gt_ego_traj=gt_ego_traj,
+            gt_ego_traj_mask=gt_ego_future_masks,
+        )
         
         return ann_info
     
@@ -365,190 +389,38 @@ class BasePlanDataset(BaseDataset):
                     img_info['img_path'] = osp.join(cam_prefix,
                                                     img_info['img_path'])
 
+        # parse ego information
+        # ego annotation will be parsed in parse_ann_info
+        if 'ego' in info:
+            ego_keys = ['ego_size', 'ego_velocity', 
+                        'ego_yaw_velocity', 'ego_goal', 
+                        'ego_can_bus', 'ego_command',
+                        'ego_history_trajectory', 'ego_history_yaw',
+                        'ego_history_mask'
+                        ]
+            for key in ego_keys:
+                # remove prefix ego
+                if key[4:] in info['ego']:
+                    if 'mask' in key:
+                        info[key] = np.array(info['ego'][key[4:]]).astype(np.bool_)
+                    else:
+                        info[key] = np.array(info['ego'][key[4:]]).astype(np.float32)
+        
+        # parse map information
+        if 'map' in info:
+            map_keys = ['map_location']
+            for key in map_keys:
+                info[key] = info['map'][key[4:]]
+            
+        # parse annoation information
         if not self.test_mode:
             # used in training
             info['ann_info'] = self.parse_ann_info(info)
         if self.test_mode and self.load_eval_anns:
-            info['eval_ann_info'] = self.parse_ann_info(info)
-
+            info['ann_info'] = self.parse_ann_info(info)
+            info['eval_ann_info'] = info['ann_info']
+            
         return info
-        
-    def generate_past_future_info(self, index, curr_info):
-        """Generate past/future annotation info, such as future trajectory.
-
-            The coordinate system is in the local lidar coord at the current frame.
-        """
-        # make sure the required keys are in the info
-        #required_keys = []
-        #for key in required_keys:
-        #    if key not in info:
-        #        raise ValueError(f"Key {key} is required in the info.")
-    
-        # make sure the required attribues are set
-        
-        # generate ego past/future trajectory
-        past_future_ego_traj = self._generate_past_future_ego_trajectory(index, curr_info)
-
-        # generate instances past/future trajectory
-        past_future_instances_traj = self._generate_past_future_instances_trajectory(index, curr_info)
-
-        # add to the current info
-        if 'ann_info' in curr_info:
-            curr_info['ann_info']['gt_ego_traj'] = past_future_ego_traj
-            curr_info['ann_info']['gt_bboxes_traj'] = past_future_instances_traj
-        elif 'eval_ann_info' in curr_info:
-            curr_info['eval_ann_info']['gt_ego_traj'] = past_future_ego_traj
-            curr_info['eval_ann_info']['gt_bboxes_traj'] = past_future_instances_traj
-        else:
-            raise ValueError("No ann_info or eval_ann_info in the current info.")
-
-        return curr_info
-        
-    def _generate_past_future_ego_trajectory(self, index, curr_info):
-        """Generate past and future trajectories for ego vehicle, offset from the current frame.
-
-        Args:
-            index (_type_): _description_
-            info (_type_): _description_
-        
-        Returns:
-            TrajectoryData: Trajectory data for ego vehicle, with a length of (past_steps + 1 + planning_steps)
-        """
-
-        index_list = list(range(index - self.past_steps * self.sample_interval, index + self.planning_steps * self.sample_interval + 1, self.sample_interval))
-        lidar2ego = curr_info['lidar_points']['lidar2ego']
-        ego2world = curr_info['ego2global']
-        world2lidar_curr = np.linalg.inv(np.array(ego2world) @ np.array(lidar2ego))
-        xyr = np.zeros((self.past_steps + 1 + self.planning_steps, 3)) # past + current + future
-        mask = np.zeros((self.past_steps + 1 + self.planning_steps,)) 
-
-        # current frame: 0
-        # TODO: why not use ego2lidar instead of 0?
-        xyr[self.past_steps, :2] = 0
-        xyr[self.past_steps, 2] = 0 # yaw angle
-        mask[self.past_steps] = 1
-        
-        # past/future frames
-        for i, idx in enumerate(index_list):
-            # skip the current frame
-            if idx == index:
-                continue
-            # check if index is within range
-            if idx < 0 or idx >= len(self):
-                continue
-            # check if the the frames are from the same scene
-            adj_info = self.get_data_info(idx)
-            if curr_info['scene_token'] != adj_info['scene_token']:
-                continue
-            
-            lidar_adj2ego_adj = adj_info['lidar_points']['lidar2ego']
-            ego_adj2world = adj_info['ego2global'] 
-            lidar_adj2world = np.array(ego_adj2world) @ np.array(lidar_adj2ego_adj)
-            # T12 = T2^-1 * T1
-            adj2curr = world2lidar_curr @ lidar_adj2world
-            xyr[i, :2] = adj2curr[:2, 3]
-            xyr[i, 2] = np.arctan2(adj2curr[1, 0], adj2curr[0, 0]) # [-pi, pi]
-            mask[i] = 1
-            
-        traj = TrajectoryData(
-                metainfo=dict(mode='accumulated',
-                    num_past_steps=self.past_steps, 
-                    num_future_steps=self.planning_steps,
-                    time_step=self.sample_interval/self.FPS), 
-                data=xyr.astype(np.float32), 
-                mask=mask.astype(np.bool_)
-                )
-        # get goal point
-        if self.with_goal_points:
-            #TODO: bugs when indexing
-            traj.set_field(traj.data[-1, :], 'goal', field_type='metainfo')
-        
-        # difference mode for traj
-        traj.convert_to_mode('difference')
-        
-        return traj
-    
-    def _generate_past_future_instances_trajectory(self, index, curr_info):
-        """Generate past and future trajectories for instances, 
-            centered at the lidar coords in the current frame.
-
-        Args:
-            index (_type_): _description_
-            info (_type_): _description_
-        
-        Returns:
-            TrajectoryData: Trajectory data for N instances, with a length of (past_steps + 1 + planning_steps)
-        """
-        index_list = range(index - self.past_steps * self.sample_interval, 
-                           index + self.planning_steps * self.sample_interval + 1, 
-                           self.sample_interval)
-        instances_ids = curr_info['ann_info']['gt_bboxes_id']
-        lidar2ego = curr_info['lidar_points']['lidar2ego']
-        ego2world = curr_info['ego2global']
-        world2lidar_curr = np.linalg.inv(np.array(ego2world) @ np.array(lidar2ego))
-        
-        # initialize the trajectory data
-        trajs = []
-                
-        # for each instance in the current frame, find its past and future trajectory
-        for i, instance_id in enumerate(instances_ids):
-            xyr = np.zeros((self.past_steps + 1 + self.planning_steps, 3)) # (T, 3)
-            mask = np.zeros((self.past_steps + 1 + self.planning_steps,)) # (T,)    
-            
-            # box to lidar_curr
-            instance2lidar_curr = world2lidar_curr @ curr_info['ann_info']['gt_bboxes_pose'][i] # (4, 4)
-            xyr[self.past_steps, :2] = instance2lidar_curr[:2, 3]
-            xyr[self.past_steps, 2] = np.arctan2(instance2lidar_curr[1, 0], instance2lidar_curr[0, 0]) # [-pi, pi]
-            mask[self.past_steps] = 1
-            
-            for j, idx in enumerate(index_list):
-                # skip the current frame
-                if idx == index:
-                    continue
-                
-                # check if index is within range
-                if idx < 0 or idx >= len(self):
-                    continue
-                # check if the the frames are from the same scene
-                adj_info = self.get_data_info(idx)
-                if curr_info['scene_token'] != adj_info['scene_token']:                    
-                    continue
-                # instance not found in the adjacent frame
-                if instance_id not in adj_info['ann_info']['gt_bboxes_id']:
-                    continue
-                # box index of the instance in the adjacent frame
-                adj_idx = np.where(adj_info['ann_info']['gt_bboxes_id'] == instance_id)[0][0]
-                
-                # these two should be the same
-                #instance2lidar_adj = adj_info['sensors']['LIDAR_TOP']['world2sensor'] @ adj_info['gt_instance2world'][adj_idx]
-                #adj2curr = instance2lidar_curr @ np.linalg.inv(instance2lidar_adj)
-                # viewing instance in adj frame lidar coords from the current frame's lidar coord
-                adj2curr = world2lidar_curr @ adj_info['ann_info']['gt_bboxes_pose'][adj_idx]
-
-                ## 
-                xyr[j, :2] = adj2curr[:2, 3]
-                xyr[j, 2] = np.arctan2(adj2curr[1, 0], adj2curr[0, 0]) # [-pi, pi]
-                mask[j] = 1
-                 
-            # save as TrajectoryData
-            traj = TrajectoryData(
-                metainfo=dict(mode='accumulated',
-                    num_past_steps=self.past_steps, 
-                    num_future_steps=self.planning_steps,
-                    time_step=self.sample_interval/self.FPS), 
-                data=xyr.astype(np.float32), 
-                mask=mask.astype(np.bool_)
-            )
-            
-            if self.with_goal_points:
-                #TODO: bugs when indexing
-                traj.set_field(traj.data[-1, :], 'goal', field_type='metainfo')
-            
-            traj.convert_to_mode('difference')
-                
-            trajs.append(traj)
-        
-        return trajs
 
     def pre_pipeline(self, results):
         """Initialization before data preparation.
@@ -590,15 +462,12 @@ class BasePlanDataset(BaseDataset):
         if not input_dict:
             return None
         
-        # add past/future annotation info, such as future trajectory
-        input_dict = self.generate_past_future_info(index, input_dict)
-         
         # assemble for data pipeline
         self.pre_pipeline(input_dict)
         example = self.pipeline(input_dict)
         if self.filter_empty_gt and \
                 (example is None or
-                    ~(example['data_samples'].gt_instances_3d.labels_3d != -1).any()):
+                    ~(example['data_samples'].gt_instances_3d.label != -1).any()):
             return None
         return example
 
@@ -611,11 +480,8 @@ class BasePlanDataset(BaseDataset):
         Returns:
             dict: Testing data dict of the corresponding index.
         """
-        info = self.prepare_planning_info(index)
-        # add past/future annotation info, such as future trajectory
-        info = self.generate_past_future_info(index, info) 
         # assemble for data pipeline
-        input_dict = self.get_data_info(info)
+        input_dict = self.get_data_info(index)
         if not input_dict:
             return None
 
@@ -623,7 +489,7 @@ class BasePlanDataset(BaseDataset):
         example = self.pipeline(input_dict)
         if self.filter_empty_gt and \
                 (example is None or
-                    ~(example['data_samples'].gt_instances.labels != -1).any()):
+                    ~(example['data_samples'].gt_instances_3d.label != -1).any()):
             return None
         
         return example

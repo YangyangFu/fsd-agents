@@ -2,6 +2,8 @@
 from os import path as osp
 from typing import Callable, List, Union, Optional
 import numpy as np 
+import copy
+import torch
 from mmengine.fileio import load
 from mmdet3d.structures import limit_period, CameraInstance3DBoxes, LiDARInstance3DBoxes, DepthInstance3DBoxes
 
@@ -52,12 +54,22 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
                  map_sample_dist: float = 1,
                  map_sample_nums: int = 250,
                  map_padding_value: float = -10000,
+                 bev_queue_length: int = 2,
+                 bev_size: tuple = (200, 200),
                  *args,
                  **kwargs) -> None:
         
-        super().__init__(*args, **kwargs)
-
         # local map
+        # get data_root from super class arguments
+        data_root = kwargs.get('data_root', None)
+        if data_root is None:
+            raise ValueError('data_root should be provided in the arguments')
+        metainfo = kwargs.get('metainfo', None)
+        if metainfo is None and self.METAINFO['map_classes'] is None:
+            raise ValueError('metainfo should be provided in the arguments')
+        map_classes = metainfo['map_classes'] if 'map_classes' in metainfo else self.METAINFO['map_classes']
+        
+        
         self.point_cloud_range = point_cloud_range
         patch_h = self.point_cloud_range[4] - self.point_cloud_range[1]
         patch_w = self.point_cloud_range[3] - self.point_cloud_range[0]
@@ -67,15 +79,23 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         self.map_sample_dist = map_sample_dist
         self.map_sample_nums = map_sample_nums
         self.local_map = VectorizedLocalMap(
-            data_root=self.data_root,
+            data_root=data_root,
             patch_size=self.map_patch_size,
-            map_classes=self.metainfo['map_classes'],
+            map_classes=map_classes,
             fixed_ptsnum_per_line=self.map_fixed_ptsnum_per_line,
             sample_dist=self.map_sample_dist,
             num_samples=self.map_sample_nums,
             padding_value=self.map_padding_value
         )
-    
+
+        # bev 
+        self.bev_queue_length = bev_queue_length
+        assert self.bev_queue_length > 0, 'bev_queue_length should be greater than 0'
+        self.bev_size = bev_size
+      
+        # initialize the super class
+        super().__init__(*args, **kwargs)
+      
     def _get_ego_local_context(self, input_dict: dict) -> np.ndarray:
         """Get ego local context feature as a vector of size 9, 
             (vx, vy, ax, ay, yaw, length, width, vel, kappa)
@@ -94,64 +114,24 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         Returns:
             np.ndarray: Ego local context feature.
         """
-        can_bus = input_dict['can_bus']
+        can_bus = input_dict['ego_can_bus']
+        ego_velocity = input_dict['ego_velocity']
+        ego_yaw_velocity = input_dict['ego_yaw_velocity']
+        ego_size = input_dict['ego_size']
         
         local = np.zeros((9,), dtype=np.float32)
-        #vx, vy in world frame
-        ego_curr = np.array(can_bus[0:2])
-        ego_yaw_curr = can_bus[16]
-        
-        sample_idx_prev = input_dict['sample_idx'] - 1
-        sample_idx_next = input_dict['sample_idx'] + 1
-        
-        # if previous sample exists from the same scene, infer the velocity from prev/curr frame
-        # else infer from curr/next frame
-        if sample_idx_prev >= 0 and \
-            self.get_data_info(sample_idx_prev)['scene_token'] == input_dict['scene_token']:
-            data_info_prev = self.get_data_info(sample_idx_prev)
-            # get prev pos
-            ego_prev = np.array(data_info_prev['ego2global'])[:2, 3]
-
-            # q =-q due to sign ambiguity in quaternion representation
-            rot_prev = Quaternion(
-                matrix=np.array(data_info_prev['ego2global'])[:3, :3], atol=1e-6
-            )
-            if rot_prev.w < 0:
-                rot_prev = -rot_prev
-            ego_yaw_prev = rot_prev.yaw_pitch_roll[0]
-        
-            ego_v = np.linalg.norm(ego_curr - ego_prev) * self.FPS       
-            ego_vx = ego_v * np.cos(ego_yaw_curr + np.pi / 2)
-            ego_vy = ego_v * np.sin(ego_yaw_curr + np.pi / 2)
-            yaw_speed = (ego_yaw_curr - ego_yaw_prev) * self.FPS
-        else:
-            data_info_next = self.get_data_info(sample_idx_next)
-            ego_next = np.array(data_info_next['ego2global'])[:2, 3]
-            # q =-q due to sign ambiguity in quaternion representation
-            rot_next = Quaternion(
-                matrix=np.array(data_info_next['ego2global'])[:3, :3], atol=1e-6
-            )
-            if rot_next.w < 0:
-                rot_next = -rot_next
-            ego_yaw_next = rot_next.yaw_pitch_roll[0]
-            
-            ego_v = np.linalg.norm(ego_next - ego_curr) * self.FPS
-            ego_vx = ego_v * np.cos(ego_yaw_curr + np.pi / 2)
-            ego_vy = ego_v * np.sin(ego_yaw_curr + np.pi / 2)
-            yaw_speed = (ego_yaw_next - ego_yaw_curr) * self.FPS
-        
-        local[0] = ego_vx
-        local[1] = ego_vy
+        local[0] = ego_velocity[0] # vx
+        local[1] = ego_velocity[1] # vy
         
         # acc in ego frame
         local[2:4] = can_bus[7:9] # ax, ay
         
         # rotation speed? rad/s
-        local[4] = yaw_speed
+        local[4] = ego_yaw_velocity
         
         # ego size
-        local[5] = self.EGO_LENGTH
-        local[6] = self.EGO_WIDTH
+        local[5] = ego_size[0] # length
+        local[6] = ego_size[1] # width
         
         # logitudianl velocity
         local[7] = can_bus[13]
@@ -172,41 +152,38 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
             - type: labels
             
         """
-        num_agents = input_dict['ann_info']['gt_bboxes_3d'].shape[0]
+        ann_info = input_dict['ann_info']
+        num_agents = ann_info['gt_bboxes_3d'].shape[0]
         local = np.zeros((num_agents, 9), dtype=np.float32)
         
         # x, y
-        local[:, 0:2] = input_dict['ann_info']['gt_bboxes_3d'].center[:, :2]
+        local[:, 0:2] = ann_info['gt_bboxes_3d'].center[:, :2]
         
         # yaw
-        local[:, 2] = input_dict['ann_info']['gt_bboxes_3d'].yaw
+        local[:, 2] = ann_info['gt_bboxes_3d'].yaw
         
         # vx, vy
-        local[:, 3:5] = input_dict['ann_info']['gt_bboxes_3d'].tensor[:, -2:]
+        local[:, 3:5] = ann_info['gt_bboxes_3d'].tensor[:, -2:]
 
         # w, l, h
-        local[:, 5:8] = input_dict['ann_info']['gt_bboxes_3d'].dims[:, [1, 0, 2]]
+        local[:, 5:8] = ann_info['gt_bboxes_3d'].dims[:, [1, 0, 2]]
         # type
-        local[:, 8] = input_dict['ann_info']['gt_labels_3d']
+        local[:, 8] = ann_info['gt_labels_3d']
         
         return local 
     
-    def _get_agents_goal_direction(self, trajs: list) -> np.ndarray:
+    def _get_agents_goal_direction(self, goals: np.ndarray) -> np.ndarray:
                 
-        num_agents = len(trajs)
+        num_agents, _ = goals.shape
         directions = np.zeros((num_agents, 1), dtype=np.float32)
         
         directions = []
         for i in range(num_agents):
-            traj = trajs[i]
-            # get the last point of the trajectory
-            center = traj.center[:2]
-            goal = traj.goal[:2]
-            diff = goal - center
-            if diff.max() < 1.0: # static
+            goal = goals[i, :2]
+            if goal.max() < 1.0: # static
                 direction = 9
             else:
-                box_yaw = np.arctan2(diff[1], diff[0]) + np.pi # [0, 2pi]
+                box_yaw = np.arctan2(goal[1], goal[0]) + np.pi # [0, 2pi]
                 direction = box_yaw // (np.pi / 4) # 0-8
             directions.append(direction)
 
@@ -223,32 +200,45 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         fut_traj = []
         fut_traj_mask = []
         goal = []
-        trajs = input_dict['ann_info']['gt_bboxes_traj'] if 'ann_info' in input_dict else input_dict['eval_ann_info']['gt_bboxes_traj']
-        for traj in trajs:
-            fut_traj.append(traj.data[-self.prediction_steps:, :])
-            fut_traj_mask.append(traj.mask[-self.prediction_steps:])
-            goal.append(traj.goal)
-        fut_traj = np.stack(fut_traj, axis=0)
-        fut_traj_mask = np.stack(fut_traj_mask, axis=0)
-        goal = np.stack(goal, axis=0)
+        # (num_boxes, num_steps, 4) - (x, y, z, yaw)
+        fut_traj = input_dict['ann_info']['gt_bboxes_traj']
+        fut_traj_xy = fut_traj[:, :, :2]
+        fut_traj_yaw = fut_traj[:, :, 3]
+        fut_traj_mask = input_dict['ann_info']['gt_bboxes_traj_mask']
+        goal = input_dict['ann_info']['gt_bboxes_goal']
         
         # extrack goal direction
-        goal_direction = self._get_agents_goal_direction(trajs)
+        goal_direction = self._get_agents_goal_direction(goal)
         
         # local features from agents
         local = self._get_agents_local_context(input_dict)
         
-        attr = np.concatenate([fut_traj[:, :, :2].reshape(-1, self.prediction_steps * 2), 
+        attr = np.concatenate([fut_traj_xy[:, :, :2].reshape(-1, self.prediction_steps * 2), 
                 fut_traj_mask, 
                 goal_direction.reshape(-1, 1),
                 local,
-                fut_traj[:, :, -1]
+                fut_traj_yaw
                 ], 
             axis=-1
         ).astype(np.float32)
         
         input_dict['bboxes_context'] = attr 
     
+    def _get_ego_history_trajectory(self, input_dict: dict) -> np.ndarray:
+        """Get ego history trajectory as a vector of 3
+            (x, y, yaw) in current lidar frame.
+        """
+
+        traj_xy = input_dict.pop('ego_history_trajectory')[:, :2]
+        traj_yaw = input_dict.pop('ego_history_yaw')
+        traj_mask = np.array(input_dict['ego_history_mask']).astype(np.bool_)
+        
+        # 
+        traj = np.concatenate([traj_xy.reshape(-1, 2), 
+                               traj_yaw.reshape(-1, 1)], axis=-1)
+        
+        return traj, traj_mask
+        
     # parse local map based on ego position
     def parse_map_ann_info(self, input_dict):
         """Get local map in lidar coord.
@@ -277,28 +267,44 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
 
         return ann_map
     
-    def get_map_info(self, input_dict):
-        """Get local map info.
+    def parse_ann_info(self, info: dict) -> dict:
+        """Process the raw annotation info.
 
-        Args:
-            input_dict (dict): Input data dictionary.
-
-        Returns:
-            dict: Local map info.
+        Convert all relative path of needed modality data file to
+        the absolute path. Process the `instances`, 'ego' and `map` field
+        to the corresponding data format.
         """
-        # get map location
-        input_dict = self._get_map_location(input_dict)
-        # get local map ann
-        ann_map = self.parse_map_ann_info(input_dict)
+        ann_info = super().parse_ann_info(info)
         
-        # add to input dict
-        if not self.test_mode:
-            input_dict['ann_info']['gt_map_vectors_pt'] = ann_map['gt_vecs_pts_loc']
-            input_dict['ann_info']['gt_map_vectors_label'] = ann_map['gt_vecs_label']
-        else:
-            input_dict['eval_ann_info']['gt_map_vectors_pt'] = ann_map['gt_vecs_pts_loc']
-            input_dict['eval_ann_info']['gt_map_vectors_label'] = ann_map['gt_vecs_label']
-            
+        # add local map info
+        ann_map = self.parse_map_ann_info(info)
+        
+        # add to ann_info
+        ann_info['gt_map_vectors_pt'] = ann_map['gt_vecs_pts_loc']
+        ann_info['gt_map_vectors_label'] = ann_map['gt_vecs_label']
+        
+        return ann_info
+    
+    def _prepare_data(self, index) -> dict:
+        """Prepare data given sample index.
+        """
+        # get data info
+        input_dict = self.get_data_info(index)
+        if not input_dict:
+            return None
+        # add local map annotations
+        #input_dict = self.get_map_info(input_dict)
+                    
+        # add agent attributes as in original VAD paper
+        self._add_agents_attributes(input_dict)
+        
+        # add ego features
+        # history trajectory
+        input_dict['ego_history_traj'], input_dict['ego_history_mask'] = \
+            self._get_ego_history_trajectory(input_dict)
+        # local context
+        input_dict['ego_context'] = self._get_ego_local_context(input_dict)
+
         return input_dict
     
     def prepare_train_data(self, index):
@@ -310,27 +316,98 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         Returns:
             dict: Training data dict of the corresponding index.
         """
-        # get data info
-        input_dict = self.get_data_info(index)
-        if not input_dict:
+        queue = []
+        index_list = [i for i in range(index - self.bev_queue_length, index)]
+        index_list = np.random.choice(index_list, size=self.bev_queue_length, replace=False)
+        index_list = sorted(index_list[1:])
+        index_list.append(index)
+        
+        for idx in index_list:
+            # in case out of range 
+            idx = max(0, idx)
+            
+            # prepare data
+            input_dict = self._prepare_data(idx)
+            if input_dict is None:
+                return None
+            
+            # assemble for data pipeline
+            self.pre_pipeline(input_dict)
+            example = self.pipeline(input_dict)
+            if self.filter_empty_gt and \
+                    (example is None or
+                        ~(example['data_samples'].gt_instances_3d.label != -1).any()):
+                return None
+
+            queue.append(example)
+
+        return self._combine_history_for_bev(queue)
+    
+    def _combine_history_for_bev(self, queue):
+        """Combine historical frames for BEV
+        """
+        imgs_list = [data['inputs']['img'] for data in queue]
+        
+        prev_scene_token = None
+        prev_pos = None
+        prev_yaw = None
+        bev_metas = [{} for _ in range(len(queue))]
+        
+        # calculate the delta orientation and position for adjacent frames for BEV
+        for idx, data in enumerate(queue):
+            bev_metas[idx] = data['data_samples'].metainfo
+            if bev_metas[idx]['scene_token'] != prev_scene_token:
+                # new scene
+                prev_scene_token = bev_metas[idx]['scene_token']
+                bev_metas[idx]['prev_bev_exists'] = False
+                bev_attr = None
+                if self.with_can_bus:
+                    bev_attr = copy.deepcopy(bev_metas[idx]['can_bus'])
+                    prev_pos = copy.deepcopy(bev_attr[0:3]) # in world frame
+                    prev_yaw = float(bev_attr[-2]/np.pi * 180) # radians to degree
+                    bev_attr[0:3] = 0
+                    bev_attr[-1] = 0 # BEVFormer uses yaw in radians and yaw degree in can_bus
+            else:
+                bev_metas[idx]['prev_bev_exists'] = True
+                if self.with_can_bus:
+                    # get the previous can_bus
+                    bev_attr = copy.deepcopy(bev_metas[idx]['can_bus'])
+                    temp_pos = copy.deepcopy(bev_attr[0:3])
+                    temp_yaw = float(bev_attr[-2]/np.pi * 180)
+                    bev_attr[0:3] -= prev_pos
+                    bev_attr[-1] = temp_yaw - prev_yaw
+                    prev_pos = temp_pos
+                    prev_yaw = temp_yaw
+                    
+            bev_metas[idx]['bev_attr'] = bev_attr
+            
+        # assemble
+        new_data = {}
+        new_data['inputs'] = {}
+        new_data['inputs']['img'] = torch.stack(imgs_list, dim=0) # [seq_len,N, 3, H, W] 
+        
+        data_samples = queue[-1]['data_samples'].clone()
+        data_samples.set_metainfo({'bev_metas': bev_metas})
+        new_data['data_samples'] = data_samples
+        
+        return new_data
+    
+    def prepare_test_data(self, index):
+        """Prepare data for testing.
+
+        Args:
+            index (int): Index for accessing the target data.
+
+        Returns:
+            dict: Testing data dict of the corresponding index.
+        """
+        # prepare data
+        input_dict = self._prepare_data(index)
+        if input_dict is None:
             return None
-        # add local map annotations
-        input_dict = self.get_map_info(input_dict)
         
-        # get ego local context feature
-        input_dict['ego_context'] = self._get_ego_local_context(input_dict)
-        
-        # add past/future annotation info, such as future trajectory
-        input_dict = self.generate_past_future_info(index, input_dict)
-        
-        # add agent attributes as in original VAD paper
-        self._add_agents_attributes(input_dict)
-        
-        # assemble for data pipeline
+        # pipeline
         self.pre_pipeline(input_dict)
         example = self.pipeline(input_dict)
-        if self.filter_empty_gt and \
-                (example is None or
-                    ~(example['data_samples'].gt_instances_3d.label != -1).any()):
-            return None
+        
         return example

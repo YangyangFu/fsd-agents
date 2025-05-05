@@ -46,10 +46,7 @@ class NuScenesDatasetPlan3D(BasePlanDataset):
         ]
     }
     
-    # TODO: find a better way for EGO
-    EGO_LENGTH = 4.084
-    EGO_WIDTH = 1.85
-    
+
     def __init__(self,
                  data_root: Optional[str] = None,
                  ann_file: str = '',
@@ -104,216 +101,15 @@ class NuScenesDatasetPlan3D(BasePlanDataset):
             show_ins_var=show_ins_var,
             **kwargs)
     
-    def _get_map_location(self, input_dict):
-        """Get map city name information given the sample token in the input_dict.
-        """
-        map_location = self.nusc.get('log', self.nusc.get('scene', input_dict['scene_token'])['log_token'])['location']
+    def _get_can_bus_info(self, info: dict) -> dict:
+        """Get can bus info for the current sample.
         
-        # update input_dict
-        input_dict.update(
-            map_location=map_location,
-        )
-        return input_dict
+        Overwrite this to customize the can bus info.
         
-    def _get_can_bus_info(self, input_dict):
-        """Get can_bus information given the sample token in the input_dict.
-        
-        can_bus is a list of 18 elements:
-            [x, y, z, qw, qx, qy, qz, ax, ay, az, rx, ry, rz, vx, vy, vz, yaw, steer]
-            where:
-            - x, y, z are the translation of the ego vehicle in the world coordinate system in meters,
-            - qw, qx, qy, qz are the rotation vector in the ego vehicle frame
-            - ax, ay, az are the acceleration vector in the ego vehicle frame in m/s^2
-            - rx, ry, rz are the angular velocity vector in the ego vehicle frame in rad/s
-            - vx, vy, vz are the velocity in the ego vehicle frame in m/s
-            - yaw is the yaw angle in the ego vehicle frame in radians
-            - steer is the steering angle in radians in range [-7.7, 6.3]. 
-                0 indicates no steering, positive values indicate left turns, 
-                negative values right turns.
-
-            
-        Returns:
-            input_dict (dict): Updated input_dict with 'can_bus' key.
-        """
-        sample_token = input_dict['token']
-        scene_token = input_dict['scene_token']
-        sample = self.nusc.get('sample', sample_token)
-        scene_name = self.nusc.get('scene', scene_token)['name']
-        sample_timestamp = sample['timestamp']
-        map_location = self.nusc.get('log', self.nusc.get('scene', scene_token)['log_token'])['location']
-        
-        # get can bus information
-        try:
-            pose_list = self.can_bus.get_messages(scene_name, 'pose')
-            steer_list = self.can_bus.get_messages(scene_name, 'steeranglefeedback')
-        except:
-            # if no can bus information, return a default value
-            can_bus = [0]*18
-            input_dict.update(
-                can_bus=np.array(can_bus).astype(np.float32),
-            )
-            return input_dict
-            
-        can_bus = []
-        # during each scene, the first timestamp of can_bus may be large than the first sample's timestamp
-        last_pose = pose_list[0]
-        for i, pose in enumerate(pose_list):
-            if pose['utime'] > sample_timestamp:
-                break
-            last_pose = pose
-        # first 16 elements (x, y, z, qx, qy, qz, qw, ax, ay, az, rx, ry, rz, vx, vy, vz)
-        pos = last_pose['pos'] # 3
-        orientation = last_pose['orientation'] # 4
-        can_bus.extend(pos) 
-        can_bus.extend(orientation)
-        for key in ['accel', 'rotation_rate', 'vel']:
-            can_bus.extend(pose[key])  
-        # the last two numbers are reserved for later calculation of rotation angle.
-        can_bus.extend([0., 0.])
-
-        # update pose from calibrated sensor data
-        ego2global_cs = np.array(input_dict['ego2global'])
-        # q =-q due to sign ambiguity in quaternion representation
-        rotation = Quaternion(matrix=ego2global_cs[:3, :3], atol=1e-6)
-        if rotation.w < 0:
-            rotation = -rotation
-        translation = ego2global_cs[:3, 3]
-        can_bus[:3] = translation
-        can_bus[3:7] = rotation
-        
-        # calculate yaw angle
-        yaw_angle = quaternion_yaw(rotation)
-        can_bus[-2] = yaw_angle
-        
-        # get steering: positive means turn left
-        last_steer = steer_list[0]
-        for i, steer in enumerate(steer_list):
-            if steer['utime'] > sample_timestamp:
-                break
-            last_steer = steer
-        steer = last_steer['value']
-        # flip x axis if in left hand traffic, e.g., singapore
-        left_hand_traffic = True if 'singapore' in map_location else False
-        if left_hand_traffic:
-            steer = -steer
-        can_bus[-1] = steer
-        
-        # save to input_dict
-        input_dict.update(
-            can_bus=np.array(can_bus).astype(np.float32),
-        )
-        
-        return input_dict
-    
-    def _get_nuscenes_box_pose(self, sample_annotation):
-        """Get the pose of the box in the world coordinate system.
-        """
-        box_pose = np.eye(4)
-        rotation = Quaternion(sample_annotation['rotation']).rotation_matrix
-        translation = np.array(sample_annotation['translation'])
-        box_pose[:3, :3] = rotation
-        box_pose[:3, 3] = translation
-        
-        return box_pose
-    
-    def _generate_past_future_instances_trajectory(self, index, curr_info):
-        """Generate past and future trajectories for instances, 
-            centered at the lidar coords in the current frame.
-
         Args:
-            index (_type_): _description_
-            info (_type_): _description_
-        
-        Returns:
-            TrajectoryData: Trajectory data for N instances, with a length of (past_steps + 1 + planning_steps)
+            info (dict): Raw info dict.
         """
-        instances_ids = curr_info['ann_info']['gt_bboxes_id']
-        lidar2ego = curr_info['lidar_points']['lidar2ego']
-        ego2world = curr_info['ego2global']
-        world2lidar_curr = np.linalg.inv(np.array(ego2world) @ np.array(lidar2ego))
-        ann_tokens_curr = curr_info['ann_info']['gt_bboxes_anno_token']
-        
-        # initialize the trajectory data
-        trajs = []
-                
-        # for each instance in the current frame, find its past and future trajectory
-        for i, _ in enumerate(instances_ids):
-            xyr = np.zeros((self.past_steps + 1 + self.planning_steps, 3)) # (T, 3)
-            mask = np.zeros((self.past_steps + 1 + self.planning_steps,)) # (T,)    
-            
-            # box to lidar_curr
-            instance2lidar_curr = world2lidar_curr @ curr_info['ann_info']['gt_bboxes_pose'][i] # (4, 4)
-            xy_curr = instance2lidar_curr[:2, 3]
-            r_curr = np.arctan2(instance2lidar_curr[1, 0], instance2lidar_curr[0, 0]) # [-pi, pi]
-            # current xyr 
-            xyr[self.past_steps, :2] = xy_curr
-            xyr[self.past_steps, 2] = r_curr
-            mask[self.past_steps] = 1
-            
-            # sample annotation 
-            ann_token_curr = ann_tokens_curr[i]
-            ann_curr = self.nusc.get('sample_annotation', ann_token_curr)
-            
-            # history traj
-            _ann = ann_curr
-            for j in range(self.past_steps-1, -1, -1):
-                # sample interval
-                for k in range(self.sample_interval):
-                    if _ann['prev'] == '':
-                        break
-                    # get the prev sample annotation
-                    _ann = self.nusc.get('sample_annotation', _ann['prev'])
-                # extract trajectory
-                # global coord
-                box_pose = self._get_nuscenes_box_pose(_ann)
-                # box to lidar_curr
-                adj2curr = world2lidar_curr @ box_pose
-                # save to the trajectory
-                xyr[j, :2] = adj2curr[:2, 3]
-                xyr[j, 2] = np.arctan2(adj2curr[1, 0], adj2curr[0, 0]) # [-pi, pi]
-                mask[j] = 1
-                
-            # future traj
-            _ann = ann_curr
-            for j in range(self.past_steps+1, self.past_steps + self.planning_steps+1):
-                # sample interval
-                for k in range(self.sample_interval):
-                    if _ann['next'] == '':
-                        break
-                    # get the next sample annotation
-                    _ann = self.nusc.get('sample_annotation', _ann['next'])
-                    
-                # extract trajectory
-                # global coord
-                box_pose = self._get_nuscenes_box_pose(_ann)
-                # box to lidar_curr
-                adj2curr = world2lidar_curr @ box_pose
-                
-                # save to the trajectory
-                xyr[j, :2] = adj2curr[:2, 3]
-                xyr[j, 2] = np.arctan2(adj2curr[1, 0], adj2curr[0, 0]) # [-pi, pi]
-                mask[j] = 1
-            
-            traj = TrajectoryData(
-                    metainfo=dict(
-                        mode = 'accumulated',
-                        num_past_steps=self.past_steps, 
-                        num_future_steps=self.planning_steps,
-                        time_step=self.sample_interval/self.FPS)
-            )
-            traj.data=xyr.astype(np.float32)
-            traj.mask=mask.astype(np.bool_)
-            
-            if self.with_goal_points:
-                #TODO: bugs when indexing
-                traj.set_field(traj.data[-1, :], 'goal', field_type='metainfo')
-                
-            # to diff mode
-            traj.convert_to_mode('difference')
-            # save
-            trajs.append(traj)
-            
-        return trajs
+        return info
 
     def parse_data_info(self, info: dict) -> dict:
         """Process the raw data info.
@@ -329,75 +125,11 @@ class NuScenesDatasetPlan3D(BasePlanDataset):
             dict: Has `ann_info` in training stage. And
             all path has been converted to absolute path.
         """
-        info = copy.deepcopy(info)
-        if self.modality['use_lidar']:
-            info['lidar_points']['lidar_path'] = \
-                osp.join(
-                    self.data_prefix.get('pts', ''),
-                    info['lidar_points']['lidar_path'])
-
-            info['num_pts_feats'] = info['lidar_points']['num_pts_feats']
-            info['lidar_path'] = info['lidar_points']['lidar_path']
-            if 'lidar_sweeps' in info:
-                for sweep in info['lidar_sweeps']:
-                    file_suffix = sweep['lidar_points']['lidar_path'].split(
-                        os.sep)[-1]
-                    if 'samples' in sweep['lidar_points']['lidar_path']:
-                        sweep['lidar_points']['lidar_path'] = osp.join(
-                            self.data_prefix['pts'], file_suffix)
-                    else:
-                        sweep['lidar_points']['lidar_path'] = osp.join(
-                            self.data_prefix['sweeps'], file_suffix)
-
-        if self.modality['use_camera']:
-            for cam_id, img_info in info['images'].items():
-                if 'img_path' in img_info:
-                    if cam_id in self.data_prefix:
-                        cam_prefix = self.data_prefix[cam_id]
-                    else:
-                        cam_prefix = self.data_prefix.get('img', '')
-                    img_info['img_path'] = osp.join(cam_prefix,
-                                                    img_info['img_path'])
-
-        # add can bus info: info['can_bus']
+        info = super().parse_data_info(info)
+        
+        # if need additional can bus info, use nusc can bus api 
         if self.with_can_bus:
             info = self._get_can_bus_info(info)
-        
-        # add anno info
-        if not self.test_mode:
-            # used in training
-            info['ann_info'] = self.parse_ann_info(info)
-        if self.test_mode and self.load_eval_anns:
-            info['eval_ann_info'] = self.parse_ann_info(info)
-
+            
         return info
               
-    def prepare_train_data(self, index):
-        """Training data preparation.
-
-        Args:
-            index (int): Index for accessing the target data.
-
-        Returns:
-            dict: Training data dict of the corresponding index.
-        """
-        # get data info
-        input_dict = self.get_data_info(index)
-        if not input_dict:
-            return None
-        
-        # can bus information
-        if self.with_can_bus:
-            input_dict = self._get_can_bus_info(input_dict)
-        
-        # add past/future annotation info, such as future trajectory
-        input_dict = self.generate_past_future_info(index, input_dict)
-         
-        # assemble for data pipeline
-        self.pre_pipeline(input_dict)
-        example = self.pipeline(input_dict)
-        if self.filter_empty_gt and \
-                (example is None or
-                    ~(example['data_samples'].gt_instances_3d.labels_3d != -1).any()):
-            return None
-        return example

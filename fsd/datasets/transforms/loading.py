@@ -670,14 +670,12 @@ class LoadAnnotationsPlan3D(LoadAnnotations3D):
             for more details.
     """
     def __init__(self,
-                 with_ego_status=False,
                  with_instances_traj=False,
                  with_instances_ids=False,
                  with_grids=False,
                  with_vector_map=False,
                  **kwargs):
         super().__init__(**kwargs)
-        self.with_ego_status = with_ego_status
         self.with_instances_traj = with_instances_traj
         self.with_instances_ids = with_instances_ids
         self.with_grids = with_grids
@@ -691,13 +689,21 @@ class LoadAnnotationsPlan3D(LoadAnnotations3D):
 
     def _load_ego_traj(self, results):
         ego_traj = results['ann_info']['gt_ego_traj']
+        ego_traj_mask = results['ann_info'].get('gt_ego_traj_mask', None)
         results['gt_ego_traj'] = ego_traj
+        if ego_traj_mask is not None:
+            results['gt_ego_traj_mask'] = ego_traj_mask
+            results['ego_fields'].append('gt_ego_traj_mask')
         results['ego_fields'].append('gt_ego_traj')
         return results
     
     def _load_instances_traj(self, results):
         instances_traj = results['ann_info']['gt_bboxes_traj']
+        instances_traj_mask = results['ann_info'].get('gt_bboxes_traj_mask', None)
         results['gt_bboxes_traj'] = instances_traj
+        if instances_traj_mask is not None:
+            results['gt_bboxes_traj_mask'] = instances_traj_mask
+            results['bbox3d_fields'].append('gt_bboxes_traj_mask')
         results['bbox3d_fields'].append('gt_bboxes_traj')
         return results
     
@@ -722,7 +728,7 @@ class LoadAnnotationsPlan3D(LoadAnnotations3D):
         for grid in grids:
             if grid in results['anno_info']:
                 results[grid] = results['anno_info'][grid]
-                results['grid_fields'].append(grid)
+                results['map_fields'].append(grid)
         return results
     
     def _load_vector_map(self, results):
@@ -744,9 +750,7 @@ class LoadAnnotationsPlan3D(LoadAnnotations3D):
         
         # load ego related
         results = self._load_ego_traj(results)
-        if self.with_ego_status:
-            results = self._load_ego_status(results)
-              
+
         # load future trajectory for ego vehicle
         if self.with_instances_traj:
             results = self._load_instances_traj(results)
@@ -766,7 +770,6 @@ class LoadAnnotationsPlan3D(LoadAnnotations3D):
     def __repr__(self):
         repr_str = super().__repr__()
         indent_str = '    '
-        repr_str += f'{indent_str}with_ego_status={self.with_ego_status}, '
         repr_str += f'{indent_str}with_instances_traj={self.with_instances_traj}, '
         repr_str += f'{indent_str}with_instances_ids={self.with_instances_ids}, '
         repr_str += f'{indent_str}with_grids={self.with_grids})'

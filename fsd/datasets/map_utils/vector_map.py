@@ -522,7 +522,7 @@ class VectorizedLocalMap(object):
 
         anns_results = dict(
             gt_vecs_pts_loc=gt_instance,
-            gt_vecs_label=gt_labels,
+            gt_vecs_label=np.array(gt_labels).astype(np.int_),
 
         )
         return anns_results

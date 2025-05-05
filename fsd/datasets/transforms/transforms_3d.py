@@ -1668,7 +1668,7 @@ class ObjectRangeFilter(object):
         self.keys = [
             'gt_bboxes_3d', 'gt_labels_3d', 'gt_bboxes_mask',
             'gt_bboxes_id', 'gt_bboxes_anno_token', 'gt_bboxes_traj', 
-            'gt_bboxes_goal', 'bboxes_context'
+            'gt_bboxes_traj_mask', 'gt_bboxes_goal', 'bboxes_context'
             ]
         
     def __call__(self, input_dict):
@@ -1699,16 +1699,16 @@ class ObjectRangeFilter(object):
         mask = mask.numpy().astype(np.bool_)        
         for key in self.keys:
             if key in input_dict:
-                if key != 'gt_bboxes_traj': # list of TrajectoryData
+                # instances in a list
+                if isinstance(input_dict[key], (list, tuple)):
+                    res_ = []
+                    for i in range(len(input_dict[key])):
+                        if mask[i]:
+                            res_.append(input_dict[key][i])
+                    input_dict[key] = res_  
+                else:
                     input_dict[key] = input_dict[key][mask]
                     
-        if 'gt_bboxes_traj' in input_dict:
-            gt_bboxes_traj = []
-            for i in range(len(input_dict['gt_bboxes_traj'])):
-                if mask[i]:
-                    gt_bboxes_traj.append(input_dict['gt_bboxes_traj'][i])
-            input_dict['gt_bboxes_traj'] = gt_bboxes_traj
-            
         # limit rad to [-pi, pi]
         gt_bboxes_3d.limit_yaw(offset=0.5, period=2 * np.pi)
         input_dict['gt_bboxes_3d'] = gt_bboxes_3d
@@ -1734,7 +1734,7 @@ class ObjectNameFilter(object):
         self.keys = [
             'gt_bboxes_3d', 'gt_labels_3d', 'gt_bboxes_mask',
             'gt_bboxes_id', 'gt_bboxes_anno_token', 'gt_bboxes_traj',
-            'gt_bboxes_goal', 'bboxes_context'
+            'gt_bboxes_traj_mask', 'gt_bboxes_goal', 'bboxes_context'
             ]
         
     def __call__(self, input_dict):
@@ -1746,21 +1746,21 @@ class ObjectNameFilter(object):
                 keys are updated in the result dict.
         """
         gt_labels_3d = input_dict['gt_labels_3d']
-        gt_bboxes_mask = np.array([n in self.labels for n in gt_labels_3d],
+        mask = np.array([n in self.labels for n in gt_labels_3d],
                                   dtype=np.bool_)
-        
+
         for key in self.keys:
             if key in input_dict:
-                if key != 'gt_bboxes_traj': # list of TrajectoryData
-                    input_dict[key] = input_dict[key][gt_bboxes_mask]
-        
-        if 'gt_bboxes_traj' in input_dict:
-            gt_bboxes_traj = []
-            for i in range(len(input_dict['gt_bboxes_traj'])):
-                if gt_bboxes_mask[i]:
-                    gt_bboxes_traj.append(input_dict['gt_bboxes_traj'][i])
-            input_dict['gt_bboxes_traj'] = gt_bboxes_traj
-        
+                # instances in a list
+                if isinstance(input_dict[key], (list, tuple)):
+                    res_ = []
+                    for i in range(len(input_dict[key])):
+                        if mask[i]:
+                            res_.append(input_dict[key][i])
+                    input_dict[key] = res_  
+                else:
+                    input_dict[key] = input_dict[key][mask]
+                                    
         return input_dict
 
     def __repr__(self):

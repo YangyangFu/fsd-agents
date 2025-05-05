@@ -49,9 +49,10 @@ def to_tensor(
 @TRANSFORMS.register_module()
 class Pack3DPlanInputs(BaseTransform):
     INPUTS_KEYS = ['points', 'img']
+    
     INSTANCEDATA_3D_KEYS = [
-        'gt_bboxes_3d', 'gt_labels_3d', 'gt_bboxes_traj', 'gt_bboxes_goal',
-        'bboxes_context', 'depths', 
+        'gt_bboxes_3d', 'gt_labels_3d', 'gt_bboxes_traj', 'gt_bboxes_traj_mask',
+        'gt_bboxes_goal', 'bboxes_context', 'depths', 
     ]
 
     SEG_KEYS = [
@@ -60,7 +61,9 @@ class Pack3DPlanInputs(BaseTransform):
     ]
 
     EGO_KEYS = [
-        'gt_ego_traj', 'ego_context', 'ego_goal'
+        'gt_ego_traj', 'gt_ego_traj_mask',  
+        'ego_context', 'ego_command', 'ego_goal',
+        'ego_history_traj', 'ego_history_mask'
     ]
 
     MAP_KEYS = ['gt_map_vectors_pt', 'gt_map_vectors_label']
@@ -80,7 +83,7 @@ class Pack3DPlanInputs(BaseTransform):
                             'cam2global', 'crop_offset', 'img_crop_offset',
                             'resize_img_shape', 'lidar2cam', 'ori_lidar2img',
                             'num_ref_frames', 'num_views', 'ego2global',
-                            'axis_align_matrix')
+                            'axis_align_matrix', 'can_bus', 'scene_token','token')
     ) -> None:
         self.keys = keys
         self.meta_keys = meta_keys
@@ -90,6 +93,13 @@ class Pack3DPlanInputs(BaseTransform):
             key = key[3:]
         return key
 
+    def _remove_prefix_ego(self, key: str) -> str:
+        if key.startswith('gt_'):
+            key = key[3:]
+        if key.startswith('ego_'):
+            key = key[4:]
+        return key
+    
     def transform(self, results: Union[dict,
                                        List[dict]]) -> Union[dict, List[dict]]:
         """Method to pack the input data. when the value in this dict is a
@@ -176,10 +186,11 @@ class Pack3DPlanInputs(BaseTransform):
                 
         # format annotations
         for key in [
-                'gt_labels_3d', 'gt_bboxes_traj',
+                'gt_labels_3d', 'gt_bboxes_traj', 'gt_bboxes_traj_mask',
                 'bboxes_context', 'pts_instance_mask',
-                'pts_semantic_mask', 'gt_ego_traj', 'ego_context',
-                'gt_map_vectors_label',
+                'pts_semantic_mask', 
+                'gt_ego_traj', 'gt_ego_traj_mask', 'ego_command', 'ego_context', 'ego_goal', 
+                'ego_history_traj','ego_history_mask', 'gt_map_vectors_label',
                 'depths', 'proposals' 
                 
         ]:
@@ -239,13 +250,15 @@ class Pack3DPlanInputs(BaseTransform):
                         gt_instances_3d['label'] = results[key]
                     elif key == 'gt_bboxes_3d':
                         gt_instances_3d['bbox'] = results[key]
+                    elif key == 'gt_bboxes_traj_mask':
+                        gt_instances_3d['traj_mask'] = results[key]
                     else:
                         _key = key.split('_')[-1]
                         gt_instances_3d[_key] = results[key]
                 elif key in self.SEG_KEYS:
                     gt_pts_seg[self._remove_prefix(key)] = results[key]
                 elif key in self.EGO_KEYS:
-                    _key = key.split('_')[-1]
+                    _key = self._remove_prefix_ego(key)
                     gt_ego[_key] = results[key]
                 elif key in self.MAP_KEYS:
                     _key = key.split('_')[-1]
