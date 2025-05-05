@@ -44,6 +44,12 @@ class TrajectoryData(BaseDataElement):
                     between two consecutive points with 0 as the given center.
                     i.e., the relative position of the trajectory.
         """
+        warnings.warn(
+            f"{self.__class__.__name__} is deprecated and will be removed in a future version.",
+            category=DeprecationWarning,
+            stacklevel=2
+        )
+                
         super().__init__(*args, **kwargs)
 
         if self.get('mode') == 'accumulated' and \
