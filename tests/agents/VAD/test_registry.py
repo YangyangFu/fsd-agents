@@ -27,7 +27,7 @@ def test_dataloader():
 
 def test_train():
     runner = RUNNERS.build(cfg)
-    #runner.train()
+    runner.train()
     runner.test()
     
 #test_model_registry()

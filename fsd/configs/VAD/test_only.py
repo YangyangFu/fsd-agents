@@ -557,6 +557,7 @@ default_hooks = dict(
         interval=1, 
         by_epoch=True,
         save_best='auto',
+        rule='less',
         max_keep_ckpts=3,
     ),
 )
