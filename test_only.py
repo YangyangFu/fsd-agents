@@ -635,7 +635,7 @@ test_cfg = dict(type='TestLoop')
 test_dataloader = dict(
     batch_size=1,
     dataset=dict(
-        ann_file='nuscenes_infos_train.pkl',
+        ann_file='nuscenes_infos_val.pkl',
         bev_queue_length=4,
         bev_size=(
             200,
@@ -1085,7 +1085,7 @@ val_cfg = dict(type='ValLoop')
 val_dataloader = dict(
     batch_size=1,
     dataset=dict(
-        ann_file='nuscenes_infos_train.pkl',
+        ann_file='nuscenes_infos_val.pkl',
         bev_queue_length=4,
         bev_size=(
             200,

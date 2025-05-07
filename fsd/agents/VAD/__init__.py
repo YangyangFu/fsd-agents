@@ -1,4 +1,3 @@
-from .transforms import *
 from .task_modules import CustomNMSFreeCoder, MapNMSFreeCoder
 
 from .VAD_transformer import (MapDetectionTransformerDecoder,

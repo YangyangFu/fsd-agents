@@ -3,12 +3,16 @@ import torch
 import copy
 from mmengine.structures import InstanceData
 from mmdet3d.structures.ops import bbox3d2result
-
+from mmdet3d.structures.det3d_data_sample import (ForwardResults,
+                                                  OptSampleList, SampleList)
+from mmdet3d.utils.typing_utils import (OptConfigType, OptInstanceList,
+                                        OptMultiConfig)
 from scipy.optimize import linear_sum_assignment
 from mmdet3d.models.detectors.mvx_two_stage import MVXTwoStageDetector
 
 from fsd.agents.VAD.planner.metric_stp3 import PlanningMetric
 from fsd.models.detectors.bevformer.utils.grid_mask import GridMask
+from fsd.structures import Instances, Ego, VectorMap
 from fsd.registry import MODELS
 
 @MODELS.register_module()
@@ -343,7 +347,45 @@ class VAD(MVXTwoStageDetector):
         self.prev_frame_info['prev_angle'] = tmp_angle
         self.prev_frame_info['prev_bev'] = new_prev_bev
 
-        return bbox_results
+        # packet into data samples
+        # pred_instances_3d, pred_ego, pred_map_vectors 
+        pred_instances_3d = [Instances() for _ in range(len(data_samples))]
+        pred_ego = [Ego() for _ in range(len(data_samples))]
+        pred_map_vectors = [VectorMap() for _ in range(len(data_samples))]
+        
+        for b_idx in range(len(data_samples)):
+            pred_instances_3d[b_idx].set_data(
+                dict(
+                    bbox=bbox_results[b_idx]['bboxes_3d'],
+                    score=bbox_results[b_idx]['scores_3d'],
+                    label=bbox_results[b_idx]['labels_3d'],
+                    traj=bbox_results[b_idx]['trajs_3d'],
+                )
+            )
+            pred_ego[b_idx].set_data(
+                dict(
+                    traj=bbox_results[b_idx]['ego_fut_preds'],
+                    command=bbox_results[b_idx]['ego_fut_cmd'],
+                )
+            )
+            pred_map_vectors[b_idx].set_data(
+                dict(
+                    label=bbox_results[b_idx]['map_labels_3d'],
+                    score=bbox_results[b_idx]['map_scores_3d'],
+                    bbox=bbox_results[b_idx]['map_boxes_3d'],
+                    pt=bbox_results[b_idx]['map_pts_3d']
+                )
+            )
+        
+        # add to data samples
+        data_samples = self.add_pred_to_datasample(
+            data_samples,
+            pred_instances_3d=pred_instances_3d,
+            pred_ego=pred_ego,
+            pred_map_vectors=pred_map_vectors,
+        )
+        
+        return data_samples
 
     def simple_test(
         self,
@@ -381,7 +423,7 @@ class VAD(MVXTwoStageDetector):
             gt_attr_labels=gt_attr_labels,
         )
         for result_dict, pts_bbox in zip(bbox_list, bbox_pts):
-            result_dict['pts_bbox'] = pts_bbox
+            result_dict.update(pts_bbox)
             result_dict['metric_results'] = metric_dict
 
         return new_prev_bev, bbox_list
@@ -469,6 +511,68 @@ class VAD(MVXTwoStageDetector):
 
         return outs['bev_embed'], bbox_results, metric_dict
 
+    def add_pred_to_datasample(
+        self,
+        data_samples: SampleList,
+        pred_instances_3d: OptInstanceList = None,
+        pred_ego: OptInstanceList = None,
+        pred_map_vectors: OptInstanceList = None,
+    ) -> SampleList:
+        """Convert results list to `PlanningDataSample`.
+
+        Subclasses could override it to be compatible for some multi-modality
+        3D detectors.
+
+        Args:
+            data_samples (list[:obj:`PlanningDataSample`]): The input data.
+            data_instances_3d (list[:obj:`InstanceData`], optional): 3D
+                Detection results of each sample.
+            data_instances_2d (list[:obj:`InstanceData`], optional): 2D
+                Detection results of each sample.
+
+        Returns:
+            list[:obj:`PlanningDataSample`]: Detection results of the
+            input. Each PlanningDataSample usually contains
+            'pred_instances_3d'. And the ``pred_instances_3d`` normally
+            contains following keys.
+
+            - scores_3d (Tensor): Classification scores, has a shape
+              (num_instance, )
+            - labels_3d (Tensor): Labels of 3D bboxes, has a shape
+              (num_instances, ).
+            - bboxes_3d (Tensor): Contains a tensor with shape
+              (num_instances, C) where C >=7.
+
+            When there are image prediction in some models, it should
+            contains  `pred_instances`, And the ``pred_instances`` normally
+            contains following keys.
+
+            - scores (Tensor): Classification scores of image, has a shape
+              (num_instance, )
+            - labels (Tensor): Predict Labels of 2D bboxes, has a shape
+              (num_instances, ).
+            - bboxes (Tensor): Contains a tensor with shape
+              (num_instances, 4).
+        """
+
+        assert (pred_instances_3d is not None) or \
+                (pred_ego is not None) or \
+                (pred_map_vectors is not None), \
+               'please pass at least one type of data_samples'
+
+        pred_instances_2d = [InstanceData() for _ in range(len(data_samples))]
+        if pred_instances_3d is None:
+            pred_instances_3d = [Instances() for i in range(len(data_samples))]
+
+        for i, data_sample in enumerate(data_samples):
+            data_sample.pred_instances_3d = pred_instances_3d[i]
+            data_sample.pred_ego = pred_ego[i]
+            data_sample.pred_map_vectors = pred_map_vectors[i]
+            # this is to be compatible with mmdet
+            data_sample.pred_instances = pred_instances_2d[i]
+            
+        return data_samples
+    
     def map_pred2result(self, bboxes, scores, labels, pts, attrs=None):
         """Convert detection results to a list of numpy arrays.
 
@@ -604,7 +708,7 @@ class VAD(MVXTwoStageDetector):
                 gt_fut_trajs = gt_fut_trajs.cumsum(dim=-2)
                 pred_fut_trajs = pred_fut_trajs.cumsum(dim=-2)
                 gt_fut_trajs = gt_fut_trajs + gt_bbox[i].center[0, :2]
-                pred_fut_trajs = pred_fut_trajs + pred_bbox['boxes_3d'][int(m_pred_idx)].center[0, :2]
+                pred_fut_trajs = pred_fut_trajs + pred_bbox['bboxes_3d'][int(m_pred_idx)].center[0, :2]
 
                 dist = torch.linalg.norm(gt_fut_trajs[None, :, :] - pred_fut_trajs, dim=-1)
                 ade = dist.sum(-1) / num_valid_ts
