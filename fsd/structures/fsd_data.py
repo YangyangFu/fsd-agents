@@ -827,10 +827,13 @@ class Instances(InstanceData):
             "Bounding boxes should be a BaseInstance3DBoxes object"
         
         self.set_field(value, '_bbox', dtype=type(value))
+        # for backward compatibility
+        self.set_field(value, 'bboxes_3d', dtype=type(value))
     
     @bbox.deleter
     def bbox(self):
         del self._bbox
+        del self.bboxes_3d
     
     # gt labels
     @property
@@ -857,11 +860,14 @@ class Instances(InstanceData):
         assert value.ndim == 1, "Class labels should be a 1D tensor"
         
         self.set_field(value, '_label', dtype=type(value))
-    
+        # for backward compatibility
+        self.set_field(value, 'labels_3d', dtype=type(value))
+        
     @label.deleter
     def label(self):
         del self._label
-    
+        del self.labels_3d
+        
     # pred scores of the labels
     @property
     def score(self) -> torch.Tensor:
@@ -885,10 +891,13 @@ class Instances(InstanceData):
             "Scores should be a tensor"
                 
         self.set_field(value, '_score', dtype=type(value))
+        # for backward compatibility
+        self.set_field(value, 'scores_3d', dtype=type(value))
     
     @score.deleter
     def score(self):
-        del self._score
+        del self._score 
+        del self.scores_3d
     
     
     # trajectories
@@ -947,7 +956,8 @@ class Instances(InstanceData):
     @context.deleter
     def context(self):
         del self._context
-    
+ 
+    ## ====================================
     #TODO: use recursion to supported nested sequence of data
     # Mainly to support convert a list of trajectory data
     def to(self, *args, **kwargs) -> 'BaseDataElement':
