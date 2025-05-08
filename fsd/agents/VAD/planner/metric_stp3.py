@@ -8,7 +8,7 @@ import copy
 from skimage.draw import polygon
 
 
-ego_width, ego_length = 1.85, 4.084
+ego_width, ego_length = 1.73, 4.084
 
 class PlanningMetric():
     def __init__(self):
