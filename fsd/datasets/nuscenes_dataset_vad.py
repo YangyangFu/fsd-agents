@@ -119,6 +119,8 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         ego_yaw_velocity = input_dict['ego_yaw_velocity']
         ego_size = input_dict['ego_size']
         
+        # NOTE: ego velocity calculated in original code is wrong
+        # as  their yaw is wrong
         local = np.zeros((9,), dtype=np.float32)
         local[0] = ego_velocity[0] # vx
         local[1] = ego_velocity[1] # vy
@@ -159,14 +161,14 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         # x, y
         local[:, 0:2] = ann_info['gt_bboxes_3d'].center[:, :2]
         
-        # yaw
-        local[:, 2] = ann_info['gt_bboxes_3d'].yaw
+        # from KITTI yaw definition to mmdet3d yaw definition
+        local[:, 2] = -ann_info['gt_bboxes_3d'].yaw - np.pi / 2
         
         # vx, vy
         local[:, 3:5] = ann_info['gt_bboxes_3d'].tensor[:, -2:]
 
         # w, l, h
-        local[:, 5:8] = ann_info['gt_bboxes_3d'].dims[:, [1, 0, 2]]
+        local[:, 5:8] = ann_info['gt_bboxes_3d'].dims
         # type
         local[:, 8] = ann_info['gt_labels_3d']
         
@@ -253,6 +255,9 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         
         # add yaw in radians and yaw in degrees
         yaw = quaternion_yaw(Quaternion(can_bus[3:7]))
+        # the original paper did this, so ...
+        if yaw < 0:
+            yaw += 2 * np.pi
         yaw_degree = yaw / np.pi * 180
         can_bus = np.concatenate([can_bus, [yaw, yaw_degree]])
         
@@ -303,6 +308,16 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         ann_info['gt_map_vectors_pt'] = ann_map['gt_vecs_pts_loc']
         ann_info['gt_map_vectors_label'] = ann_map['gt_vecs_label']
         
+        ## VAD original code uses SECOND box convention
+        gt_bboxes_3d_data = ann_info['gt_bboxes_3d'].tensor.clone()
+        # lwh to wlh 
+        gt_bboxes_3d_data[:, 3:6] = gt_bboxes_3d_data[:, [4, 3, 5]]
+        # MMDET3D yaw definition to KITTI/SECOND box yaw definition
+        gt_bboxes_3d_data[:, 6] = -gt_bboxes_3d_data[:, 6] - np.pi/2
+        gt_bboxes_3d_KITTI = ann_info['gt_bboxes_3d'].new_box(
+            data = gt_bboxes_3d_data,
+        )
+        ann_info['gt_bboxes_3d'] = gt_bboxes_3d_KITTI
         return ann_info
     
     def _prepare_data(self, index) -> dict:
