@@ -33,7 +33,7 @@ def inverse_sigmoid(x, eps=1e-5):
 
 
 @MODELS.register_module()
-class DetectionTransformerDecoder(TransformerLayerSequence):
+class BEVFormerDecoder(TransformerLayerSequence):
     """Implements the decoder in DETR3D transformer.
     Args:
         return_intermediate (bool): Whether to return intermediate outputs.
@@ -42,7 +42,7 @@ class DetectionTransformerDecoder(TransformerLayerSequence):
     """
 
     def __init__(self, *args, return_intermediate=False, **kwargs):
-        super(DetectionTransformerDecoder, self).__init__(*args, **kwargs)
+        super(BEVFormerDecoder, self).__init__(*args, **kwargs)
         self.return_intermediate = return_intermediate
         self.fp16_enabled = False
 

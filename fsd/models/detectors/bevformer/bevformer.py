@@ -13,7 +13,7 @@ from .utils.grid_mask import GridMask
 from mmdet3d.models.detectors.mvx_two_stage import MVXTwoStageDetector
 
 from fsd.registry import MODELS
-
+from fsd.structures import Instances
 
 @MODELS.register_module()
 class BEVFormer(MVXTwoStageDetector):
@@ -206,11 +206,11 @@ class BEVFormer(MVXTwoStageDetector):
             imgs_queue = imgs_queue.reshape(bs*len_queue, num_cams, C, H, W)
             img_feats_list = self.extract_feat(img=imgs_queue, len_queue=len_queue)
             for i in range(len_queue):
-                #img_metas = [each for each in img_metas[i]]
+                img_metas_i = [each[i] for each in img_metas]
                 # img_feats = self.extract_feat(img=img, img_metas=img_metas)
                 img_feats = [each_scale[:, i] for each_scale in img_feats_list]
                 prev_bev = self.pts_bbox_head(
-                    img_feats, img_metas[i], prev_bev, only_bev=True)
+                    img_feats, img_metas_i, prev_bev, only_bev=True)
             self.train()
             return prev_bev
 
@@ -232,24 +232,27 @@ class BEVFormer(MVXTwoStageDetector):
         # get inputs
         device = inputs['img'][0].device
         img = inputs['img']
-        img_metas = kwargs['img_metas']
+        img_metas = [sample.bev_metas for sample in data_samples]
+        len_queue = img[0].size(0)
         
         # separate inputs
-        len_queue = img[0].size(0)
         prev_img = torch.stack([im[:-1, ...] for im in img], dim=0).to(device) # (B, L-1, N, C, H, W)
-        img = torch.stack([im[-1, ...] for im in img], dim=0).to(device) # (B, N, C, H, W)
+        curr_img = torch.stack([im[-1, ...] for im in img], dim=0).to(device) # (B, N, C, H, W)
 
         # previous images for bev
-        prev_img_metas = copy.deepcopy(img_metas)
-        prev_bev = self.obtain_history_bev(prev_img, prev_img_metas)
+        prev_img_metas = [each[:-1] for each in img_metas]
+        prev_bev = None
+        if len_queue > 1:
+            prev_bev = self.obtain_history_bev(prev_img, prev_img_metas)
 
         # current image
-        curr_img_metas = img_metas[len_queue-1]
-        img_feats = self.extract_feat(img=img)
+        curr_img_metas = [each[-1] for each in img_metas]
+        curr_img_feats = self.extract_feat(img=curr_img)
         
         # loss
         losses = dict()
-        losses_pts = self.forward_pts_train(img_feats, data_samples,
+        losses_pts = self.forward_pts_train(curr_img_feats, 
+                                            data_samples,
                                             img_metas=curr_img_metas, 
                                             prev_bev=prev_bev)
 
@@ -274,31 +277,32 @@ class BEVFormer(MVXTwoStageDetector):
         img = inputs['img']
         device = img[0].device
         img = torch.stack(img, dim=0).to(device)
-        img_metas = kwargs['img_metas']
+        img_metas = [sample.bev_metas for sample in data_samples]
 
         #TODO: this seems to only work with batch=1
-        if img_metas['scene_token'][0] != self.prev_frame_info['scene_token']:
+        if img_metas[0][0]['scene_token'] != self.prev_frame_info['scene_token']:
             # the first sample of each scene is truncated
             self.prev_frame_info['prev_bev'] = None
         # update idx
-        self.prev_frame_info['scene_token'] = img_metas['scene_token'][0]
+        self.prev_frame_info['scene_token'] = img_metas[0][0]['scene_token']
 
         # do not use temporal information
         if not self.video_test_mode:
             self.prev_frame_info['prev_bev'] = None
 
         # Get the delta of ego position and angle between two timestamps.
-        tmp_pos = copy.deepcopy(img_metas['can_bus'][0][:3])
-        tmp_angle = copy.deepcopy(img_metas['can_bus'][0][-1])
+        tmp_pos = copy.deepcopy(img_metas[0][0]['bev_attr'][:3])
+        tmp_angle = copy.deepcopy(img_metas[0][0]['bev_attr'][-1])
         if self.prev_frame_info['prev_bev'] is not None:
-            img_metas['can_bus'][0][:3] -= self.prev_frame_info['prev_pos']
-            img_metas['can_bus'][0][-1] -= self.prev_frame_info['prev_angle']
+            img_metas[0][0]['bev_attr'][:3] -= self.prev_frame_info['prev_pos']
+            img_metas[0][0]['bev_attr'][-1] -= self.prev_frame_info['prev_angle']
         else:
-            img_metas['can_bus'][0][-1] = 0
-            img_metas['can_bus'][0][:3] = 0
+            img_metas[0][0]['bev_attr'][-1] = 0
+            img_metas[0][0]['bev_attr'][:3] = 0
 
+        # NOTE: only support batch size = 1
         new_prev_bev, bbox_results = self.simple_test(
-            img_metas, img, prev_bev=self.prev_frame_info['prev_bev'])
+            img_metas[0], img, prev_bev=self.prev_frame_info['prev_bev'])
         # During inference, we save the BEV features and ego motion of each timestamp.
         self.prev_frame_info['prev_pos'] = tmp_pos
         self.prev_frame_info['prev_angle'] = tmp_angle
@@ -309,10 +313,10 @@ class BEVFormer(MVXTwoStageDetector):
         pred_instances_3d = []
         # batched
         for bbox_result in bbox_results:
-            instance = InstanceData(
-                scores_3d = bbox_result['scores_3d'],
-                labels_3d = bbox_result['labels_3d'],
-                bboxes_3d = bbox_result['bboxes_3d']
+            instance = Instances(
+                score = bbox_result['scores_3d'],
+                label = bbox_result['labels_3d'],
+                bbox = bbox_result['bboxes_3d']
             ) 
             pred_instances_3d.append(instance)
                
