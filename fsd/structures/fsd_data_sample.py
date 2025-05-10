@@ -1,6 +1,6 @@
 from typing import Dict, Union
 
-from mmengine.structures import BaseDataElement
+from mmengine.structures import BaseDataElement, InstanceData
 from fsd.structures.fsd_data import Ego, Instances, Grids
 
 class PlanningDataSample(BaseDataElement):
@@ -68,7 +68,7 @@ class PlanningDataSample(BaseDataElement):
         return self._gt_instances_3d
     @gt_instances_3d.setter
     def gt_instances_3d(self, value: Instances):
-        self.set_field(value, "_gt_instances_3d", dtype=Instances)
+        self.set_field(value, "_gt_instances_3d", dtype=(Instances, InstanceData))
     @gt_instances_3d.deleter
     def gt_instances_3d(self) -> None:
         del self._gt_instances_3d
@@ -78,7 +78,7 @@ class PlanningDataSample(BaseDataElement):
         return self._pred_instances_3d
     @pred_instances_3d.setter
     def pred_instances_3d(self, value: Instances):
-        self.set_field(value, "_pred_instances_3d", dtype=Instances)
+        self.set_field(value, "_pred_instances_3d", dtype=(Instances, InstanceData))
     @pred_instances_3d.deleter
     def pred_instances_3d(self) -> None:
         del self._pred_instances_3d
