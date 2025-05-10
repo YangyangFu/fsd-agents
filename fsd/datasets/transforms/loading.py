@@ -670,12 +670,14 @@ class LoadAnnotationsPlan3D(LoadAnnotations3D):
             for more details.
     """
     def __init__(self,
+                 with_ego_traj=False,
                  with_instances_traj=False,
                  with_instances_ids=False,
                  with_grids=False,
                  with_vector_map=False,
                  **kwargs):
         super().__init__(**kwargs)
+        self.with_ego_traj = with_ego_traj
         self.with_instances_traj = with_instances_traj
         self.with_instances_ids = with_instances_ids
         self.with_grids = with_grids
@@ -749,7 +751,8 @@ class LoadAnnotationsPlan3D(LoadAnnotations3D):
         results = super().__call__(results)
         
         # load ego related
-        results = self._load_ego_traj(results)
+        if self.with_ego_traj:
+            results = self._load_ego_traj(results)
 
         # load future trajectory for ego vehicle
         if self.with_instances_traj:
