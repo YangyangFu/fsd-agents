@@ -63,7 +63,7 @@ _num_levels_ = 4
 bev_h_ = 200
 bev_w_ = 200
 queue_length = 4 # each sequence contains `queue_length` frames.
-total_epochs = 60
+total_epochs = 10
 
 model = dict(
     type='VAD',
@@ -102,7 +102,7 @@ model = dict(
         ego_lcf_feat_idx=None,
         valid_fut_ts=6,
         ego_agent_decoder=dict(
-            type='CustomTransformerDecoder',
+            type='VADCustomDecoder',
             num_layers=1,
             return_intermediate=False,
             transformerlayers=dict(
@@ -118,7 +118,7 @@ model = dict(
                 ffn_dropout=0.1,
                 operation_order=('cross_attn', 'norm', 'ffn', 'norm'))),
         ego_map_decoder=dict(
-            type='CustomTransformerDecoder',
+            type='VADCustomDecoder',
             num_layers=1,
             return_intermediate=False,
             transformerlayers=dict(
@@ -134,7 +134,7 @@ model = dict(
                 ffn_dropout=0.1,
                 operation_order=('cross_attn', 'norm', 'ffn', 'norm'))),
         motion_decoder=dict(
-            type='CustomTransformerDecoder',
+            type='VADCustomDecoder',
             num_layers=1,
             return_intermediate=False,
             transformerlayers=dict(
@@ -150,7 +150,7 @@ model = dict(
                 ffn_dropout=0.1,
                 operation_order=('cross_attn', 'norm', 'ffn', 'norm'))),
         motion_map_decoder=dict(
-            type='CustomTransformerDecoder',
+            type='VADCustomDecoder',
             num_layers=1,
             return_intermediate=False,
             transformerlayers=dict(
@@ -184,106 +184,101 @@ model = dict(
         map_dir_interval=1,
         map_code_size=2,
         map_code_weights=[1.0, 1.0, 1.0, 1.0],
-        transformer=dict(
-            type='VADPerceptionTransformer',
-            map_num_vec=map_num_vec,
-            map_num_pts_per_vec=map_fixed_ptsnum_per_pred_line,
-            rotate_prev_bev=True,
-            use_shift=True,
-            use_can_bus=True,
-            embed_dims=_dim_,
-            encoder=dict(
-                type='BEVFormerEncoder',
-                num_layers=6,
-                pc_range=point_cloud_range,
-                num_points_in_pillar=4,
-                return_intermediate=False,
-                transformerlayers=dict(
-                    type='BEVFormerLayer',
-                    attn_cfgs=[
-                        dict(
-                            type='TemporalSelfAttention',
+        rotate_prev_bev=True,
+        use_shift=True,
+        use_can_bus=True,
+        bev_encoder=dict(
+            type='BEVFormerEncoder',
+            num_layers=6,
+            pc_range=point_cloud_range,
+            num_points_in_pillar=4,
+            return_intermediate=False,
+            transformerlayers=dict(
+                type='BEVFormerLayer',
+                attn_cfgs=[
+                    dict(
+                        type='TemporalSelfAttention',
+                        embed_dims=_dim_,
+                        num_levels=1),
+                    dict(
+                        type='SpatialCrossAttention',
+                        pc_range=point_cloud_range,
+                        deformable_attention=dict(
+                            type='MultiScaleDeformableAttention3D',
                             embed_dims=_dim_,
-                            num_levels=1),
-                        dict(
-                            type='SpatialCrossAttention',
-                            pc_range=point_cloud_range,
-                            deformable_attention=dict(
-                                type='MultiScaleDeformableAttention3D',
-                                embed_dims=_dim_,
-                                num_points=8,
-                                num_levels=_num_levels_),
-                            embed_dims=_dim_,
-                        )
-                    ],
+                            num_points=8,
+                            num_levels=_num_levels_),
+                        embed_dims=_dim_,
+                    )
+                ],
+                feedforward_channels=_ffn_dim_,
+                ffn_dropout=0.1,
+                operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
+                                    'ffn', 'norm'))),
+        bev_decoder=dict(
+            type='BEVFormerDecoder',
+            num_layers=6,
+            return_intermediate=True,
+            transformerlayers=dict(
+                #type='mmdet.models.DetrTransformerDecoderLayer',
+                type='BaseTransformerLayer',
+                _scope_='mmdet',
+                attn_cfgs=[
+                    dict(
+                        type='MultiheadAttention',
+                        embed_dims=_dim_,
+                        num_heads=8,
+                        dropout=0.1),
+                    dict(
+                        type='BEVMultiScaleDeformableAttention',
+                        _scope_='fsd',
+                        embed_dims=_dim_,
+                        num_levels=1),
+                ],
+                ffn_cfgs=dict(
+                    type='FFN',
+                    embed_dims=_dim_,
                     feedforward_channels=_ffn_dim_,
-                    ffn_dropout=0.1,
-                    operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
-                                     'ffn', 'norm'))),
-            decoder=dict(
-                type='DetectionTransformerDecoder',
-                num_layers=6,
-                return_intermediate=True,
-                transformerlayers=dict(
-                    #type='mmdet.models.DetrTransformerDecoderLayer',
-                    type='BaseTransformerLayer',
-                    _scope_='mmdet',
-                    attn_cfgs=[
-                        dict(
-                            type='MultiheadAttention',
-                            embed_dims=_dim_,
-                            num_heads=8,
-                            dropout=0.1),
-                        dict(
-                            type='BEVMultiScaleDeformableAttention',
-                            _scope_='fsd',
-                            embed_dims=_dim_,
-                            num_levels=1),
-                    ],
-                    ffn_cfgs=dict(
-                        type='FFN',
+                    num_fcs=2,
+                    ffn_drop=0.1,
+                    act_cfg=dict(type='ReLU',
+                                    inplace=True)),
+                norm_cfg=dict(type='LN'),
+                batch_first=False,
+                operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
+                                    'ffn', 'norm'))),
+        map_decoder=dict(
+            type='VectorMapDecoder',
+            num_layers=6,
+            return_intermediate=True,
+            transformerlayers=dict(
+                #type='mmdet.models.DetrTransformerDecoderLayer',
+                type='BaseTransformerLayer',
+                _scope_='mmdet',
+                attn_cfgs=[
+                    dict(
+                        type='MultiheadAttention',
                         embed_dims=_dim_,
-                        feedforward_channels=_ffn_dim_,
-                        num_fcs=2,
-                        ffn_drop=0.1,
-                        act_cfg=dict(type='ReLU',
-                                     inplace=True)),
-                    norm_cfg=dict(type='LN'),
-                    batch_first=False,
-                    operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
-                                     'ffn', 'norm'))),
-            map_decoder=dict(
-                type='MapDetectionTransformerDecoder',
-                num_layers=6,
-                return_intermediate=True,
-                transformerlayers=dict(
-                    #type='mmdet.models.DetrTransformerDecoderLayer',
-                    type='BaseTransformerLayer',
-                    _scope_='mmdet',
-                    attn_cfgs=[
+                        num_heads=8,
+                        dropout=0.1),
                         dict(
-                            type='MultiheadAttention',
-                            embed_dims=_dim_,
-                            num_heads=8,
-                            dropout=0.1),
-                         dict(
-                            type='BEVMultiScaleDeformableAttention',
-                            _scope_='fsd',
-                            embed_dims=_dim_,
-                            num_levels=1),
-                    ],
-                    ffn_cfgs=dict(
-                        type='FFN',
+                        type='BEVMultiScaleDeformableAttention',
+                        _scope_='fsd',
                         embed_dims=_dim_,
-                        feedforward_channels=_ffn_dim_,
-                        num_fcs=2,
-                        ffn_drop=0.1,
-                        act_cfg=dict(type='ReLU',
-                                     inplace=True)),
-                    norm_cfg=dict(type='LN'),
-                    batch_first=False,
-                    operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
-                                     'ffn', 'norm')))),
+                        num_levels=1),
+                ],
+                ffn_cfgs=dict(
+                    type='FFN',
+                    embed_dims=_dim_,
+                    feedforward_channels=_ffn_dim_,
+                    num_fcs=2,
+                    ffn_drop=0.1,
+                    act_cfg=dict(type='ReLU',
+                                    inplace=True)),
+                norm_cfg=dict(type='LN'),
+                batch_first=False,
+                operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
+                                    'ffn', 'norm'))),
         bbox_coder=dict(
             type='CustomNMSFreeCoder',
             post_center_range=[-20, -35, -10.0, 20, 35, 10.0],
@@ -401,7 +396,7 @@ train_pipeline = [
 
 train_dataloader = dict(
     batch_size=1,
-    num_workers=4,
+    num_workers=20,
     persistent_workers=True,
     sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
     pin_memory=True,
@@ -455,7 +450,7 @@ test_pipeline = [
 
 val_dataloader = dict(
     batch_size=1,
-    num_workers=4,
+    num_workers=20,
     persistent_workers=True,
     sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
     pin_memory=True,
@@ -573,5 +568,9 @@ visualizer = dict(
     name='visualizer',
 )
 
-load_from = './ckpts/vad_base.pth'
-resume = False
+load_from = './ckpts/vad_base_converted.pth'
+#resume = True
+#auto_scale_lr = dict(
+#    base_batch_size=1,
+#    enable=True,
+#)
