@@ -348,7 +348,7 @@ param_scheduler = [
 
 evaluation = dict(interval=1, pipeline=test_pipeline)
 
-load_from = 'ckpts/bevformer_r101_dcn_24ep.pth'
+load_from = 'ckpts/bevformer_base.pth'
 log_config = dict(
     interval=50,
     hooks=[
