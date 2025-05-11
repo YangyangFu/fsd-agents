@@ -1,0 +1,1 @@
+huggingface-cli download yangyangfu/fsd-agents bevformer_tiny.pth --local-dir ./ckpts
