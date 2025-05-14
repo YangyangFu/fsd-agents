@@ -1,12 +1,9 @@
 from .utils import center_crop, load_points_carla
 from .formating import Pack3DPlanInputs, to_tensor
-from .loading import (LoadImageFromFile, LoadImageFromWebcam,
-                      LoadMultiChannelImageFromFiles, LoadProposals,
-                      LoadAnnotations3D, LoadImageFromFileMono3D,
-                      LoadMultiViewImageFromFiles, 
+from .loading import (LoadAnnotations3D, 
                       LoadPointsFromFileCarlaDataset,
-                      LoadPointsFromMultiSweeps, NormalizePointsColor,
-                      PointSegClassMapping, LoadAnnotationsPlan3D)
+                      LoadPointsFromMultiSweeps,
+                      LoadAnnotationsPlan3D)
 from .test_time_aug import MultiScaleFlipAug, MultiScaleFlipAug3D
 from .transforms_3d import (RandomDropPointsColor, RandomFlip3D, RandomJitterPoints, ObjectSample,
                             ObjectNoise, GlobalAlignment, GlobalRotScaleTrans, PointShuffle,
