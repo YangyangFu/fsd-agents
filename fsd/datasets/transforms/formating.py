@@ -83,7 +83,8 @@ class Pack3DPlanInputs(BaseTransform):
                             'cam2global', 'crop_offset', 'img_crop_offset',
                             'resize_img_shape', 'lidar2cam', 'ori_lidar2img',
                             'num_ref_frames', 'num_views', 'ego2global',
-                            'axis_align_matrix', 'ego_can_bus', 'scene_token','token')
+                            'axis_align_matrix', 'ego_can_bus', 'ego_size', 
+                            'scene_token','token')
     ) -> None:
         self.keys = keys
         self.meta_keys = meta_keys
