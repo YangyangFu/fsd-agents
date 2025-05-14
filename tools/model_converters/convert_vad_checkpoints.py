@@ -50,7 +50,7 @@ def main():
 
     RENAME_PREFIX = {
         'pts_bbox_head.transformer.level_embeds': 'pts_bbox_head.level_embeds',
-        'pts_bbox_head.transformer.cam_embeds': 'pts_bbox_head.cam_embeds',
+        'pts_bbox_head.transformer.cams_embeds': 'pts_bbox_head.cams_embeds',
         'pts_bbox_head.transformer.encoder': 'pts_bbox_head.bev_encoder',
         'pts_bbox_head.transformer.decoder': 'pts_bbox_head.bev_decoder',
         'pts_bbox_head.transformer.map_decoder': 'pts_bbox_head.map_decoder',
