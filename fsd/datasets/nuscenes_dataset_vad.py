@@ -28,7 +28,7 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
     - some coordinate changes to reuse original algorithm checkpoints
     
     """
-    
+    TO_MMDET3D_LIDAR = None
     METAINFO = {
         'name': 'nuscenes-vad',
         'classes': nus_categories,

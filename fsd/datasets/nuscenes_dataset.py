@@ -24,10 +24,6 @@ class NuScenesDatasetPlan3D(BasePlanDataset):
     """NuScenes dataset for 3D planning tasks.
     
     """
-    # transformation matrix from dataset lidar coordinate to mmdet3d lidar
-    # now assumes no transformation
-    TO_MMDET3D_LIDAR = np.eye(4)
-    
     METAINFO = {
         'name': 'nuscenes',
         'classes': nus_categories,
@@ -54,8 +50,6 @@ class NuScenesDatasetPlan3D(BasePlanDataset):
                  data_prefix: dict = dict(pts='velodyne', img=''),
                  pipeline: List[Union[dict, Callable]] = [],
                  modality: dict = dict(use_lidar=False, use_camera=True),
-                 camera_sensors: List[str] = ['CAM_FRONT'],
-                 lidar_sensors: List[str] = ['LIDAR_TOP'],
                  box_type_3d_original: str = 'Depth', # box cooridnate in the original annotation file
                  box_type_3d: str = 'LiDAR', # targeted box coordinate for the dataset
                  filter_empty_gt: bool = True,
@@ -86,8 +80,6 @@ class NuScenesDatasetPlan3D(BasePlanDataset):
             data_prefix=data_prefix,
             pipeline=pipeline,
             modality=modality,
-            camera_sensors=camera_sensors,
-            lidar_sensors=lidar_sensors,
             box_type_3d_original=box_type_3d_original,
             box_type_3d=box_type_3d,
             filter_empty_gt=filter_empty_gt,
@@ -100,7 +92,7 @@ class NuScenesDatasetPlan3D(BasePlanDataset):
             load_eval_anns=load_eval_anns,
             show_ins_var=show_ins_var,
             **kwargs)
-    
+
     def _get_can_bus_info(self, info: dict) -> dict:
         """Get can bus info for the current sample.
         

@@ -26,6 +26,7 @@ class NuScenesDatasetBEVFormer(NuScenesDatasetPlan3D):
 
     This datset only add camera intrinsics and extrinsics to the results.
     """
+    TO_MMDET3D_LIDAR = None
 
     def __init__(self, 
                 queue_length=4, 

@@ -21,7 +21,6 @@ from mmdet3d.structures import (get_box_type, LiDARInstance3DBoxes,
                                 DepthInstance3DBoxes, CameraInstance3DBoxes, 
                                 BaseInstance3DBoxes)
 from fsd.structures import TrajectoryData
-from fsd.datasets.utils import extract_result_dict, get_loading_pipeline
 from fsd.registry import DATASETS
 
 
@@ -29,10 +28,7 @@ from fsd.registry import DATASETS
 class BasePlanDataset(BaseDataset):
     """Base Class for 3D planning dataset.
     """
-
-    # transformation matrix from dataset lidar coordinate to mmdet3d lidar
-    # default is identity matrix
-    TO_MMDET3D_LIDAR = np.eye(4)
+    # dataset metainfo
     METAINFO = {}
     
     def __init__(self,
@@ -42,8 +38,6 @@ class BasePlanDataset(BaseDataset):
                  data_prefix: dict = dict(pts='velodyne', img=''),
                  pipeline: List[Union[dict, Callable]] = [],
                  modality: dict = dict(use_lidar=False, use_camera=True),
-                 camera_sensors: List[str] = ['CAM_FRONT'],
-                 lidar_sensors: List[str] = ['LIDAR_TOP'],
                  box_type_3d_original: str = 'Depth', # box cooridnate in the original annotation file
                  box_type_3d: str = 'LiDAR', # targeted box coordinate for the dataset
                  filter_empty_gt: bool = True,
@@ -93,9 +87,6 @@ class BasePlanDataset(BaseDataset):
             with_goal_points (bool): Whether to add goal points to trajectory.
         
         """ 
-        
-        self.camera_sensors = [sensor.upper() for sensor in camera_sensors] if camera_sensors is not None else None
-        self.lidar_sensors = [sensor.upper() for sensor in lidar_sensors] if lidar_sensors is not None else None
         self.filter_empty_gt = filter_empty_gt
         self.load_eval_anns = load_eval_anns
         
@@ -122,7 +113,8 @@ class BasePlanDataset(BaseDataset):
             f', `use_camera`) for {self.__class__.__name__}')        
         
         # boxes
-        self.box_type_3d_original = box_type_3d_original
+        self.box_type_3d_source = box_type_3d_original
+        self.box_type_3d_target = box_type_3d
         self.box_type_3d, self.box_mode_3d = get_box_type(box_type_3d)
         
 
@@ -272,38 +264,86 @@ class BasePlanDataset(BaseDataset):
         # sample_annotation token in nuscenes
         if num_bboxes > 0 and 'annotation_token' in info['instances'][0]:
             gt_bboxes_anno_token = np.array([instance['annotation_token'] for instance in info['instances']])
-                
+        
+        # bboxes traj
+        gt_bboxes_future_trajectory = np.array([instance['future_trajectory'] for instance in info['instances']]).astype(np.float32)
+        gt_bboxes_future_yaws = np.array([instance['future_yaw'] for instance in info['instances']]).astype(np.float32)
+        gt_bboxes_future_masks = np.array([instance['future_mask'] for instance in info['instances']]).astype(np.bool_)
+        gt_bboxes_goal = np.array([instance['goal'] for instance in info['instances']]).astype(np.float32)
+        
+        # ego related 
+        gt_ego_future_trajs = np.array(info['ego']['future_trajectory']).astype(np.float32)
+        gt_ego_future_yaws = np.array(info['ego']['future_yaw']).astype(np.float32)
+        gt_ego_future_masks = np.array(info['ego']['future_mask']).astype(np.bool_)
+    
+        # box type conversion
+        if self.box_type_3d_source.lower() == 'depth':
+            BoxInstance = DepthInstance3DBoxes
+        elif self.box_type_3d_source.lower() == 'lidar':
+            BoxInstance = LiDARInstance3DBoxes
+        elif self.box_type_3d_source.lower() == 'camera':
+            BoxInstance = CameraInstance3DBoxes
+        else:
+            raise ValueError(f"Unknown box type {self.box_type_3d_source}")
+        
+        self.to_mmdet3d_lidar = self._get_to_mmdet3d_lidar(self.box_type_3d_source, self.box_type_3d_target)
+        
+        ## ==================================================
+        #TODO: this is hard-coded for nuscenes lidar to mmdet3d lidar (i.e., mmdet3d depth to mmdet3d lidar)
+        # need implement the transformation based on transformation matrix
+        if self.to_mmdet3d_lidar:
+            # convert boxes
+            # x_mmdet = y_nuscenes, y_mmdet = -x_nuscenes, z_mmdet = z_nuscenes
+            #gt_bboxes_3d[:, [0, 1]] = gt_bboxes_3d[:, [1, 0]]
+            #gt_bboxes_3d[:, 1] = -gt_bboxes_3d[:, 1]
+            # yaw: yaw_mmdet = yaw_nuscenes - pi/2
+            #gt_bboxes_3d[:, 6] -= np.pi / 2
+            #gt_bboxes_3d[:, 6] = self._limit_yaw(gt_bboxes_3d[:, 6])
+            # velocity
+            #gt_bboxes_velocity[..., [0, 1]] = gt_bboxes_velocity[..., [1, 0]]
+            #gt_bboxes_velocity[..., 1] = -gt_bboxes_velocity[..., 1]
+            
+            # convert trajectory yaw
+            gt_bboxes_future_trajectory[..., [0, 1]] = gt_bboxes_future_trajectory[..., [1, 0]]
+            gt_bboxes_future_trajectory[..., 1] = -gt_bboxes_future_trajectory[..., 1]
+            gt_bboxes_future_yaws -= np.pi / 2
+            gt_bboxes_future_yaws = self._limit_yaw(gt_bboxes_future_yaws)
+            # convert goal
+            gt_bboxes_goal[..., [0, 1]] = gt_bboxes_goal[..., [1, 0]]
+            gt_bboxes_goal[..., 1] = -gt_bboxes_goal[..., 1]
+            
+            # ego 
+            gt_ego_future_trajs[..., [0, 1]] = gt_ego_future_trajs[..., [1, 0]]
+            gt_ego_future_trajs[..., 1] = -gt_ego_future_trajs[..., 1]
+            gt_ego_future_yaws -= np.pi / 2
+            gt_ego_future_yaws = self._limit_yaw(gt_ego_future_yaws)
+            
+            # convert to mmdet3d lidar coordinate
+            # lidar2ego
+            if 'lidar2ego' in info['lidar_points']:
+                info['lidar_points']['lidar2ego'] = (np.array(info['lidar_points']['lidar2ego']) @ np.linalg.inv(self.to_mmdet3d_lidar)).tolist()
+            
+            # lidarcam
+            for cam in info['images'].keys():
+                if 'lidar2cam' in info['images'][cam]:
+                    info['images'][cam]['lidar2cam'] = (np.array(info['images'][cam]['lidar2cam']) @ np.linalg.inv(self.to_mmdet3d_lidar)).tolist()
+
         # add velocity to gt_bboxes_3d
         gt_bboxes_3d = np.concatenate([gt_bboxes_3d, gt_bboxes_velocity], axis=-1)
 
         # the nuscenes box center is [0.5, 0.5, 0.5], we change it to be
         # the same as KITTI (0.5, 0.5, 0)
-        if self.box_type_3d_original.lower() == 'depth':
-            BoxInstance = DepthInstance3DBoxes
-        elif self.box_type_3d_original.lower() == 'lidar':
-            BoxInstance = LiDARInstance3DBoxes
-        elif self.box_type_3d_original.lower() == 'camera':
-            BoxInstance = CameraInstance3DBoxes
-        else:
-            raise ValueError(f"Unknown box type {self.box_type_3d_original}")
-        
         gt_bboxes_3d = BoxInstance(
             gt_bboxes_3d,
             box_dim=gt_bboxes_3d.shape[-1],
             origin=(0.5, 0.5, 0.5)).convert_to(self.box_mode_3d)
         
         # planning annotations for future steps
-        # bboxes
-        gt_bboxes_future_trajectory = np.array([instance['future_trajectory'] for instance in info['instances']]).astype(np.float32)
-        gt_bboxes_future_yaws = np.array([instance['future_yaw'] for instance in info['instances']]).astype(np.float32)
-        gt_bboxes_future_masks = np.array([instance['future_mask'] for instance in info['instances']]).astype(np.bool_)
-        gt_bboxes_goal = np.array([instance['goal'] for instance in info['instances']]).astype(np.float32)
-        
         # (num_boxes, fut, 4) : (x, y, z, yaw)
         gt_bboxes_traj = np.concatenate(
             [gt_bboxes_future_trajectory, gt_bboxes_future_yaws[:, :, None]], 
             axis=-1)
-                
+        
         # construct anno info
         ann_info = dict(
             gt_bboxes_3d=gt_bboxes_3d,
@@ -326,9 +366,6 @@ class BasePlanDataset(BaseDataset):
                 self.num_ins_per_cat[label] += 1
         
         # add ego annotation
-        gt_ego_future_trajs = np.array(info['ego']['future_trajectory']).astype(np.float32)
-        gt_ego_future_yaws = np.array(info['ego']['future_yaw']).astype(np.float32)
-        gt_ego_future_masks = np.array(info['ego']['future_mask']).astype(np.bool_)
         gt_ego_traj = np.concatenate(
             [gt_ego_future_trajs, gt_ego_future_yaws[:, None]], 
             axis=-1)
@@ -419,7 +456,7 @@ class BasePlanDataset(BaseDataset):
         if self.test_mode and self.load_eval_anns:
             info['ann_info'] = self.parse_ann_info(info)
             info['eval_ann_info'] = info['ann_info']
-            
+                                
         return info
 
     def pre_pipeline(self, results):
@@ -469,6 +506,15 @@ class BasePlanDataset(BaseDataset):
                 (example is None or
                     ~(example['data_samples'].gt_instances_3d.label != -1).any()):
             return None
+        
+        # lidar poitns: convert to mmdet3d lidar 
+        if 'points' in example['inputs']:
+            points = example['inputs']['points']
+            if self.TO_MMDET3D_LIDAR is not None:
+                points[:, 0] = points[:, 1]
+                points[:, 1] = -points[:, 0]
+            example['inputs']['points'] = points
+        
         return example
 
     def prepare_test_data(self, index):
@@ -492,6 +538,14 @@ class BasePlanDataset(BaseDataset):
                     ~(example['data_samples'].gt_instances_3d.label != -1).any()):
             return None
         
+        # lidar poitns: convert to mmdet3d lidar 
+        if 'points' in example['inputs']:
+            points = example['inputs']['points']
+            if self.TO_MMDET3D_LIDAR is not None:
+                points[:, 0] = points[:, 1]
+                points[:, 1] = -points[:, 0]
+            example['inputs']['points'] = points
+            
         return example
 
     def format_results(self,
@@ -596,3 +650,36 @@ class BasePlanDataset(BaseDataset):
                 idx = self._rand_another()
                 continue
             return data
+
+    def _limit_yaw(self, yaw):
+        """Limit the yaw to be in the range of [-pi, pi].
+        
+        Args:
+            yaw (float): Yaw angle.
+        
+        Returns:
+            float: Limited yaw angle.
+        """
+        return (yaw + np.pi) % (2 * np.pi) - np.pi
+
+    @classmethod
+    def _get_to_mmdet3d_lidar(cls, box_source: str, box_target: str):
+        """Get the transformation matrix from box_source to box_target.
+        
+        Args:
+            box_source (str): Source box type.
+            box_target (str): Target box type.
+        
+        Returns:
+            np.ndarray: Transformation matrix from source to target.
+        """
+        assert box_target.upper() ==  'LIDAR', \
+            f'box_target should be LIDAR, but got {box_target}'
+        if box_source.upper() == 'LIDAR' and box_target.upper() == 'LIDAR':
+            return None
+        elif box_source.upper() == 'DEPTH' and box_target.upper() == 'LIDAR':
+            return [[0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+        elif box_source.upper() == 'CAMERA' and box_target.upper() == 'LIDAR':
+            return [[0, 0, 1, 0], [-1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]]
+        else:
+            raise ValueError(f"Unknown box type {box_source} to {box_target}")
