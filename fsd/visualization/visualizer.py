@@ -20,7 +20,7 @@ from mmengine.logging import print_log
 from mmengine.structures import InstanceData
 from mmengine.visualization import Visualizer as MMENGINE_Visualizer
 from mmengine.visualization.utils import (check_type, color_val_matplotlib,
-                                      tensor2ndarray)
+                                      tensor2ndarray, wait_continue)
 import torch
 from torch import Tensor
 
@@ -119,6 +119,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         name: str = 'visualizer',
         points: Optional[np.ndarray] = None,
         image: Optional[np.ndarray] = None,
+        image_mode: Optional[str] = 'bgr',
         pcd_mode: int = 0,
         vis_backends: Optional[List[dict]] = None,
         save_dir: Optional[str] = None,
@@ -138,6 +139,8 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             vis_backends=vis_backends,
             save_dir=save_dir)
 
+        self.image_mode = image_mode
+        
         # color settings
         self.bbox_color = bbox_color
         self.text_color = text_color
@@ -383,7 +386,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         edge_colors_ego: Union[str, Tuple[int],
                             List[Union[str, Tuple[int]]]] = 'r',
         edge_colors_instances: Union[str, Tuple[int],
-                            List[Union[str, Tuple[int]]]] = 'o',
+                            List[Union[str, Tuple[int]]]] = 'b',
         line_styles_ego: Union[str, List[str]] = '-',
         line_styles_instances: Union[str, List[str]] = '-',
         line_widths: Union[int, float, List[Union[int,
@@ -668,7 +671,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             line_widths=line_widths,
             face_colors=edge_colors)
  
-    
+   
     def color_map(self, data, cmap):
         """数值映射为颜色"""
         
@@ -856,6 +859,8 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         segments_per_line = 50
         y = np.sin(np.linspace(1/2*np.pi, 3/2*np.pi, T*segments_per_line))
         colors = self.color_map(y, cmap)
+        if self.image_mode.lower() == 'bgr':
+            colors[:, [0, 1, 2]] = colors[:, [2, 1, 0]] # rgb to bgr
         
         # generate trajectory line collections
         vecs = self._generate_trajectory_line_collections(traj)      
@@ -914,13 +919,13 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         if mask is None:
             mask = np.ones((N, T))
             
-        # lidar to image: 
+        # lidar to image: (x, y, z, 1)
         traj = np.concatenate((traj[..., :2], 
                                    -1.5*np.ones((*traj.shape[:2], 1)), # close to ground
                                    np.ones((*traj.shape[:2], 1))), 
                                   axis=-1)
         
-        traj_img = traj @ input_meta['lidar2img'].T
+        traj_img = traj @ np.array(input_meta['lidar2img']).T
         traj_img[..., 0] = traj_img[..., 0] / np.maximum(traj_img[..., 2], 1e-5)
         traj_img[..., 1] = traj_img[..., 1] / np.maximum(traj_img[..., 2], 1e-5) 
         traj = traj_img[..., :2] # (N, T, 2)
@@ -964,7 +969,8 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                         view_names: Optional[List[str]] = None, 
                         target_size: Optional[Tuple[int]]=(2133, 800), 
                         arrangement: Optional[Tuple[int]]=(2, 3),
-                        text_colors: Optional[Union[Tuple[int], str]] = (255, 255, 255)
+                        text_colors: Optional[Union[Tuple[int], str]] = (255, 255, 255),
+                        text_size: Optional[int] = 20
                     ):
         """Set multiview images to draw.
         """
@@ -987,7 +993,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         # draw multi-view images
         for name, img in zip(view_names, imgs):
             self.set_image(img)
-            self.draw_texts(name, np.array([10, 10]), font_sizes=20, colors=text_colors)
+            self.draw_texts(name, np.array([10, 10]), font_sizes=text_size, colors=text_colors)
             views.append(self.get_image())
 
         # TODO: support multi-view image with different shapes
@@ -1059,11 +1065,12 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         # TODO: if no instances, return the original image
         num_instances = len(instances)
 
-        bboxes_3d = instances.bboxes_3d  # BaseInstance3DBoxes
-        labels_3d = instances.labels
+        bboxes_3d = instances.bbox  # BaseInstance3DBoxes
+        labels_3d = instances.label
 
         data_3d = dict()
 
+        """
         if vis_task in ['lidar_det', 'multi-modality_det', 'multi-modality_planning']:
             assert 'pts' in data_input
             points = data_input['pts'].tensor
@@ -1098,7 +1105,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 data_3d['bboxes_3d'] = tensor2ndarray(bboxes_3d_depth.tensor)
                 
             data_3d['points'] = points
-
+        """
         if vis_task in ['mono_det', 'multi-modality_det', 'multi-modality_planning']:
             assert 'img' in data_input
             img = data_input['img']
@@ -1230,12 +1237,11 @@ class PlanningVisualizer(MMENGINE_Visualizer):
     @master_only
     def show(self,
              save_path: Optional[str] = None,
-             drawn_img_3d: Optional[np.ndarray] = None,
              drawn_img: Optional[np.ndarray] = None,
              win_name: str = 'image',
              wait_time: int = -1,
              continue_key: str = 'right',
-             vis_task: str = 'lidar_det') -> None:
+             backend: str = 'matplotlib') -> None:
         """Show the drawn point cloud/image.
 
         Args:
@@ -1251,61 +1257,19 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             wait_time (int): Delay in milliseconds. 0 is the special value that
                 means "forever". Defaults to 0.
             continue_key (str): The key for users to continue. Defaults to ' '.
+            backend (str): The backend to show the image. Defaults to
+                'matplotlib'. Other option is 'cv2'.
         """
 
         # In order to show multi-modal results at the same time, we show image
         # firstly and then show point cloud since the running of
         # Open3D will block the process
         if hasattr(self, '_image'):
-            if drawn_img is None and drawn_img_3d is None:
-                # use the image got by Visualizer.get_image()
-                if vis_task in ['multi-modality_det', 'multi-modality_planning']:
-                    import matplotlib.pyplot as plt
-                    is_inline = 'inline' in plt.get_backend()
-                    img = self.get_image() if drawn_img is None else drawn_img
-                    self._init_manager(win_name)
-                    fig = self.manager.canvas.figure
-                    # remove white edges by set subplot margin
-                    fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
-                    fig.clear()
-                    ax = fig.add_subplot()
-                    ax.axis(False)
-                    ax.imshow(img)
-                    self.manager.canvas.draw()
-                    if is_inline:
-                        return fig
-                    else:
-                        fig.show()
-                    self.manager.canvas.flush_events()
-                else:
-                    super().show(drawn_img_3d, win_name, wait_time,
-                                 continue_key)
-            else:
-                if vis_task in ['multi-modality_det', 'multi-modality_planning']:
-                    import matplotlib.pyplot as plt
-                    is_inline = 'inline' in plt.get_backend()
-                    img = drawn_img if drawn_img_3d is None else drawn_img_3d
-                    self._init_manager(win_name)
-                    fig = self.manager.canvas.figure
-                    # remove white edges by set subplot margin
-                    fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
-                    fig.clear()
-                    ax = fig.add_subplot()
-                    ax.axis(False)
-                    ax.imshow(img)
-                    self.manager.canvas.draw()
-                    if is_inline:
-                        return fig
-                    else:
-                        fig.show()
-                    self.manager.canvas.flush_events()
-                else:
-                    if drawn_img_3d is not None:
-                        super().show(drawn_img_3d, win_name, wait_time,
-                                     continue_key)
-                    if drawn_img is not None:
-                        super().show(drawn_img, win_name, wait_time,
-                                     continue_key)
+            super().show(drawn_img=drawn_img, 
+                         win_name=win_name,
+                         wait_time=wait_time, 
+                         continue_key=continue_key,
+                         backend=backend)
 
         if hasattr(self, 'o3d_vis'):
             if hasattr(self, 'view_port'):
@@ -1458,10 +1422,11 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             if data_sample.gt_ego is not None and vis_task == 'multi-modality_planning':
                 img = data_input['img'][traj_img_idx].permute(1, 2, 0).numpy()
                 lidar2img = data_sample.metainfo['lidar2img'][traj_img_idx]
-                ego_traj = data_sample.gt_ego.traj.data.numpy()
-                ego_traj_mask = data_sample.gt_ego.traj.mask.numpy()
+                ego_traj = data_sample.gt_ego.traj.numpy().cumsum(axis=0)[..., :2]
+                ego_traj_mask = data_sample.gt_ego.traj_mask.numpy()
+                #ego_traj_mask = data_sample.gt_ego.traj.mask.numpy()
                 input_meta = {'lidar2img': lidar2img,
-                              'future_steps': data_sample.gt_ego.traj.num_future_steps}
+                              'future_steps': ego_traj.shape[0]}
 
                 self.draw_trajectory_image(img, ego_traj, ego_traj_mask, input_meta=input_meta)
                 img_traj = self.get_image()
@@ -1469,10 +1434,10 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 # save back to data_input
                 data_input_cpy['img'][traj_img_idx] = torch.from_numpy(img_traj).permute(2, 0, 1)
 
-            if data_sample.gt_instances is not None:
+            if data_sample.gt_instances_3d is not None:
                 gt_data_3d = self._draw_instances_3d(
                     data_input_cpy, 
-                    data_sample.gt_instances,
+                    data_sample.gt_instances_3d,
                     data_sample.metainfo, 
                     vis_task, 
                     show_pcd_rgb, 
@@ -1495,12 +1460,12 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             if data_sample.pred_ego is not None and vis_task == 'multi-modality_planning':
                 img = data_input['img'][traj_img_idx].permute(1, 2, 0).numpy()
                 lidar2img = data_sample.metainfo['lidar2img'][traj_img_idx]
-                ego_traj = data_sample.pred_ego.traj.data.numpy()
-                ego_traj_mask = data_sample.pred_ego.traj.mask
+                ego_traj = data_sample.pred_ego.traj.numpy().cumsum(axis=1)[..., :2]
+                ego_traj_mask = data_sample.pred_ego.get('traj_mask', None)
                 if ego_traj_mask is not None:
                     ego_traj_mask = ego_traj_mask.numpy()
                 input_meta = {'lidar2img': lidar2img,
-                              'future_steps': data_sample.pred_ego.traj.num_future_steps}
+                              'future_steps': ego_traj.shape[1]}
 
                 self.draw_trajectory_image(img, ego_traj, ego_traj_mask, input_meta=input_meta)
                 img_traj = self.get_image()
@@ -1509,13 +1474,13 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 data_input_cpy['img'][traj_img_idx] = torch.from_numpy(img_traj).permute(2, 0, 1)
                 
             # draw 3d bboxes on images
-            if data_sample.pred_instances is not None:
-                pred_instances_3d = data_sample.pred_instances
+            if data_sample.pred_instances_3d is not None:
+                pred_instances_3d = data_sample.pred_instances_3d
                 # .cpu can not be used for BaseInstance3DBoxes
                 # so we need to use .to('cpu')
-                if hasattr(pred_instances_3d, 'scores') and pred_instances_3d.scores is not None:                                       
+                if hasattr(pred_instances_3d, 'scores') and pred_instances_3d.score is not None:                                       
                     pred_instances_3d = pred_instances_3d[
-                        pred_instances_3d.scores > pred_score_thr].to('cpu')
+                        pred_instances_3d.score > pred_score_thr].to('cpu')
                     
                 pred_data_3d = self._draw_instances_3d(data_input_cpy,
                                                        pred_instances_3d,

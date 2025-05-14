@@ -157,10 +157,10 @@ class PlanningVisualizationHook(Hook):
             if self.vis_task in [
                     'mono_det', 'multi-view_det', 'multi-modality_det', 'multi-modality_planning'
             ]:
-                assert hasattr(data_sample, 'img_metas') and 'img_filename' in data_sample.img_metas, \
-                    "image path is not in data_sample.img_metas"
+                assert hasattr(data_sample, 'metainfo') and 'img_path' in data_sample.metainfo, \
+                    "image path is not in data_sample.metainfo"
                     
-                img_path = [img for img in data_sample.img_metas['img_filename']]
+                img_path = [img for img in data_sample.metainfo['img_path']]
                 
                 if isinstance(img_path, list):
                     img = []
@@ -185,6 +185,7 @@ class PlanningVisualizationHook(Hook):
                 
                 
             # load pts in Lidar coord
+            """
             if self.vis_task in ['lidar_det', 'multi-modality_det', 'multi-modality_planning', 'lidar_seg']:
                 assert hasattr(data_sample, 'pts_metas') and 'pts_filename' in data_sample.pts_metas, \
                     'lidar_path is not in data_sample.pts_metas'
@@ -215,15 +216,11 @@ class PlanningVisualizationHook(Hook):
                         '.')[0] + '.png'
                     o3d_save_path = osp.join(self.test_out_dir, o3d_save_path)                    
                     
-
+            """
             if total_curr_iter % self.interval == 0:
                 # get lidar2img transform
-                cams2world = data_sample.img_metas['cam2world']
-                cams_intrinsics = data_sample.img_metas['cam_intrinsics']
-                cams_intrinsics = [np.pad(cam, (0, 1), constant_values=0) for cam in cams_intrinsics]
-                lidar2world = data_sample.pts_metas['lidar2world']
-                lidar2imgs = [cam_intrinsic @ np.linalg.inv(cam2world) @ lidar2world for cam_intrinsic, cam2world in zip(cams_intrinsics, cams2world)]
-                data_sample.set_metainfo(dict(lidar2img=lidar2imgs))
+                assert hasattr(data_sample, 'lidar2img'), \
+                    'lidar2img is not in data_sample'
                 
                 # to cpu
                 data_sample = data_sample.to('cpu')
