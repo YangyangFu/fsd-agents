@@ -47,3 +47,23 @@ def quart_to_rpy(qua):
     return roll, pitch, yaw
 ```
 3. `can_bus` in original VAD dataset is not correct. See [here](https://github.com/hustvl/VAD/pull/89).
+
+
+## Model Architecture
+
+
+### Regression and Classification Heads
+- The bev decoder provides box detection and localization, with regression for boxes and classification for box types.
+- The motion head provides box trajectory prediction and trajectory mode classification
+- The map head provides map box detection, classification, and points regression.
+- The planning head for ego provides multi-mode ego trajectory prediction
+
+## Training Details
+
+
+### Trajectory Predictions
+The trajectory prediction is multi-modal, which means multiple trajectory is predicted during inference. 
+
+For agents, 6 modes are predicted, `how to calculate the loss given only one target trajectory?`
+
+For ego, 3 modes are predicted, representing turning left, going straight and turning right. Given a high-level driving command, one is chosen from the prediction.
