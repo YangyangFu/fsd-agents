@@ -14,6 +14,7 @@ import numpy as np
 from matplotlib.collections import PatchCollection, LineCollection
 from matplotlib.patches import PathPatch
 from matplotlib.path import Path
+import matplotlib.colors as mcolors
 from mmdet.visualization import get_palette
 from mmengine.dist import master_only
 from mmengine.logging import print_log
@@ -281,13 +282,14 @@ class PlanningVisualizer(MMENGINE_Visualizer):
     # TODO: assign 3D Box color according to pred / GT labels
     # We draw GT / pred bboxes on the same point cloud scenes
     # for better detection performance comparison
-    def draw_bboxes_3d(self,
-                       bboxes_3d: BaseInstance3DBoxes,
-                       bbox_color: Tuple[float] = (0, 1, 0),
-                       points_in_box_color: Tuple[float] = (1, 0, 0),
-                       rot_axis: int = 2,
-                       center_mode: str = 'lidar_bottom',
-                       mode: str = 'xyz') -> None:
+    def draw_bboxes_3d(
+        self,
+        bboxes_3d: BaseInstance3DBoxes,
+        bbox_color: Tuple[float] = (0, 1, 0),
+        points_in_box_color: Tuple[float] = (1, 0, 0),
+        rot_axis: int = 2,
+        center_mode: str = 'lidar_bottom',
+        mode: str = 'xyz') -> None:
         """Draw bbox on visualizer and change the color of points inside
         bbox3d.
 
@@ -349,36 +351,31 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             self.pcd.colors = o3d.utility.Vector3dVector(self.points_colors)
             self.o3d_vis.update_geometry(self.pcd)
 
-    def set_bev_image(self,
-                      bev_image: Optional[np.ndarray] = None,
-                      bev_shape: int = 900) -> None:
-        """Set the bev image to draw.
+    @master_only
+    def set_image(self, 
+                image: np.ndarray, 
+                origin: str = 'upper') -> None:
+        """Set the image to draw.
 
         Args:
-            bev_image (np.ndarray, optional): The bev image to draw.
-                Defaults to None.
-            bev_shape (int): The bev image shape. Defaults to 900.
+            image (np.ndarray): The origin image to draw.
+            origin (str): The origin [0, 0] index of the image array. Defaults to 'upper'.
+                Options are 'upper' and 'lower'. 'upper' is typically used for camera images,
+                and 'lower' is typically used for BEV images.
         """
-        if bev_image is None:
-            bev_image = 255 * np.ones((bev_shape, bev_shape, 3), np.uint8)
-
-        self._image = bev_image
-        self.width, self.height = bev_image.shape[1], bev_image.shape[0]
-        self._default_font_size = max(
-            np.sqrt(self.height * self.width) // 90, 10)
-    
-        # add a small 1e-2 to avoid precision lost due to matplotlib's
-        # truncation (https://github.com/matplotlib/matplotlib/issues/15363)
-        self.fig_save.set_size_inches(  # type: ignore
-            (self.width + 1e-2) / self.dpi, (self.height + 1e-2) / self.dpi)
-        
-        self.ax_save.cla()
-        self.ax_save.axis(False)
-        self.ax_save.imshow(bev_image, origin='lower')
-
+        super().set_image(image)
+        # overwrite show settings
+        if origin.lower() == 'lower':
+            self.ax_save.cla()
+            self.ax_save.axis(False)
+            self.ax_save.imshow(
+                image, 
+                origin=origin,
+                interpolation='none')
+           
     # TODO: Support bev point cloud visualization
     @master_only
-    def draw_bev_bboxes(
+    def draw_bboxes_on_bev(
         self,
         bbox_3d_ego: BaseInstance3DBoxes,
         bboxes_3d_instances: BaseInstance3DBoxes,
@@ -425,7 +422,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         """
         
         if bbox_3d_ego is not None:
-            self = self._draw_bev_bboxes(
+            self = self._draw_bboxes_on_bev(
                 bboxes_3d=bbox_3d_ego, 
                 scale=scale, 
                 edge_colors=edge_colors_ego, 
@@ -436,7 +433,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             )
         
         if bboxes_3d_instances is not None:
-            self = self._draw_bev_bboxes(
+            self = self._draw_bboxes_on_bev(
                 bboxes_3d=bboxes_3d_instances, 
                 scale=scale, 
                 edge_colors=edge_colors_instances, 
@@ -447,7 +444,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
 
         return self
         
-    def _draw_bev_bboxes(
+    def _draw_bboxes_on_bev(
         self,
         bboxes_3d: BaseInstance3DBoxes,
         scale: int = 15,
@@ -493,6 +490,11 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         if not isinstance(bboxes_3d, DepthInstance3DBoxes):
             bboxes_3d = bboxes_3d.convert_to(Box3DMode.DEPTH)
         
+        # convert rgb color to bgr if image is bgr
+        if self.image_mode == 'bgr':
+            edge_colors = self._rgb_to_bgr(edge_colors)
+            face_colors = self._rgb_to_bgr(face_colors)
+            
         bev_bboxes = tensor2ndarray(bboxes_3d.bev)
         # scale the bev bboxes for better visualization
         bev_bboxes[:, :4] *= scale
@@ -570,7 +572,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
 
     # TODO: set bbox color according to palette
     @master_only
-    def draw_proj_bboxes_3d(
+    def draw_bboxes_3d_on_image(
             self,
             bboxes_3d: BaseInstance3DBoxes,
             input_meta: dict,
@@ -578,18 +580,16 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                                List[Union[str, Tuple[int]]]] = 'royalblue',
             line_styles: Union[str, List[str]] = '-',
             line_widths: Union[int, float, List[Union[int, float]]] = 2,
-            face_colors: Union[str, Tuple[int],
-                               List[Union[str, Tuple[int]]]] = 'royalblue',
             alpha: Union[int, float] = 0.4,
             img_size: Optional[Tuple] = None):
-        """Draw projected 3D boxes on the image.
+        """Draw projected 3D boxes on image.
 
         Args:
             bboxes_3d (:obj:`BaseInstance3DBoxes`): 3D bbox
                 (x, y, z, x_size, y_size, z_size, yaw) to visualize.
             input_meta (dict): Input meta information.
             edge_colors (str or Tuple[int] or List[str or Tuple[int]]):
-                The colors of bboxes. ``colors`` can have the same length with
+                The RGB colors of bboxes. ``colors`` can have the same length with
                 lines or just single value. If ``colors`` is single value, all
                 the lines will have the same colors. Refer to `matplotlib.
                 colors` for full list of formats that are accepted.
@@ -604,8 +604,6 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 lines. ``line_widths`` can have the same length with lines or
                 just single value. If ``line_widths`` is single value, all the
                 lines will have the same linewidth. Defaults to 2.
-            face_colors (str or Tuple[int] or List[str or Tuple[int]]):
-                The face colors. Defaults to 'royalblue'.
             alpha (int or float): The transparency of bboxes. Defaults to 0.4.
             img_size (tuple, optional): The size (w, h) of the image.
         """
@@ -621,6 +619,9 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         else:
             raise NotImplementedError('unsupported box type!')
 
+        # convert to bgr color, the default color code is in rgb
+        if self.image_mode == 'bgr':
+            edge_colors = self._rgb_to_bgr(edge_colors)
         edge_colors_norm = color_val_matplotlib(edge_colors)
 
         corners_2d = proj_bbox3d_to_img(bboxes_3d, input_meta)
@@ -671,7 +672,36 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             line_widths=line_widths,
             face_colors=edge_colors)
  
-   
+    def _rgb_to_bgr(self, rgb_color: Union[str, Tuple[int], Tuple[str], Tuple[Tuple[int]]]
+                    ) -> Union[Tuple[int], Tuple[Tuple[int]]]:
+        """Convert RGB color to BGR color.
+
+        Args:
+            color (str or Tuple[int] or Tuple[str] or Tuple[Tuple[int]]):
+                The color to convert.
+
+        Returns:
+            Tuple[int]: The converted BGR color.
+        """
+        if isinstance(rgb_color, str):
+            rgb = mcolors.to_rgb(rgb_color) # rgb in [0, 1]
+            bgr_color = mcolors.to_hex(rgb[::-1])
+            return bgr_color
+        
+        elif isinstance(rgb_color, (tuple, list)):
+            if isinstance(rgb_color[0], str):
+                bgr = [mcolors.to_hex(mcolors.to_rgb(color)[::-1]) for color in rgb_color ]
+                return type(rgb_color)(bgr)
+            
+            elif isinstance(rgb_color[0], int):
+                return rgb_color[::-1]
+
+            elif isinstance(rgb_color[0], (tuple, list)):
+                bgr = [color[::-1] for color in rgb_color]
+                return type(rgb_color)(bgr)
+        else:
+            raise TypeError('color should be str or tuple')
+
     def color_map(self, data, cmap):
         """数值映射为颜色"""
         
@@ -768,7 +798,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         self.ax_save.add_collection(line_collect)
         
     @master_only                                 
-    def draw_trajectory_bev(
+    def draw_trajectory_on_bev(
         self,
         traj: np.ndarray,
         mask: Optional[np.ndarray] = None,
@@ -876,9 +906,8 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         
         
     @master_only                                 
-    def draw_trajectory_image(
+    def draw_trajectory_on_image(
         self,
-        img: np.ndarray,
         traj: np.ndarray,
         mask: Optional[np.ndarray] = None,
         cmap: Optional[str] = 'winter_r',
@@ -898,15 +927,11 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         """
        # assertions
         # traj: (N, T, d)
-        assert isinstance(img, np.ndarray), 'img should be a numpy array'
         assert isinstance(traj, np.ndarray), 'traj should be a numpy array'
         if mask is not None:
             assert isinstance(mask, np.ndarray), 'mask should be a numpy array'
         assert isinstance(input_meta, dict) and 'future_steps' in input_meta, \
             'input_meta should be a dictionary, and should contain lidar2img and future_steps'
-        
-        # set image
-        self.set_image(img)
         
         
         if traj.ndim == 2:
@@ -958,20 +983,23 @@ class PlanningVisualizer(MMENGINE_Visualizer):
     
         return self.get_image()
     
-    @master_only    
-    def draw_multimodal_trajectory_bev(self):
-        raise NotImplementedError('draw multimodal trajectory on BEV image is not implemented yet') 
-        
+    @master_only
+    def draw_multimodal_trajectory(self):
+        """Draw multimodal trajectory on the image.
+        """
+        pass
+    
     # multi-view image
     @master_only
-    def draw_multiviews(self, 
-                        imgs, 
-                        view_names: Optional[List[str]] = None, 
-                        target_size: Optional[Tuple[int]]=(2133, 800), 
-                        arrangement: Optional[Tuple[int]]=(2, 3),
-                        text_colors: Optional[Union[Tuple[int], str]] = (255, 255, 255),
-                        text_size: Optional[int] = 20
-                    ):
+    def draw_multiviews(
+        self, 
+        imgs, 
+        view_names: Optional[List[str]] = None, 
+        target_size: Optional[Tuple[int]]=(2133, 800), 
+        arrangement: Optional[Tuple[int]]=(2, 3),
+        text_colors: Optional[Union[Tuple[int], str]] = (255, 255, 255),
+        text_size: Optional[int] = 20
+    ):
         """Set multiview images to draw.
         """
         assert isinstance(imgs, list), 'imgs should be a list'
@@ -1009,230 +1037,12 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         
         return multiview
         
+    #TODO
     @master_only
-    def draw_seg_mask(self, seg_mask_colors: np.ndarray) -> None:
-        """Add segmentation mask to visualizer via per-point colorization.
-
-        Args:
-            seg_mask_colors (np.ndarray): The segmentation mask with shape
-                (N, 6), whose first 3 dims are point coordinates and last 3
-                dims are converted colors.
+    def draw_vector_map(self):
+        """Draw vector map on the image.
         """
-        # we can't draw the colors on existing points
-        # in case gt and pred mask would overlap
-        # instead we set a large offset along x-axis for each seg mask
-        if hasattr(self, 'pcd'):
-            offset = (np.array(self.pcd.points).max(0) -
-                      np.array(self.pcd.points).min(0))[0] * 1.2
-            mesh_frame = geometry.TriangleMesh.create_coordinate_frame(
-                size=1, origin=[offset, 0,
-                                0])  # create coordinate frame for seg
-            self.o3d_vis.add_geometry(mesh_frame)
-        else:
-            offset = 0
-        seg_points = copy.deepcopy(seg_mask_colors)
-        seg_points[:, 0] += offset
-        self.set_points(seg_points, pcd_mode=2, vis_mode='add', mode='xyzrgb')
-
-    def _draw_instances_3d(self,
-                           data_input: dict,
-                           instances: InstanceData,
-                           input_meta: dict,
-                           vis_task: str,
-                           show_pcd_rgb: bool = False,
-                           palette: Optional[List[tuple]] = None,
-                           img_mode: Optional[str] = 'rgb',
-                           img_names: Optional[str] = None) -> dict:
-        """Draw 3D instances of GT or prediction on the image or multi-view images.
-        
-        If the instances is empty, draw the original image.
-
-        Args:
-            data_input (dict): The input dict to draw. with image in rgb mode as default
-            instances (:obj:`InstanceData`): Data structure for instance-level
-                annotations or predictions.
-            input_meta (dict): Meta information.
-            vis_task (str): Visualization task, it includes: 'lidar_det',
-                'multi-modality_det', 'mono_det'.
-            show_pcd_rgb (bool): Whether to show RGB point cloud.
-            palette (List[tuple], optional): Palette information corresponding
-                to the category. Defaults to None.
-
-        Returns:
-            dict: The drawn point cloud and image whose channel is RGB.
-        """
-
-        # TODO: if no instances, return the original image
-        num_instances = len(instances)
-
-        bboxes_3d = instances.bbox  # BaseInstance3DBoxes
-        labels_3d = instances.label
-
-        data_3d = dict()
-
-        """
-        if vis_task in ['lidar_det', 'multi-modality_det', 'multi-modality_planning']:
-            assert 'pts' in data_input
-            points = data_input['pts'].tensor
-            check_type('pts', points, (np.ndarray, Tensor))
-            points = tensor2ndarray(points)
-
-            if num_instances > 0:
-                if not isinstance(bboxes_3d, DepthInstance3DBoxes):
-                    points, bboxes_3d_depth = to_depth_mode(points, bboxes_3d)
-                else:
-                    bboxes_3d_depth = bboxes_3d.clone()
-
-                max_label = int(max(labels_3d) if len(labels_3d) > 0 else 0)
-                bbox_color = palette if self.bbox_color is None \
-                    else self.bbox_color
-                bbox_palette = get_palette(bbox_color, max_label + 1)
-                colors = [bbox_palette[label] for label in labels_3d]
-                
-            if 'axis_align_matrix' in input_meta:
-                points = DepthPoints(points, points_dim=points.shape[1])
-                rot_mat = input_meta['axis_align_matrix'][:3, :3]
-                trans_vec = input_meta['axis_align_matrix'][:3, -1]
-                points.rotate(rot_mat.T)
-                points.translate(trans_vec)
-                points = tensor2ndarray(points.tensor)
-
-            self.set_points(
-                points, pcd_mode=2, mode='xyzrgb' if show_pcd_rgb else 'xyz')
-            
-            if num_instances > 0:
-                self.draw_bboxes_3d(bboxes_3d_depth, bbox_color=colors)
-                data_3d['bboxes_3d'] = tensor2ndarray(bboxes_3d_depth.tensor)
-                
-            data_3d['points'] = points
-        """
-        if vis_task in ['mono_det', 'multi-modality_det', 'multi-modality_planning']:
-            assert 'img' in data_input
-            img = data_input['img']
-            if isinstance(img, list) or (isinstance(img, (np.ndarray, Tensor))
-                                         and len(img.shape) == 4):
-                # show multi-view images
-                img_size = img[0].shape[-2:]
-                img_col = self.multi_imgs_col
-                img_row = math.ceil(len(img) / img_col)
-                
-                # to rgb if needed
-                if img_mode.lower() == 'bgr':
-                    if isinstance(img, list) or isinstance(img, tuple):
-                        img = [im[..., ::-1] for im in img]
-                    elif isinstance(img, (Tensor, np.ndarray)):
-                        img = img[..., ::-1]
-                
-                # check if image names has consistent length with images
-                if img_names is not None:
-                    assert len(img_names) == len(img), 'img_names should have the same length with imgs'
-                    if len(img_names) < img_col * img_row:
-                        img_names += [''] * (img_col * img_row - len(img_names))
-                
-                # initialize a combined image
-                composed_img = [np.zeros((*img_size, 3)) for _ in range(img_col * img_row)]
-                
-                for i, single_img in enumerate(img):
-                    # Note that we should keep the same order of elements both
-                    # in `img` and `input_meta`
-                    if isinstance(single_img, Tensor):
-                        single_img = single_img.permute(1, 2, 0).numpy()
-                    self.set_image(single_img)
-                    single_img_meta = dict()
-                    for key, meta in input_meta.items():
-                        if isinstance(meta,
-                                      (Sequence, np.ndarray,
-                                       Tensor)) and len(meta) == len(img):
-                            single_img_meta[key] = meta[i]
-                        else:
-                            single_img_meta[key] = meta
-                    
-                    if num_instances > 0:
-                        max_label = int(
-                            max(labels_3d) if len(labels_3d) > 0 else 0)
-                        bbox_color = palette if self.bbox_color is None \
-                            else self.bbox_color
-                        bbox_palette = get_palette(bbox_color, max_label + 1)
-                        colors = [bbox_palette[label] for label in labels_3d]
-                        self.draw_proj_bboxes_3d(
-                            bboxes_3d,
-                            single_img_meta,
-                            img_size=single_img.shape[:2][::-1],
-                            edge_colors=colors)
-                    if vis_task == 'mono_det' and hasattr(
-                            instances, 'centers_2d'):
-                        centers_2d = instances.centers_2d
-                        self.draw_points(centers_2d)
-                    #composed_img[(i // img_col) *
-                    #             img_size[0]:(i // img_col + 1) * img_size[0],
-                    #             (i % img_col) *
-                    #             img_size[1]:(i % img_col + 1) *
-                    #             img_size[1]] = self.get_image()
-                    composed_img[i] = self.get_image()
-                    
-                composed_img = self.draw_multiviews(imgs = composed_img, 
-                                        view_names = img_names,
-                                        target_size = self.mult_imgs_size,
-                                        arrangement = (img_row, img_col),
-                                        text_colors = (255, 255, 255)
-                )
-                    
-                data_3d['img'] = composed_img
-            else:
-                # show single-view image
-                # TODO: Solve the problem: some line segments of 3d bboxes are
-                # out of image by a large margin
-                if isinstance(data_input['img'], Tensor):
-                    img = img.permute(1, 2, 0).numpy()
-                self.set_image(img)
-
-                if num_instances > 0:
-                    max_label = int(max(labels_3d) if len(labels_3d) > 0 else 0)
-                    bbox_color = palette if self.bbox_color is None \
-                        else self.bbox_color
-                    bbox_palette = get_palette(bbox_color, max_label + 1)
-                    colors = [bbox_palette[label] for label in labels_3d]
-
-                    self.draw_proj_bboxes_3d(
-                        bboxes_3d, input_meta, edge_colors=colors)
-                if vis_task == 'mono_det' and hasattr(instances, 'centers_2d'):
-                    centers_2d = instances.centers_2d
-                    self.draw_points(centers_2d)
-                drawn_img = self.get_image()
-                data_3d['img'] = drawn_img
-
-        return data_3d
-
-    def _draw_pts_sem_seg(self,
-                          points: Union[Tensor, np.ndarray],
-                          pts_seg: PointData,
-                          palette: Optional[List[tuple]] = None,
-                          keep_index: Optional[int] = None) -> None:
-        """Draw 3D semantic mask of GT or prediction.
-
-        Args:
-            points (Tensor or np.ndarray): The input point cloud to draw.
-            pts_seg (:obj:`PointData`): Data structure for pixel-level
-                annotations or predictions.
-            palette (List[tuple], optional): Palette information corresponding
-                to the category. Defaults to None.
-            ignore_index (int, optional): Ignore category. Defaults to None.
-        """
-        check_type('points', points, (np.ndarray, Tensor))
-
-        points = tensor2ndarray(points)
-        pts_sem_seg = tensor2ndarray(pts_seg.pts_semantic_mask)
-        palette = np.array(palette)
-
-        if keep_index is not None:
-            keep_index = tensor2ndarray(keep_index)
-            points = points[keep_index]
-            pts_sem_seg = pts_sem_seg[keep_index]
-
-        pts_color = palette[pts_sem_seg]
-        seg_color = np.concatenate([points[:, :3], pts_color], axis=1)
-
-        self.draw_seg_mask(seg_color)
+        pass
 
     @master_only
     def show(self,
@@ -1518,7 +1328,6 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             self.show(
                 o3d_save_path,
                 drawn_img_3d,
-                drawn_img=None,
                 win_name=name,
                 wait_time=wait_time,
                 vis_task=vis_task)
