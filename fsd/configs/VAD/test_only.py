@@ -380,6 +380,7 @@ train_pipeline = [
         type='LoadAnnotationsPlan3D', 
         with_bbox_3d=True, 
         with_label_3d=True, 
+        with_ego_traj=True,
         with_instances_traj=True,
         with_instances_ids=True,
         with_vector_map=True,),
@@ -396,7 +397,7 @@ train_pipeline = [
 
 train_dataloader = dict(
     batch_size=1,
-    num_workers=20,
+    num_workers=4,
     persistent_workers=True,
     sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
     pin_memory=True,
@@ -430,10 +431,11 @@ test_pipeline = [
 #         _scope_='mmdet3d',
 #         coord_type='LIDAR',
 #         load_dim=5,
-#         use_dim=5),
+#         use_dim=[0, 1, 2]),
     dict(type='LoadAnnotationsPlan3D', 
         with_bbox_3d=True, 
         with_label_3d=True, 
+        with_ego_traj=True,
         with_instances_traj=True,
         with_instances_ids=True,
         with_vector_map=True),
@@ -450,7 +452,7 @@ test_pipeline = [
 
 val_dataloader = dict(
     batch_size=1,
-    num_workers=20,
+    num_workers=4,
     persistent_workers=True,
     sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
     pin_memory=True,
@@ -544,19 +546,6 @@ lr_config = dict(
 # eval
 evaluation = dict(interval=1, pipeline=test_pipeline)
 
-# default hooks
-default_hooks = dict(
-    checkpoint=dict(
-        type='CheckpointHook', 
-        save_begin=0,
-        interval=1, 
-        by_epoch=True,
-        save_best='auto',
-        rule='less',
-        max_keep_ckpts=3,
-    ),
-)
-
 # training log
 vis_backends = [
     dict(type='TensorboardVisBackend'),
@@ -568,9 +557,38 @@ visualizer = dict(
     name='visualizer',
 )
 
-load_from = './ckpts/vad_base_converted.pth'
+load_from = './ckpts/vad_base.pth'
 #resume = True
 #auto_scale_lr = dict(
 #    base_batch_size=1,
 #    enable=True,
 #)
+
+
+# default hooks
+default_hooks = dict(
+    checkpoint=dict(
+        type='CheckpointHook', 
+        save_begin=0,
+        interval=1, 
+        by_epoch=True,
+        save_best='auto',
+        rule='less',
+        max_keep_ckpts=3,
+    ),
+#    visualization=dict(
+#        type='PlanningVisualizationHook',
+#        draw=True,
+#        interval=1,
+#        score_thr=0.3,
+#        show=True,
+#        vis_task='multi-modality_planning',
+#        wait_time=0,
+#        test_out_dir='.',
+#        draw_gt=True,
+#        draw_pred=True,
+#        show_pcd_rgb=False,
+#        view_first_only=True,
+#        index_front_camera=0,
+#    )
+)
