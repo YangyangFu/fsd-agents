@@ -541,9 +541,9 @@ class BasePlanDataset(BaseDataset):
         # lidar poitns: convert to mmdet3d lidar 
         if 'points' in example['inputs']:
             points = example['inputs']['points']
-            if self.TO_MMDET3D_LIDAR is not None:
-                points[:, 0] = points[:, 1]
-                points[:, 1] = -points[:, 0]
+            if self.to_mmdet3d_lidar is not None:
+                points[:, [0, 1]] = points[:, [1, 0]]
+                points[:, 1] = -points[:, 1]
             example['inputs']['points'] = points
             
         return example
