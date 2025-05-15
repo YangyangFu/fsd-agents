@@ -40,6 +40,7 @@ try:
 except ImportError:
     o3d = geometry = Visualizer = None
 
+from fsd.structures import Trajectory
 from fsd.registry import VISUALIZERS
 
 @VISUALIZERS.register_module()
@@ -493,7 +494,8 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         # convert rgb color to bgr if image is bgr
         if self.image_mode == 'bgr':
             edge_colors = self._rgb_to_bgr(edge_colors)
-            face_colors = self._rgb_to_bgr(face_colors)
+            if face_colors is not None and face_colors != 'none':
+                face_colors = self._rgb_to_bgr(face_colors)
             
         bev_bboxes = tensor2ndarray(bboxes_3d.bev)
         # scale the bev bboxes for better visualization
@@ -746,6 +748,59 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         
         return traj_vecs
     
+    def draw_trajectory(
+        self, 
+        traj: Union[np.ndarray, Trajectory],
+        mask: Optional[np.ndarray] = None,
+        cmap: Optional[str] = 'autumn_r',
+        scale: int = 1,
+        linewidths: int = 1, 
+        on: Optional[str] = 'image'):
+
+        # check dimensions
+        if traj is not None:
+            assert isinstance(traj, np.ndarray) and traj.ndim == 2, 'traj should be a 2D numpy array'
+        
+        T, _ = traj.shape
+        
+        # filter out invalid trajectory
+        traj = traj[mask][..., :2]
+        # traj may be empty after masking
+        if traj.shape[0] == 0:
+            return
+        
+        # at least 1 valid step
+        if traj.shape[0] <= 1:
+            return
+        
+        # setup colors: each line segment has a color
+        # every two steps are connected by a line
+        segments_per_line = 50
+        y = np.sin(np.linspace(1/2*np.pi, 3/2*np.pi, T*segments_per_line))
+        colors = self.color_map(y, cmap)
+        if self.image_mode.lower() == 'bgr':
+            colors[:, [0, 1, 2]] = colors[:, [2, 1, 0]] # rgb to bgr
+        
+        # generate trajectory line collections
+        vecs = self._generate_trajectory_line_collections(traj)      
+        # scale meters to pixels
+        vecs = vecs * scale
+        
+        # move center to the middle of the image if in bev mode
+        if on == 'bev':
+            vecs[..., 0] += self.width / 2
+            vecs[..., 1] += self.height / 2
+        
+        # line collection
+        line_collect = LineCollection(
+            vecs.tolist(),
+            colors=colors,
+            linestyles='solid',
+            linewidths=linewidths,
+            cmap=cmap)
+        self.ax_save.add_collection(line_collect)
+                
+
     def _draw_one_trajectory_bev(
         self, 
         traj: np.ndarray,
@@ -805,8 +860,6 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         cmap: Optional[str] = 'autumn_r',
         scale=10,
         linewidths=1,
-        draw_history: bool = False,
-        cmap_history: Optional[str] = 'summer',
         input_meta: Optional[dict] = None
     ):
         """Draw trajectory on BEV image.
@@ -819,92 +872,54 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             scale (int): The scale of the BEV image.
         """
        # assertions
-        # traj: (N, T, d)
+        # traj: (N, M, T, d)
         assert isinstance(traj, np.ndarray), 'traj should be a numpy array'
         assert isinstance(mask, np.ndarray), 'mask should be a numpy array'
         if traj.ndim == 2:
+            traj = traj[None, None, ...]
+        if traj.ndim == 3:
             traj = traj[None, ...]
+        
+        # mask: (N, T)
         if mask is not None and mask.ndim == 1:
             mask = mask[None, ...]
-        assert traj.ndim == 3, 'traj should be a 3D numpy array for instances'
-        N, T , _ = traj.shape
+
+        # (N, M, T, d)
+        N, M, T, _ = traj.shape
+        
         # mask out invalid trajectory
         if mask is None:
-            mask = np.ones((N, T))
+            mask = np.ones((N, T)).astype(np.bool_)
             
-        # lidar to image: bev is in lidar coord, no need to transform
+        # mmdet3d lidar to bev image (depth mode)
+        if 'lidar2img' in input_meta:
+            traj = np.concatenate([
+                traj[..., :2], 
+                1.0*np.ones((N, M, T, 1)), # close to ground
+                np.ones((N, M, T, 1))], 
+                axis=-1)
+            
+            traj_img = traj @ np.array(input_meta['lidar2img']).T
+            traj = traj_img[..., :2] # (N, M, T, 2) 
+                
         # future trajectory
         future_steps = input_meta['future_steps']
 
+        # agents
         for i in range(N):
-            # future trajectory by default            
-            traj_i = traj[i][-(1+future_steps):] # add current step at the beginning
-            mask_i = mask[i][-(1+future_steps):]
-            self._draw_one_trajectory_bev(
-                traj = traj_i, 
-                mask = mask_i, 
-                cmap = cmap, 
-                scale = scale, 
-                linewidths = linewidths)
-
-        
-            # hisotry trajectory if needed 
-            if draw_history:
-                traj_i = traj[i][:-future_steps]
-                mask_i = mask[i][:-future_steps]
-                
-                self._draw_one_trajectory_bev(
-                    traj = traj_i, 
+            # modes
+            for j in range(M):
+                # future trajectory by default            
+                traj_ij = traj[i][j]
+                mask_i = mask[i]
+                self.draw_trajectory(
+                    traj = traj_ij, 
                     mask = mask_i, 
-                    cmap = cmap_history, 
+                    cmap = cmap, 
                     scale = scale, 
-                    linewidths = linewidths)
-    
-    
-    def _draw_one_trajectory_image(
-        self, 
-        traj: np.ndarray,
-        mask: Optional[np.ndarray] = None,
-        cmap: Optional[str] = 'autumn_r',
-        linewidths=1
-    ):
-        # check dimensions
-        if traj is not None:
-            assert isinstance(traj, np.ndarray) and traj.ndim == 2, 'traj should be a 2D numpy array'
-        
-        T, _ = traj.shape
-        
-        # filter out invalid trajectory
-        traj = traj[mask == 1][..., :2]
-        # traj may be empty after masking
-        if traj.shape[0] == 0:
-            return
-        
-        # at least 1 valid step
-        if traj.shape[0] <= 1:
-            return
-        
-        # setup colors: each line segment has a color
-        # every two steps are connected by a line
-        segments_per_line = 50
-        y = np.sin(np.linspace(1/2*np.pi, 3/2*np.pi, T*segments_per_line))
-        colors = self.color_map(y, cmap)
-        if self.image_mode.lower() == 'bgr':
-            colors[:, [0, 1, 2]] = colors[:, [2, 1, 0]] # rgb to bgr
-        
-        # generate trajectory line collections
-        vecs = self._generate_trajectory_line_collections(traj)      
-
-        # line collection
-        line_collect = LineCollection(
-            vecs.tolist(),
-            colors=colors,
-            linestyles='solid',
-            linewidths=linewidths,
-            cmap=cmap)
-        self.ax_save.add_collection(line_collect)
-        
-        
+                    linewidths = linewidths,
+                    on = 'bev')
+               
     @master_only                                 
     def draw_trajectory_on_image(
         self,
@@ -912,8 +927,6 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         mask: Optional[np.ndarray] = None,
         cmap: Optional[str] = 'winter_r',
         linewidths=1,
-        draw_history: bool = False,
-        cmap_history: Optional[str] = 'summer',
         input_meta: Optional[dict] = None
     ):
         """Draw trajectory on BEV image.
@@ -926,28 +939,31 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             scale (int): The scale of the BEV image.
         """
        # assertions
-        # traj: (N, T, d)
+        # traj: (N, M, T, d)
         assert isinstance(traj, np.ndarray), 'traj should be a numpy array'
         if mask is not None:
             assert isinstance(mask, np.ndarray), 'mask should be a numpy array'
         assert isinstance(input_meta, dict) and 'future_steps' in input_meta, \
             'input_meta should be a dictionary, and should contain lidar2img and future_steps'
         
-        
+        # traj: (N, M, T, d)
         if traj.ndim == 2:
+            traj = traj[None, None, ...]
+        if traj.ndim == 3:
             traj = traj[None, ...]
+        # mask: (N, T)
         if mask is not None and mask.ndim == 1:
             mask = mask[None, ...]
-        assert traj.ndim == 3, 'traj should be a 3D numpy array for instances'
-        N, T , _ = traj.shape
+            
+        N, M, T, _ = traj.shape
         # mask out invalid trajectory
         if mask is None:
             mask = np.ones((N, T))
             
         # lidar to image: (x, y, z, 1)
         traj = np.concatenate((traj[..., :2], 
-                                   -1.5*np.ones((*traj.shape[:2], 1)), # close to ground
-                                   np.ones((*traj.shape[:2], 1))), 
+                                   -1.5*np.ones((N, M, T, 1)), # close to ground
+                                   np.ones((N, M, T, 1))), 
                                   axis=-1)
         
         traj_img = traj @ np.array(input_meta['lidar2img']).T
@@ -960,25 +976,14 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         future_steps = input_meta['future_steps']
 
         for i in range(N):
-            # future trajectory by default            
-            traj_i = traj[i][-(1+future_steps):] # add current step at the beginning
-            mask_i = mask[i][-(1+future_steps):]
-            self._draw_one_trajectory_image(
-                traj = traj_i, 
-                mask = mask_i, 
-                cmap = cmap, 
-                linewidths = linewidths)
-
-        
-            # hisotry trajectory if needed 
-            if draw_history:
-                traj_i = traj[i][:-future_steps]
-                mask_i = mask[i][:-future_steps]
-                
-                self._draw_one_trajectory_image(
-                    traj = traj_i, 
+            for j in range(M):
+                # future trajectory by default            
+                traj_ij = traj[i][j]
+                mask_i = mask[i]
+                self.draw_trajectory(
+                    traj = traj_ij, 
                     mask = mask_i, 
-                    cmap = cmap_history, 
+                    cmap = cmap, 
                     linewidths = linewidths)
     
         return self.get_image()

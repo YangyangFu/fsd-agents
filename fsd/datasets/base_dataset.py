@@ -20,7 +20,7 @@ from mmengine.dataset import Compose, BaseDataset
 from mmdet3d.structures import (get_box_type, LiDARInstance3DBoxes, 
                                 DepthInstance3DBoxes, CameraInstance3DBoxes, 
                                 BaseInstance3DBoxes)
-from fsd.structures import TrajectoryData
+from fsd.structures import Trajectory
 from fsd.registry import DATASETS
 
 

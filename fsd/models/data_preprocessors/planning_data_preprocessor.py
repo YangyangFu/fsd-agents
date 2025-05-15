@@ -7,13 +7,13 @@ import numpy as np
 from mmengine.utils import is_seq_of
 from mmengine.model import BaseDataPreprocessor
 from mmengine.structures import BaseDataElement
-from fsd.structures import TrajectoryData
+from fsd.structures import Trajectory
 from fsd.registry import MODELS
 from torchvision.transforms import functional as F
 
 def stack_batch(data):
     """Stack a sequence of data of the same type/size at the new first dimension
-    Currently supports list of torch.Tensor, list of numpy.ndarray and list of TrajectoryData.
+    Currently supports list of torch.Tensor, list of numpy.ndarray and list of Trajectory.
     
     """
     if len(data) == 1:
@@ -23,26 +23,26 @@ def stack_batch(data):
         return torch.stack(data, dim=0)
     elif is_seq_of(data, np.ndarray):
         return np.stack(data, axis=0)
-    elif is_seq_of(data, TrajectoryData):
+    elif is_seq_of(data, Trajectory):
         return stack_batch_trajectory_data(data)
     elif is_seq_of(data, BaseDataElement):
         return stack_batch_data_element(data)
     else:
         raise ValueError(f"Unsupported data type {type(data)} for stacking")
     
-def stack_batch_trajectory_data(data: List[TrajectoryData]) -> TrajectoryData:
+def stack_batch_trajectory_data(data: List[Trajectory]) -> Trajectory:
     """ Stack a list of trajectory data to a single trajectory data
     
     Typically used for stacking trajectory data
     
     """
-    assert is_seq_of(data, TrajectoryData), f"Expecting a list of TrajectoryData, \
+    assert is_seq_of(data, Trajectory), f"Expecting a list of Trajectory, \
                 but got {type(data)}."
     
     keys = data[0].all_keys()
     metainfo_fields = data[0]._metainfo_fields 
     data_fields = data[0]._data_fields
-    stack_ = TrajectoryData()
+    stack_ = Trajectory()
     stack_meta = defaultdict(list)
     stack_data = defaultdict(list)
     for d in data:
@@ -87,7 +87,7 @@ def stack_batch_data_element(data_element: List[BaseDataElement]) -> BaseDataEle
                 v = d.get(key)
                 if isinstance(v, torch.Tensor) or \
                         isinstance(v, np.ndarray) or \
-                            isinstance(v, TrajectoryData):
+                            isinstance(v, Trajectory):
                     stack_data[key].append(v)
                 else:
                     raise ValueError(f"Unsupported data type {type(v)} for stacking")

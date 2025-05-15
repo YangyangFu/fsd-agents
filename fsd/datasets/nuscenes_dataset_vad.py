@@ -10,7 +10,7 @@ from mmdet3d.structures import limit_period, CameraInstance3DBoxes, LiDARInstanc
 from fsd.datasets import NuScenesDatasetPlan3D
 from fsd.datasets.map_utils.vector_map import VectorizedLocalMap
 from fsd.datasets.convert_utils import nus_categories, NuScenesNameMapping
-from fsd.structures import TrajectoryData
+from fsd.structures import Trajectory
 from fsd.utils import one_hot_encoding
 from fsd.registry import DATASETS
 

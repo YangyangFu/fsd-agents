@@ -115,7 +115,7 @@ def draw_bev_bboxes(data_inputs, data_samples, vis, ds):
         ego_box = DepthInstance3DBoxes(ego_box, box_dim=9)
     
     # display the data
-    bev = np.zeros((900, 1200, 3), dtype=np.uint8)
+    bev = 255*np.ones((900, 1200, 3), dtype=np.uint8)
     vis.set_image(bev, origin='lower')
     vis.draw_bboxes_on_bev(bbox_3d_ego = ego_box,
                         bboxes_3d_instances = bboxes_3d)
@@ -213,15 +213,92 @@ def draw_trajectory_on_bev(data_inputs, data_samples, vis, ds):
     ego_traj_xyr = ego_traj.numpy()
     ego_traj_mask = data_samples[0].gt_ego.traj_mask.numpy()
     
+    # lidar2bev 
+    lidar2bev = None
+    if ds.dataset.to_mmdet3d_lidar is not None:
+        lidar2bev = np.linalg.inv(ds.dataset.to_mmdet3d_lidar)
+    
     # draw
     vis.draw_trajectory_on_bev(
         ego_traj_xyr,
         ego_traj_mask,
-        cmap='summer_r',
-        input_meta = {'future_steps': ego_traj.shape[0]},
+        cmap='autumn',
+        input_meta = {
+            'lidar2img': lidar2bev,
+            'future_steps': ego_traj.shape[0]},
         linewidths=2)    
     
     return vis.get_image()
+
+
+def draw_mutimodal_trajectory_on_bev(data_inputs, data_samples, vis, ds):
+    # display the data
+    imgs = data_inputs['img'][0]
+    imgs = [img.numpy().transpose(1, 2, 0) for img in imgs]
+    
+    # bev image
+    bev = 255 * np.ones((900, 1200, 3), dtype=np.uint8)
+    vis.set_image(bev, origin='lower')
+    bev = draw_bev_bboxes(data_inputs, data_samples, vis, ds)
+    
+    # ego traj
+    ego_traj = data_samples[0].gt_ego.traj[:, [0, 1, 3]].cumsum(axis=0)
+    ego_traj_xyr = ego_traj.numpy()
+    ego_traj_mask = data_samples[0].gt_ego.traj_mask.numpy()
+    # add noise to the trajectory to make multimodal
+    M = 3
+    ego_multimodal_traj = [ego_traj + np.random.rand(*ego_traj_xyr.shape) for _ in range(M)] 
+    ego_multimodal_traj = np.stack(ego_multimodal_traj, axis=0)
+    
+    # lidar2bev 
+    lidar2bev = None
+    if ds.dataset.to_mmdet3d_lidar is not None:
+        lidar2bev = np.linalg.inv(ds.dataset.to_mmdet3d_lidar)
+    
+    # draw
+    vis.draw_trajectory_on_bev(
+        ego_multimodal_traj,
+        ego_traj_mask,
+        cmap='autumn',
+        input_meta = {
+            'lidar2img': lidar2bev,
+            'future_steps': ego_multimodal_traj.shape[-2]},
+        linewidths=2)    
+    
+    return vis.get_image()
+
+
+def draw_mutimodal_trajectory_on_image(data_inputs, data_samples, vis):
+    # display the data
+    imgs = data_inputs['img'][0]
+    imgs = [img.numpy().transpose(1, 2, 0) for img in imgs]
+    
+    # draw front camera image
+    cam_names = get_cam_names(data_samples[0].metainfo['img_path'])
+    front_cam_idx = cam_names.index('CAM_FRONT')
+    front_img = imgs[front_cam_idx]
+    lidar2img = np.array(data_samples[0].metainfo['lidar2img'][front_cam_idx]) # 4x4
+    
+    # ego traj
+    ego_traj = data_samples[0].gt_ego.traj[:, [0, 1, 3]].cumsum(axis=0)
+    ego_traj_xyr = ego_traj.numpy()
+    ego_traj_mask = data_samples[0].gt_ego.traj_mask.numpy()
+    M = 3
+    ego_multimodal_traj = [ego_traj_xyr + np.random.rand(*ego_traj_xyr.shape) for _ in range(M)]
+    ego_multimodal_traj = np.stack(ego_multimodal_traj, axis=0)
+    
+    # draw 
+    vis.set_image(front_img)
+    vis.draw_trajectory_on_image(
+        ego_multimodal_traj,
+        ego_traj_mask,
+        input_meta = {'lidar2img': lidar2img,
+                      'future_steps': ego_multimodal_traj.shape[-2]},
+        linewidths=4)
+
+    return vis.get_image()
+
+
 
 init_default_scope('fsd')
 ds_cfg = Config.fromfile('fsd/configs/_base_/datasets/nuscenes.py')
@@ -247,7 +324,9 @@ for i, item in enumerate(ds):
     #img = draw_bev_bboxes(data_inputs, data_samples, vis, ds)
     #img = draw_trajectory_on_image(data_inputs, data_samples, vis)
     #img = draw_multiviews(data_inputs, data_samples, vis)
-    img = draw_trajectory_on_bev(data_inputs, data_samples, vis, ds)
+    #img = draw_trajectory_on_bev(data_inputs, data_samples, vis, ds)
+    #img = draw_mutimodal_trajectory_on_bev(data_inputs, data_samples, vis, ds)
+    img = draw_mutimodal_trajectory_on_image(data_inputs, data_samples, vis)
     
     backend = 'matplotlib'#'matplotlib' # cv2
     if backend == 'matplotlib' and vis.image_mode == 'bgr':
