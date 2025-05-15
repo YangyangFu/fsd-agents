@@ -1027,8 +1027,10 @@ class VADHead(DETRHead):
             raise NotImplementedError('Not implement yet')
 
         # agent trajectory head
+        # [batch, num_agent, fut_mode, 2D]
         outputs_traj = self.traj_branches[0](motion_hs)
         outputs_trajs.append(outputs_traj)
+        # [batch, num_agent, fut_mode, 1]
         outputs_traj_class = self.traj_cls_branches[0](motion_hs)
         outputs_trajs_classes.append(outputs_traj_class.squeeze(-1))
         (batch, num_agent) = motion_hs.shape[:2]
