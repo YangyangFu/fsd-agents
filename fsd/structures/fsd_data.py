@@ -765,7 +765,7 @@ class Instances(InstanceData):
         del self._traj
     
     @property
-    def traj_mask(self, value: Union[torch.Tensor, np.ndarray]):
+    def traj_mask(self):
         """The mask of the trajectory of the instances
         
         Returns:
