@@ -132,7 +132,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         frame_cfg: dict = dict(size=1, origin=[0, 0, 0]),
         alpha: Union[int, float] = 0.8,
         multi_imgs_col: int = 3,
-        mult_imgs_size: Optional[Tuple[int]] = (2233, 800),
+        multi_view_size: Optional[Tuple[int]] = (2400, 800),
         fig_show_cfg: dict = dict(figsize=(18, 12))
     ) -> None:
         super().__init__(
@@ -160,7 +160,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         if points is not None:
             self.set_points(points, pcd_mode=pcd_mode, frame_cfg=frame_cfg)
         self.multi_imgs_col = multi_imgs_col
-        self.mult_imgs_size = mult_imgs_size
+        self.multi_view_size = multi_view_size
         
         self.fig_show_cfg.update(fig_show_cfg)
 
@@ -799,59 +799,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             linewidths=linewidths,
             cmap=cmap)
         self.ax_save.add_collection(line_collect)
-                
 
-    def _draw_one_trajectory_bev(
-        self, 
-        traj: np.ndarray,
-        mask: Optional[np.ndarray] = None,
-        cmap: Optional[str] = 'autumn_r',
-        scale=10,
-        linewidths=1
-    ):
-        # check dimensions
-        assert isinstance(traj, np.ndarray) and traj.ndim == 2, 'traj should be a 2D numpy array'
-        T, _ = traj.shape
-        
-        # filter out invalid trajectory
-        traj = traj[mask == 1][..., :2]
-        # traj may be empty after masking
-        if traj.shape[0] == 0:
-            return
-        
-        # lidar coord to bev (depth coord)
-        xy = np.zeros_like(traj)
-        xy[..., 0] = -traj[..., 1] # x_depth = -y_lidar
-        xy[..., 1] = traj[..., 0] # y_depth = x_lidar
-        
-        # at least 1 valid step
-        if xy.shape[0] <= 1:
-            return
-        
-        # setup colors: each line segment has a color
-        # every two steps are connected by a line
-        segments_per_line = 50
-        y = np.sin(np.linspace(1/2*np.pi, 3/2*np.pi, T*segments_per_line))
-        colors = self.color_map(y, cmap)
-        
-        # generate trajectory line collections
-        vecs = self._generate_trajectory_line_collections(xy)      
-        # scale meters to pixels
-        vecs = vecs * scale
-
-        # move center to the middle of the image
-        vecs[..., 0] += self.width / 2
-        vecs[..., 1] += self.height / 2
-        
-        # line collection
-        line_collect = LineCollection(
-            vecs.tolist(),
-            colors=colors,
-            linestyles='solid',
-            linewidths=linewidths,
-            cmap=cmap)
-        self.ax_save.add_collection(line_collect)
-        
     @master_only                                 
     def draw_trajectory_on_bev(
         self,
@@ -987,12 +935,6 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                     linewidths = linewidths)
     
         return self.get_image()
-    
-    @master_only
-    def draw_multimodal_trajectory(self):
-        """Draw multimodal trajectory on the image.
-        """
-        pass
     
     # multi-view image
     @master_only
@@ -1155,6 +1097,166 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         self.flag_next = True
         return False
 
+
+    def _draw_instances_3d(self,
+                           data_input: dict,
+                           instances: InstanceData,
+                           input_meta: dict,
+                           vis_task: str,
+                           show_pcd_rgb: bool = False,
+                           palette: Optional[List[tuple]] = None,
+                           view_names: Optional[str] = None) -> dict:
+        """Draw 3D instances of GT or prediction on the image or multi-view images.
+        
+        If the instances is empty, draw the original image.
+
+        Args:
+            data_input (dict): The input dict to draw. with image in rgb mode as default
+            instances (:obj:`InstanceData`): Data structure for instance-level
+                annotations or predictions.
+            input_meta (dict): Meta information.
+            vis_task (str): Visualization task, it includes: 'lidar_det',
+                'multi-modality_det', 'mono_det'.
+            show_pcd_rgb (bool): Whether to show RGB point cloud.
+            palette (List[tuple], optional): Palette information corresponding
+                to the category. Defaults to None.
+
+        Returns:
+            dict: The drawn point cloud and image whose channel is RGB.
+        """
+
+        # TODO: if no instances, return the original image
+        num_instances = len(instances)
+
+        bboxes_3d = instances.bbox  # BaseInstance3DBoxes
+        labels_3d = instances.label
+
+        data_3d = dict()
+
+        if vis_task in ['lidar_det', 'multi-modality_det', 'multi-modality_planning']:
+            assert 'points' in data_input
+            points = data_input['points']
+            check_type('points', points, (np.ndarray, Tensor))
+            points = tensor2ndarray(points)
+
+            if num_instances > 0:
+                if not isinstance(bboxes_3d, DepthInstance3DBoxes):
+                    _, bboxes_3d_depth = to_depth_mode(None, bboxes_3d)
+                else:
+                    bboxes_3d_depth = bboxes_3d.clone()
+
+                max_label = int(max(labels_3d) if len(labels_3d) > 0 else 0)
+                bbox_color = palette if self.bbox_color is None \
+                    else self.bbox_color
+                bbox_palette = get_palette(bbox_color, max_label + 1)
+                colors = [bbox_palette[label] for label in labels_3d]
+                
+            if 'axis_align_matrix' in input_meta:
+                points = DepthPoints(points, points_dim=points.shape[1])
+                rot_mat = input_meta['axis_align_matrix'][:3, :3]
+                trans_vec = input_meta['axis_align_matrix'][:3, -1]
+                points.rotate(rot_mat.T)
+                points.translate(trans_vec)
+                points = tensor2ndarray(points.tensor)
+
+            self.set_points(
+                points, pcd_mode=0, mode='xyzrgb' if show_pcd_rgb else 'xyz')
+            
+            if num_instances > 0:
+                self.draw_bboxes_3d(bboxes_3d, bbox_color=colors)
+                data_3d['bboxes_3d'] = tensor2ndarray(bboxes_3d_depth.tensor)
+                
+            data_3d['points'] = points
+
+        if vis_task in ['mono_det', 'multi-modality_det', 'multi-modality_planning']:
+            assert 'img' in data_input
+            img = data_input['img']
+            if isinstance(img, list) or (isinstance(img, (np.ndarray, Tensor))
+                                         and len(img.shape) == 4):
+                # show multi-view images
+                img_size = img[0].shape[-2:]
+                img_col = self.multi_imgs_col
+                img_row = math.ceil(len(img) / img_col)
+                              
+                # initialize a combined image
+                composed_img = [np.zeros((*img_size, 3)) for _ in range(img_col * img_row)]
+                
+                for i, single_img in enumerate(img):
+                    # Note that we should keep the same order of elements both
+                    # in `img` and `input_meta`
+                    if isinstance(single_img, Tensor):
+                        single_img = single_img.permute(1, 2, 0).numpy()
+                    self.set_image(single_img)
+                    single_img_meta = dict()
+                    for key, meta in input_meta.items():
+                        if isinstance(meta,
+                                      (Sequence, np.ndarray,
+                                       Tensor)) and len(meta) == len(img):
+                            single_img_meta[key] = meta[i]
+                        else:
+                            single_img_meta[key] = meta
+                    
+                    if num_instances > 0:
+                        max_label = int(
+                            max(labels_3d) if len(labels_3d) > 0 else 0)
+                        bbox_color = palette if self.bbox_color is None \
+                            else self.bbox_color
+                        bbox_palette = get_palette(bbox_color, max_label + 1)
+                        colors = [bbox_palette[label] for label in labels_3d]
+                        self.draw_bboxes_3d_on_image(
+                            bboxes_3d,
+                            single_img_meta,
+                            img_size=single_img.shape[:2][::-1],
+                            edge_colors=colors)
+                    if vis_task == 'mono_det' and hasattr(
+                            instances, 'centers_2d'):
+                        centers_2d = instances.centers_2d
+                        self.draw_points(centers_2d)
+                    #composed_img[(i // img_col) *
+                    #             img_size[0]:(i // img_col + 1) * img_size[0],
+                    #             (i % img_col) *
+                    #             img_size[1]:(i % img_col + 1) *
+                    #             img_size[1]] = self.get_image()
+                    composed_img[i] = self.get_image()
+                
+                # arrange images given names
+                img_names = input_meta['img_names'] # camera for each view
+                if view_names is not None:
+                    composed_img = [composed_img[img_names.index(name)] for name in view_names]
+
+                composed_img = self.draw_multiviews(imgs = composed_img, 
+                                        view_names = view_names if view_names is not None else img_names,
+                                        target_size = self.multi_view_size,
+                                        arrangement = (img_row, img_col),
+                                        text_colors = (255, 255, 255)
+                )
+                    
+                data_3d['img'] = composed_img
+            else:
+                # show single-view image
+                # TODO: Solve the problem: some line segments of 3d bboxes are
+                # out of image by a large margin
+                if isinstance(data_input['img'], Tensor):
+                    img = img.permute(1, 2, 0).numpy()
+                self.set_image(img)
+
+                if num_instances > 0:
+                    max_label = int(max(labels_3d) if len(labels_3d) > 0 else 0)
+                    bbox_color = palette if self.bbox_color is None \
+                        else self.bbox_color
+                    bbox_palette = get_palette(bbox_color, max_label + 1)
+                    colors = [bbox_palette[label] for label in labels_3d]
+
+                    self.draw_proj_bboxes_3d(
+                        bboxes_3d, input_meta, edge_colors=colors)
+                if vis_task == 'mono_det' and hasattr(instances, 'centers_2d'):
+                    centers_2d = instances.centers_2d
+                    self.draw_points(centers_2d)
+                drawn_img = self.get_image()
+                data_3d['img'] = drawn_img
+
+        return data_3d
+    
     # TODO: Support Visualize the 3D results from image and point cloud
     # respectively
     @master_only
@@ -1172,7 +1274,8 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                        pred_score_thr: float = 0.3,
                        step: int = 0,
                        show_pcd_rgb: bool = False,
-                       traj_img_idx: int = 1) -> None:
+                       multi_view_names: Optional[List[str]] = None,
+        ) -> None:
         """Draw datasample and save to all backends.
             - draw ego trajectory planning on given camera, e.g., front camera
             - draw 3D bboxes on multi-view images
@@ -1207,7 +1310,8 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             step (int): Global step value to record. Defaults to 0.
             show_pcd_rgb (bool): Whether to show RGB point cloud. Defaults to
                 False.
-            traj_img_idx (int): The index of the image to draw trajectory.
+            multi_view_names (list[str], optional): The names of the multi-view
+                images. Defaults to None.
         """
         assert vis_task in (
             'mono_det', 'multi-view_det', 'lidar_det', 'lidar_seg',
@@ -1234,21 +1338,36 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         data_input_cpy = copy.deepcopy(data_input)
         if draw_gt and data_sample is not None:
             # draw gt ego trajectory on front camera
+            front_cam_idx = data_sample.metainfo['img_names'].index('CAM_FRONT')
+            
             if data_sample.gt_ego is not None and vis_task == 'multi-modality_planning':
-                img = data_input['img'][traj_img_idx].permute(1, 2, 0).numpy()
-                lidar2img = data_sample.metainfo['lidar2img'][traj_img_idx]
-                ego_traj = data_sample.gt_ego.traj.numpy().cumsum(axis=0)[..., :2]
+                img = data_input['img'][front_cam_idx].permute(1, 2, 0).numpy()
+                
+                # we use original lidar2img because in VisualizationHook, the image is reloaded from file
+                # without using the images after the pipeline
+                if 'ori_lidar2img' in data_sample.metainfo:
+                    lidar2img = data_sample.metainfo['ori_lidar2img'][front_cam_idx]
+                else:
+                    lidar2img = data_sample.metainfo['lidar2img'][front_cam_idx]
+                lidar2img = np.array(lidar2img)
+                ego_traj = data_sample.gt_ego.traj.cumsum(axis=0)[..., :2]
+                ego_traj = ego_traj.numpy()
                 ego_traj_mask = data_sample.gt_ego.traj_mask.numpy()
-                #ego_traj_mask = data_sample.gt_ego.traj.mask.numpy()
                 input_meta = {'lidar2img': lidar2img,
-                              'future_steps': ego_traj.shape[0]}
+                              'future_steps': ego_traj.shape[-2]}
 
-                self.draw_trajectory_image(img, ego_traj, ego_traj_mask, input_meta=input_meta)
+                self.set_image(img)
+                self.draw_trajectory_on_image(
+                    ego_traj, 
+                    ego_traj_mask, 
+                    input_meta=input_meta,
+                    linewidths=4)
                 img_traj = self.get_image()
                 
                 # save back to data_input
-                data_input_cpy['img'][traj_img_idx] = torch.from_numpy(img_traj).permute(2, 0, 1)
+                data_input_cpy['img'][front_cam_idx] = torch.from_numpy(img_traj).permute(2, 0, 1)
 
+            # draw 3d bboxes on images
             if data_sample.gt_instances_3d is not None:
                 gt_data_3d = self._draw_instances_3d(
                     data_input_cpy, 
@@ -1256,7 +1375,8 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                     data_sample.metainfo, 
                     vis_task, 
                     show_pcd_rgb, 
-                    palette
+                    palette,
+                    view_names = multi_view_names
                 )
             # draw lidar segmentation
             if data_sample.gt_pts is not None and vis_task == 'lidar_seg':
@@ -1273,8 +1393,8 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         if draw_pred and data_sample is not None:
             # draw gt ego trajectory on front camera
             if data_sample.pred_ego is not None and vis_task == 'multi-modality_planning':
-                img = data_input['img'][traj_img_idx].permute(1, 2, 0).numpy()
-                lidar2img = data_sample.metainfo['lidar2img'][traj_img_idx]
+                img = data_input['img'][front_cam_idx].permute(1, 2, 0).numpy()
+                lidar2img = data_sample.metainfo['lidar2img'][front_cam_idx]
                 ego_traj = data_sample.pred_ego.traj.numpy().cumsum(axis=1)[..., :2]
                 ego_traj_mask = data_sample.pred_ego.get('traj_mask', None)
                 if ego_traj_mask is not None:
@@ -1286,7 +1406,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 img_traj = self.get_image()
                 
                 # save back to data_input
-                data_input_cpy['img'][traj_img_idx] = torch.from_numpy(img_traj).permute(2, 0, 1)
+                data_input_cpy['img'][front_cam_idx] = torch.from_numpy(img_traj).permute(2, 0, 1)
                 
             # draw 3d bboxes on images
             if data_sample.pred_instances_3d is not None:
@@ -1330,18 +1450,25 @@ class PlanningVisualizer(MMENGINE_Visualizer):
 
 
         if show:
+            backend = 'matplotlib'#'matplotlib' # cv2
+            if backend == 'matplotlib' and self.image_mode.lower() == 'bgr':
+                drawn_img = cv2.cvtColor(drawn_img_3d, cv2.COLOR_BGR2RGB)
+            elif backend == 'cv2' and self.image_mode.lower() == 'rgb':
+                drawn_img = cv2.cvtColor(drawn_img_3d, cv2.COLOR_RGB2BGR)    
+                
+
             self.show(
                 o3d_save_path,
-                drawn_img_3d,
+                drawn_img,
                 win_name=name,
                 wait_time=wait_time,
-                vis_task=vis_task)
+                backend=backend)
 
         if out_file is not None:
             # check the suffix of the name of image file
             if not (out_file.endswith('.png') or out_file.endswith('.jpg')):
                 out_file = f'{out_file}.png'
-            if drawn_img_3d is not None:
-                mmcv.imwrite(drawn_img_3d[..., ::-1], out_file)
+            if drawn_img is not None:
+                mmcv.imwrite(drawn_img[..., ::-1], out_file)
         else:
-            self.add_image(name, drawn_img_3d, step)
+            self.add_image(name, drawn_img, step)

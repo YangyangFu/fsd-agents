@@ -326,20 +326,47 @@ for i, item in enumerate(ds):
     #img = draw_multiviews(data_inputs, data_samples, vis)
     #img = draw_trajectory_on_bev(data_inputs, data_samples, vis, ds)
     #img = draw_mutimodal_trajectory_on_bev(data_inputs, data_samples, vis, ds)
-    img = draw_mutimodal_trajectory_on_image(data_inputs, data_samples, vis)
+    #img = draw_mutimodal_trajectory_on_image(data_inputs, data_samples, vis)
     
-    backend = 'matplotlib'#'matplotlib' # cv2
-    if backend == 'matplotlib' and vis.image_mode == 'bgr':
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    elif backend == 'cv2' and vis.image_mode == 'rgb':
-        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)    
+    #backend = 'matplotlib'#'matplotlib' # cv2
+    #if backend == 'matplotlib' and vis.image_mode == 'bgr':
+    #    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    #elif backend == 'cv2' and vis.image_mode == 'rgb':
+    #    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)    
         
-    vis.show(drawn_img=img, wait_time=0.05, backend=backend) # cv2 uses bgr
+    #vis.show(drawn_img=img, wait_time=0.05, backend=backend) # cv2 uses bgr
 
     
     ## draw point cloud
     #draw_boxes_on_point_cloud(data_inputs, data_samples, vis)
+    #vis.show(wait_time=-1) 
+    cam_names = data_samples[0].metainfo['img_names']
+    front_cam_idx = cam_names.index('CAM_FRONT')
+
+    view_names = ['CAM_FRONT_LEFT', 'CAM_FRONT', 'CAM_FRONT_RIGHT',
+                    'CAM_BACK_LEFT', 'CAM_BACK', 'CAM_BACK_RIGHT']
     
+
+    for b, data_sample in enumerate(data_samples):
+        data_input = {}
+        data_input['img'] = data_inputs['img'][b]
+        data_input['points'] = data_inputs['points'][b]
+        
+        data_sample = data_samples[b]
+        vis.add_datasample(
+            name='test',
+            data_input = data_input,
+            data_sample = data_sample,
+            draw_gt=True,
+            draw_pred=False,
+            show=True,
+            wait_time=0.05,
+            step=b,
+            vis_task='multi-modality_planning',
+            show_pcd_rgb=False,
+            multi_view_names=view_names,
+        )
+
     print('Press any key to continue...')
     
 """
