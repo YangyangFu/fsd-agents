@@ -1637,13 +1637,17 @@ class RandomScaleImageMultiViewImage(object):
         results['img'] = [imresize(img, (x_size[idx], y_size[idx]), return_scale=False) for idx, img in
                           enumerate(results['img'])]
         lidar2img = []
+        ori_lidar2img = []
         for idx in range(results['num_views']):
             cam2img = np.eye(4)
             cam2img[:3, :3] = np.array(results['cam2img'][idx])
-            l2i = scale_factor @ cam2img @ np.array(results['lidar2cam'][idx])
+            ori_l2i = cam2img @ np.array(results['lidar2cam'][idx])
+            l2i = scale_factor @ ori_l2i
             lidar2img.append(l2i.tolist())
+            ori_lidar2img.append(ori_l2i.tolist())
             
         results['lidar2img'] = lidar2img
+        results['ori_lidar2img'] = ori_lidar2img
         results['img_shape'] = [img.shape for img in results['img']]
         results['ori_shape'] = [img.shape for img in results['img']]
 

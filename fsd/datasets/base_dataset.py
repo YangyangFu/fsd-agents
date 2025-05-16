@@ -425,7 +425,11 @@ class BasePlanDataset(BaseDataset):
                         cam_prefix = self.data_prefix.get('img', '')
                     img_info['img_path'] = osp.join(cam_prefix,
                                                     img_info['img_path'])
-
+        # add camera names for visualization
+        if self.modality['use_camera']:
+            img_names = list(info['images'].keys())
+            info['img_names'] = img_names
+            
         # parse ego information
         # ego annotation will be parsed in parse_ann_info
         if 'ego' in info:

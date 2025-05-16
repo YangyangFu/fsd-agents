@@ -71,7 +71,8 @@ class Pack3DPlanInputs(BaseTransform):
     def __init__(
         self,
         keys: tuple,
-        meta_keys: tuple = ('img_path', 'ori_shape', 'img_shape', 'lidar2img',
+        meta_keys: tuple = ('img_path', 'ori_shape', 'img_shape', 'lidar2img', 
+                            'ori_lidar2img', 'img_names',
                             'depth2img', 'cam2img', 'pad_shape',
                             'scale_factor', 'flip', 'pcd_horizontal_flip',
                             'pcd_vertical_flip', 'box_mode_3d', 'box_type_3d',
