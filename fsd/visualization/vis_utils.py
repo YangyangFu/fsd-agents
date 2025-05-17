@@ -101,7 +101,8 @@ def proj_lidar_bbox3d_to_img(bboxes_3d: LiDARInstance3DBoxes,
     pts_4d = np.concatenate(
         [corners_3d.reshape(-1, 3),
          np.ones((num_bbox * 8, 1))], axis=-1)
-    lidar2img = np.array(input_meta['lidar2img']).reshape(4, 4)
+    lidar2img = input_meta['ori_lidar2img'] if 'ori_lidar2img' in input_meta else input_meta['lidar2img']
+    lidar2img = np.array(lidar2img).reshape(4, 4)
     if isinstance(lidar2img, torch.Tensor):
         lidar2img = lidar2img.cpu().numpy()
     pts_2d = pts_4d @ lidar2img.T

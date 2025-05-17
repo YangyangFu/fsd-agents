@@ -454,5 +454,13 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
             bev_attr = copy.deepcopy(example['data_samples'].metainfo['ego_can_bus'])
             bev_metas[0]['bev_attr'] = bev_attr
             example['data_samples'].set_metainfo({'bev_metas': bev_metas})
-            
+        
+        # lidar points: convert to mmdet3d lidar 
+        if 'points' in example['inputs']:
+            points = example['inputs']['points']
+            if self.to_mmdet3d_lidar is not None:
+                points[:, [0, 1]] = points[:, [1, 0]]
+                points[:, 1] = -points[:, 1]
+            example['inputs']['points'] = points
+                    
         return example

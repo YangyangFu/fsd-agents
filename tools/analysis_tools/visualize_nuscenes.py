@@ -370,19 +370,36 @@ for i, item in enumerate(ds):
     print('Press any key to continue...')
     
 """
+from fsd.visualization import PlanningVisualizer
 from mmdet3d.visualization import Det3DLocalVisualizer
+from mmdet3d.datasets import LoadPointsFromFile
 
 points = np.fromfile('./data/nuscenes/samples/LIDAR_TOP/n008-2018-08-01-15-16-36-0400__LIDAR_TOP__1533151603547590.pcd.bin', dtype=np.float32)
 print(points.shape)
-points = points.reshape(-1, 5)[:, :3]
-print(points.shape)
-visualizer = Det3DLocalVisualizer()
-# set point cloud in visualizer
-visualizer.set_points(points, pcd_mode=2)
+points1 = points.reshape(-1, 5)[:, :3]
+
+# original lidar points are in nuscenes lidar coordinate
+lf = LoadPointsFromFile(
+    coord_type='DEPTH',
+    load_dim=5,
+    use_dim=[0, 1, 2])
+
+
+info = {'lidar_points': 
+            {'lidar_path': './data/nuscenes/samples/LIDAR_TOP/n008-2018-08-01-15-16-36-0400__LIDAR_TOP__1533151603547590.pcd.bin'}}
+
+info = lf.transform(info)
+points2 = info['points'].tensor.numpy()
+
+#visualizer = Det3DLocalVisualizer()
+visualizer = PlanningVisualizer()
+
+# set point cloud in visualizer: 
+visualizer.set_points(points2, pcd_mode=2) # 0: lidar, 1: cam mode 2: depth
 #bboxes_3d = LiDARInstance3DBoxes(
-#    torch.tensor([[0, 0, 0, 4.2000, 3.4800, 1.8900,
+#    torch.tensor([[0, 0, 0, 4.2000, 1.4800, 1.8900,
 #                   -1.5808]]))
 # Draw 3D bboxes
-#visualizer.draw_bboxes_3d(bboxes_3d)
+#visualizer.draw_bboxes_3d(bboxes_3d, bbox_color=[(0, 255, 0)])
 visualizer.show()
 """

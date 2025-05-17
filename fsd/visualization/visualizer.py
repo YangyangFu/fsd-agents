@@ -217,8 +217,8 @@ class PlanningVisualizer(MMENGINE_Visualizer):
 
         Args:
             points (np.ndarray): Points to visualize with shape (N, 3+C).
-            pcd_mode (int): The point cloud mode (coordinates): 0 represents
-                LiDAR, 1 represents CAMERA, 2 represents Depth. Defaults to 0.
+            pcd_mode (int): The point cloud mode (coordinates) for the given points:
+                0 represents LiDAR, 1 represents CAMERA, 2 represents Depth. Defaults to 0.
             vis_mode (str): The visualization mode in Open3D:
 
                 - 'replace': Replace the existing point cloud with input point
