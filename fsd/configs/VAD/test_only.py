@@ -585,7 +585,7 @@ default_hooks = dict(
         score_thr=0.3,
         show=True,
         vis_task='multi-modality_planning',
-        wait_time=0,
+        wait_time=0.1,
         test_out_dir='.',
         draw_gt=True,
         draw_pred=False,
@@ -593,5 +593,8 @@ default_hooks = dict(
         view_first_only=True,
         image_mode='rgb' if to_rgb else 'bgr',
         multi_view_names=view_names,
+        point_cloud_range=point_cloud_range,
+        pixels_per_meter=10,
+        map_format='fixed_num_pts'
     )
 )

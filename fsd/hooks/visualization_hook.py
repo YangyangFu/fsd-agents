@@ -69,7 +69,42 @@ class PlanningVisualizationHook(Hook):
                  backend_args: Optional[dict] = None,
                  view_first_only: Optional[bool] = True,
                  image_mode: Optional[str] = 'bgr',
-                 multi_view_names: Optional[Sequence[str]] = None):
+                 multi_view_names: Optional[Sequence[str]] = None,
+                 point_cloud_range: Optional[Sequence[float]] = None,
+                 pixels_per_meter: Optional[float] = 10,
+                 map_format: Optional[str] = 'fixed_num_pts',
+                 ) -> None:
+        """Initialize the visualization hook.
+        Args:
+            draw (bool): Whether to draw prediction results. If it is False,
+                it means that no drawing will be done. Defaults to False.
+            interval (int): The interval of visualization. Defaults to 50.
+            score_thr (float): The threshold to visualize the bboxes
+                and masks. Defaults to 0.3.
+            show (bool): Whether to display the drawn image. Default to False.
+            vis_task (str): Visualization task. Defaults to 'mono_det'.
+            wait_time (float): The interval of show (s). Defaults to 0.
+            draw_gt (bool): Whether to draw ground truth. Defaults to True.
+            draw_pred (bool): Whether to draw prediction. Defaults to True.
+            show_pcd_rgb (bool): Whether to show RGB point cloud. Defaults to
+                False.
+            test_out_dir (str, optional): directory where painted images
+                will be saved in testing process.
+            backend_args (dict, optional): Arguments to instantiate the
+                corresponding backend. Defaults to None.
+            view_first_only (bool): Whether to only visualize the first
+                sample in the batch. Defaults to True.
+            image_mode (str): The image mode. Defaults to 'bgr'. Options are
+                'bgr' and 'rgb'.
+            multi_view_names (Sequence[str]): The names of the multi-view
+                images. Defaults to None. 
+            pixels_per_meter (float): The pixels per meter for the map.
+                Defaults to 10.
+            map_format (str): The format of the map. Defaults to 'fixed_num_pts'.
+                Options are 'fixed_num_pts' and 'polyline'.
+            
+        """
+
         vis = PlanningVisualizer.get_instance(name='vis')
         self._visualizer: PlanningVisualizer = PlanningVisualizer(
             image_mode=image_mode,
@@ -106,6 +141,10 @@ class PlanningVisualizationHook(Hook):
         # the arrangment order of the multi-view images
         self.multi_view_names = multi_view_names
         
+        # map visualization
+        self.point_cloud_range = point_cloud_range
+        self.pixels_per_meter = pixels_per_meter
+        self.map_format = map_format
         
     def after_val_iter(self, runner: Runner, batch_idx: int, data_batch: dict,
                        outputs: Sequence[PlanningDataSample]) -> None:
@@ -119,7 +158,7 @@ class PlanningVisualizationHook(Hook):
             outputs (Sequence[:obj:`DetDataSample`]]): A batch of data samples
                 that contain annotations and predictions.
         """
-        self.after_test_iter(runner, batch_idx, data_batch, outputs)
+        pass
 
     def after_test_iter(self, runner: Runner, batch_idx: int, data_batch: dict,
                         outputs: Sequence[PlanningDataSample]) -> None:
@@ -257,6 +296,10 @@ class PlanningVisualizationHook(Hook):
                     step=self._test_index,
                     show_pcd_rgb=self.show_pcd_rgb,
                     multi_view_names=self.multi_view_names,
+                    pcd_range = self.point_cloud_range,
+                    map_format = self.map_format,
+                    pixels_per_meter = self.pixels_per_meter,
+                    to_mmdet3d_lidar = runner.test_dataloader.dataset.to_mmdet3d_lidar,
                 )
 
             # first only

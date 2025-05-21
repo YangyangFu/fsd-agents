@@ -1414,7 +1414,6 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                        multi_view_names: Optional[List[str]] = None,
                        pcd_range: Optional[List[float]] = None,
                        map_format: str = 'fixed_num_pts',
-                       map_colors: Optional[List[Tuple[int]]] = None,
                        pixels_per_meter: float = 10,
                        to_mmdet3d_lidar = None,
         ) -> None:
