@@ -924,7 +924,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         N, M, T, _ = traj.shape
         # mask out invalid trajectory
         if mask is None:
-            mask = np.ones((N, T))
+            mask = np.ones((N, T)).astype(np.bool_)
             
         # lidar to image: (x, y, z, 1)
         traj = np.concatenate((traj[..., :2], 
@@ -1276,8 +1276,8 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         pcd_range: List[float] = [-50, -50, -1.5, 50, 50, 1.5],
         pixels_per_meter: float = 10,
         map_classes: List[str] = ['divider', 'ped_crossing', 'boundary'],
-        map_colors: List[Tuple[int]] = ['cornflowerblue', 'royalblue', 'slategrey'],
-        map_format: str = 'fixed_num_pts'):
+        map_colors: List[Tuple[int]] = ['cornflowerblue', 'royalblue', 'slategrey']
+        ):
         """Draw vector map on the image.
         """
 
@@ -1285,9 +1285,6 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         assert len(map_classes) == len(map_colors), 'map_classes and map_colors should have the same length'.format(
             len(map_classes), len(map_colors))
         assert len(vectors) == len(map_labels), 'vectors and map_labels should have the same length'
-        
-        if map_format not in ['fixed_num_pts', 'polyline', 'bbox']:
-            raise ValueError('map_format should be one of fixed_num_pts, polyline, bbox')
         
         # convert to bgr color, the default color code is in rgb
         if self.image_mode == 'bgr':
@@ -1302,13 +1299,6 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         width, height = bev.shape[1], bev.shape[0]
 
         # sample points for each vector in a map box
-        # (num_box, num_points, 2)
-        if map_format == 'fixed_num_pts':
-            assert vectors.ndim == 3, 'vectors should be a 3D numpy array'
-        elif map_format == 'polyline':
-            assert isinstance(vectors, list), 'vectors should be a list'
-            vectors = [np.array(list(poly.coords)) for poly in vectors]
-
         for pts, label in zip(vectors, map_labels):
             # draw points
             pts = pts.reshape(-1, 2)
@@ -1336,7 +1326,8 @@ class PlanningVisualizer(MMENGINE_Visualizer):
     
     def _draw_map_bev(
         self,
-        data_sample,
+        map,
+        instances,
         pcd_range: List[float] = [-50, -50, -1.5, 50, 50, 1.5],
         pixels_per_meter: float = 10,
         map_format: str = 'fixed_num_pts',
@@ -1344,27 +1335,27 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         map_palette: List[Tuple[int]] = ['cornflowerblue', 'royalblue', 'slategrey'],
         bboxes_palette: List[Tuple[int]] = None,
         to_mmdet3d_lidar = None,
+        input_meta: Optional[dict] = dict(),
         ) -> np.ndarray:
+        
+        assert 'ego_size' in input_meta, 'ego_size should be in input_meta' 
         
         # draw vector map
         if map_format == 'fixed_num_pts':
-            vectors = data_sample.gt_map_vectors.pt.fixed_num_sampled_points
+            # (num_box, num_points, 2)
+            if hasattr(map.pt, 'fixed_num_sampled_points'):
+                vectors = map.pt.fixed_num_sampled_points
+            else:
+                vectors = map.pt
             vectors = vectors.numpy()
-            labels = data_sample.gt_map_vectors.label.numpy()
-            
-            self.draw_vector_map(
-                vectors = vectors,
-                map_labels = labels,
-                pcd_range = pcd_range,
-                pixels_per_meter = pixels_per_meter,
-                map_classes = map_classes,
-                map_colors = map_palette,
-                map_format = map_format
-            )
             
         elif map_format == 'polyline':
-            vectors = data_sample.gt_map_vectors.pt.instance_list
-            labels = data_sample.gt_map_vectors.label.numpy()
+            vectors = map.pt.instance_list
+            vectors = [np.array(list(poly.coords)) for poly in vectors]
+            
+        labels = map.label.numpy()
+
+        if map_format in ['fixed_num_pts', 'polyline']:
             self.draw_vector_map(
                 vectors = vectors,
                 map_labels = labels,
@@ -1372,7 +1363,6 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 pixels_per_meter = pixels_per_meter,
                 map_classes = map_classes,
                 map_colors = map_palette,
-                map_format = map_format
             )
         else:
             self.draw_bev(
@@ -1382,11 +1372,12 @@ class PlanningVisualizer(MMENGINE_Visualizer):
 
         # draw boxes on map bev
         ego_box = self._get_ego_box(
-            ego_size = data_sample.metainfo['ego_size'],
+            ego_size = input_meta['ego_size'],
             to_mmdet3d_lidar = to_mmdet3d_lidar,
         )
-        num_instances = len(data_sample.gt_instances_3d)
-        bboxes_label = data_sample.gt_instances_3d.label
+        
+        num_instances = len(instances)
+        bboxes_label = instances.label
         if num_instances > 0:
             max_label = int(
                 max(bboxes_label) if len(bboxes_label) > 0 else 0)
@@ -1394,7 +1385,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 else self.bbox_color
             bbox_palette = get_palette(bbox_color, max_label + 1)
             colors = [bbox_palette[label] for label in bboxes_label]
-            bboxes_3d = data_sample.gt_instances_3d.bbox
+            bboxes_3d = instances.bbox
         
 
         self.draw_bboxes_on_bev(
@@ -1549,14 +1540,16 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             # draw vector map and bbox
             if data_sample.gt_map_vectors is not None:
                 bev = self._draw_map_bev(
-                    data_sample,
+                    data_sample.gt_map_vectors,
+                    data_sample.gt_instances_3d,
                     pcd_range = pcd_range,
                     pixels_per_meter = pixels_per_meter,
                     map_format = map_format,
                     map_classes = map_classes,
                     map_palette = map_palette,
                     bboxes_palette = palette,
-                    to_mmdet3d_lidar = to_mmdet3d_lidar
+                    to_mmdet3d_lidar = to_mmdet3d_lidar,
+                    input_meta= data_sample.metainfo
                 )
                 
                 if gt_data_3d is not None:
@@ -1567,17 +1560,33 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 
         if draw_pred and data_sample is not None:
             # draw gt ego trajectory on front camera
+            front_cam_idx = data_sample.metainfo['img_names'].index('CAM_FRONT')
+            
+            # draw gt ego trajectory on front camera
             if data_sample.pred_ego is not None and vis_task == 'multi-modality_planning':
                 img = data_input['img'][front_cam_idx].permute(1, 2, 0).numpy()
-                lidar2img = data_sample.metainfo['lidar2img'][front_cam_idx]
-                ego_traj = data_sample.pred_ego.traj.numpy().cumsum(axis=1)[..., :2]
+                
+                # use original lidar2img
+                if 'ori_lidar2img' in data_sample.metainfo:
+                    lidar2img = data_sample.metainfo['ori_lidar2img'][front_cam_idx]
+                else:
+                    lidar2img = data_sample.metainfo['lidar2img'][front_cam_idx]
+                lidar2img = np.array(lidar2img)
+                # ego_traj: (M, T, 2)
+                ego_traj = data_sample.pred_ego.traj.cumsum(axis=-2)[..., :2]
+                ego_traj = ego_traj.numpy()
                 ego_traj_mask = data_sample.pred_ego.get('traj_mask', None)
                 if ego_traj_mask is not None:
                     ego_traj_mask = ego_traj_mask.numpy()
                 input_meta = {'lidar2img': lidar2img,
-                              'future_steps': ego_traj.shape[1]}
+                              'future_steps': ego_traj.shape[-2]}
 
-                self.draw_trajectory_image(img, ego_traj, ego_traj_mask, input_meta=input_meta)
+                self.set_image(img)
+                self.draw_trajectory_on_image(
+                    ego_traj, 
+                    ego_traj_mask, 
+                    input_meta=input_meta,
+                    linewidths=4)
                 img_traj = self.get_image()
                 
                 # save back to data_input
@@ -1588,16 +1597,19 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 pred_instances_3d = data_sample.pred_instances_3d
                 # .cpu can not be used for BaseInstance3DBoxes
                 # so we need to use .to('cpu')
-                if hasattr(pred_instances_3d, 'scores') and pred_instances_3d.score is not None:                                       
+                if hasattr(pred_instances_3d, 'score') and pred_instances_3d.score is not None:                                       
                     pred_instances_3d = pred_instances_3d[
                         pred_instances_3d.score > pred_score_thr].to('cpu')
                     
-                pred_data_3d = self._draw_instances_3d(data_input_cpy,
-                                                       pred_instances_3d,
-                                                       data_sample.metainfo,
-                                                       vis_task, 
-                                                       show_pcd_rgb,
-                                                       palette)
+                pred_data_3d = self._draw_instances_3d(
+                    data_input_cpy,
+                    pred_instances_3d,
+                    data_sample.metainfo,
+                    vis_task, 
+                    show_pcd_rgb,
+                    palette,
+                    view_names = multi_view_names
+                )
             # draw lidar segmentation
             if data_sample.pred_pts is not None and vis_task == 'lidar_seg':
                 assert classes is not None, 'class information is ' \
@@ -1609,6 +1621,26 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                                        data_sample.pred_pts.seg, palette,
                                        keep_index)
 
+            # draw vector map and bbox
+            if data_sample.pred_map_vectors is not None:
+                bev = self._draw_map_bev(
+                    data_sample.pred_map_vectors,
+                    data_sample.pred_instances_3d,
+                    pcd_range = pcd_range,
+                    pixels_per_meter = pixels_per_meter,
+                    map_format = map_format,
+                    map_classes = map_classes,
+                    map_palette = map_palette,
+                    bboxes_palette = palette,
+                    to_mmdet3d_lidar = to_mmdet3d_lidar,
+                    input_meta = data_sample.metainfo
+                )
+                if pred_data_3d is not None:
+                    pred_data_3d['bev'] = bev
+                else:
+                    pred_data_3d = dict()
+                    pred_data_3d['bev'] = bev
+                                                
         # monocular 3d object detection image
         if vis_task in ['mono_det', 'multi-modality_det', 'multi-modality_planning']:
             if gt_data_3d is not None and pred_data_3d is not None:
@@ -1626,7 +1658,16 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 elif 'bev' in gt_data_3d:
                     drawn_img_3d = gt_data_3d['bev']
             elif pred_data_3d is not None:
-                drawn_img_3d = pred_data_3d['img']
+                if 'img' in pred_data_3d and 'bev' in pred_data_3d:
+                    img = pred_data_3d['img']
+                    bev = pred_data_3d['bev']
+                    # resize bev to img 
+                    bev = cv2.resize(bev, (img.shape[1]//self.multi_imgs_col, img.shape[0]))
+                    drawn_img_3d = np.concatenate((img, bev), axis=1)
+                elif 'img' in pred_data_3d:
+                    drawn_img_3d = pred_data_3d['img']
+                elif 'bev' in pred_data_3d:
+                    drawn_img_3d = pred_data_3d['bev']
             else:  # both instances of gt and pred are empty
                 drawn_img_3d = None
         else:
