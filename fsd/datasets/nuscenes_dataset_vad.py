@@ -32,7 +32,7 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
     METAINFO = {
         'name': 'nuscenes-vad',
         'classes': nus_categories,
-        'map_classes': ('divider', 'ped_crossing','boundary'),
+        'map_classes': ('divider', 'ped_crossing', 'boundary'),
         'version': 'v1.0-trainval',
         'palette': [
             (255, 158, 0),  # Orange
@@ -45,6 +45,11 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
             (0, 0, 230),  # Blue
             (47, 79, 79),  # Darkslategrey
             (112, 128, 144),  # Slategrey
+        ],
+        'map_palette': [
+            (0, 139, 139),  # darkcyan
+            (60, 179, 113),  # mediumseagreen
+            (0, 128, 0),   # green
         ]
     }
     
