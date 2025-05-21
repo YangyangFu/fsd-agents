@@ -1271,7 +1271,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
     # draw map
     def draw_vector_map(
         self,
-        vectors: np.ndarray,
+        vectors: Union[np.ndarray, list],
         map_labels: List[int],
         pcd_range: List[float] = [-50, -50, -1.5, 50, 50, 1.5],
         pixels_per_meter: float = 10,
@@ -1280,11 +1280,11 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         map_format: str = 'fixed_num_pts'):
         """Draw vector map on the image.
         """
-        assert isinstance(vectors, np.ndarray), 'vectors should be a numpy array'
-        
+
         # check dimensions
         assert len(map_classes) == len(map_colors), 'map_classes and map_colors should have the same length'.format(
             len(map_classes), len(map_colors))
+        assert len(vectors) == len(map_labels), 'vectors and map_labels should have the same length'
         
         if map_format not in ['fixed_num_pts', 'polyline', 'bbox']:
             raise ValueError('map_format should be one of fixed_num_pts, polyline, bbox')
@@ -1305,32 +1305,33 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         # (num_box, num_points, 2)
         if map_format == 'fixed_num_pts':
             assert vectors.ndim == 3, 'vectors should be a 3D numpy array'
-            assert vectors.shape[-1] == 2, 'vectors should be a 3D numpy array with last dimension of 2'
-            assert len(vectors) == len(map_labels), 'vectors and map_labels should have the same length'
+        elif map_format == 'polyline':
+            assert isinstance(vectors, list), 'vectors should be a list'
+            vectors = [np.array(list(poly.coords)) for poly in vectors]
+
+        for pts, label in zip(vectors, map_labels):
+            # draw points
+            pts = pts.reshape(-1, 2)
+            pts_x, pts_y = pts[:, 0], pts[:, 1]
             
-            for pts, label in zip(vectors, map_labels):
-                # draw points
-                pts = pts.reshape(-1, 2)
-                pts_x, pts_y = pts[:, 0], pts[:, 1]
-                
-                # local map is in lidar coord, plot them in depth coord
-                pts_x, pts_y = -pts_y, pts_x 
-                
-                # scale the points to pixels
-                pts_x *= pixels_per_meter
-                pts_y *= pixels_per_meter
-                pts_x += width // 2
-                pts_y += height // 2
-                
-                self.draw_points(np.stack([pts_x, pts_y], axis=1),
-                                colors=[map_colors[label]],
-                                sizes=4)
-                
-                self.draw_lines(np.stack([pts_x[:-1], pts_x[1:]], axis=1),
-                                np.stack([pts_y[:-1], pts_y[1:]], axis=1),
-                                colors=[map_colors[label]],
-                                line_widths=1)
-                
+            # local map is in lidar coord, plot them in depth coord
+            pts_x, pts_y = -pts_y, pts_x 
+            
+            # scale the points to pixels
+            pts_x *= pixels_per_meter
+            pts_y *= pixels_per_meter
+            pts_x += width // 2
+            pts_y += height // 2
+            
+            self.draw_points(np.stack([pts_x, pts_y], axis=1),
+                            colors=[map_colors[label]],
+                            sizes=4)
+            
+            self.draw_lines(np.stack([pts_x[:-1], pts_x[1:]], axis=1),
+                            np.stack([pts_y[:-1], pts_y[1:]], axis=1),
+                            colors=[map_colors[label]],
+                            line_widths=1)
+
         return self.get_image()
     
     def _draw_map_bev(
@@ -1362,7 +1363,17 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             )
             
         elif map_format == 'polyline':
-            pass 
+            vectors = data_sample.gt_map_vectors.pt.instance_list
+            labels = data_sample.gt_map_vectors.label.numpy()
+            self.draw_vector_map(
+                vectors = vectors,
+                map_labels = labels,
+                pcd_range = pcd_range,
+                pixels_per_meter = pixels_per_meter,
+                map_classes = map_classes,
+                map_colors = map_palette,
+                map_format = map_format
+            )
         else:
             self.draw_bev(
                 pcd_range = pcd_range,
