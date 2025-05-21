@@ -373,7 +373,25 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 image, 
                 origin=origin,
                 interpolation='none')
-           
+    
+    
+    def draw_bev(
+        self, 
+        pcd_range,
+        pixels_per_meter: int = 10,
+        background_color: str = 'white'):
+        
+        dx, dy = pcd_range[3] - pcd_range[0], pcd_range[4] - pcd_range[1]
+        
+        # fill background colors\
+        rgb_color = mcolors.to_rgb(background_color)
+        color = (np.array(rgb_color) * 255).astype(np.uint8).reshape((1, 1, 3))
+
+        img = color.repeat(int(dy * pixels_per_meter), axis=0).repeat(int(dx * pixels_per_meter), axis=1)
+
+        self.set_image(img, origin='lower')
+        return self.get_image()
+            
     # TODO: Support bev point cloud visualization
     @master_only
     def draw_bboxes_on_bev(
@@ -840,7 +858,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
             mask = np.ones((N, T)).astype(np.bool_)
             
         # mmdet3d lidar to bev image (depth mode)
-        if 'lidar2img' in input_meta:
+        if 'lidar2img' in input_meta and input_meta['lidar2img'] is not None:
             traj = np.concatenate([
                 traj[..., :2], 
                 1.0*np.ones((N, M, T, 1)), # close to ground
@@ -984,13 +1002,6 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         
         return multiview
         
-    #TODO
-    @master_only
-    def draw_vector_map(self):
-        """Draw vector map on the image.
-        """
-        pass
-
     @master_only
     def show(self,
              save_path: Optional[str] = None,
@@ -1257,8 +1268,134 @@ class PlanningVisualizer(MMENGINE_Visualizer):
 
         return data_3d
     
-    # TODO: Support Visualize the 3D results from image and point cloud
-    # respectively
+    # draw map
+    def draw_vector_map(
+        self,
+        vectors: np.ndarray,
+        map_labels: List[int],
+        pcd_range: List[float] = [-50, -50, -1.5, 50, 50, 1.5],
+        pixels_per_meter: float = 10,
+        map_classes: List[str] = ['divider', 'ped_crossing', 'boundary'],
+        map_colors: List[Tuple[int]] = ['cornflowerblue', 'royalblue', 'slategrey'],
+        map_format: str = 'fixed_num_pts'):
+        """Draw vector map on the image.
+        """
+        assert isinstance(vectors, np.ndarray), 'vectors should be a numpy array'
+        
+        # check dimensions
+        assert len(map_classes) == len(map_colors), 'map_classes and map_colors should have the same length'.format(
+            len(map_classes), len(map_colors))
+        
+        if map_format not in ['fixed_num_pts', 'polyline', 'bbox']:
+            raise ValueError('map_format should be one of fixed_num_pts, polyline, bbox')
+        
+        # convert to bgr color, the default color code is in rgb
+        if self.image_mode == 'bgr':
+            map_colors = self._rgb_to_bgr(map_colors)
+        
+        # generate a bev 
+        bev = self.draw_bev(
+            pcd_range = pcd_range,
+            pixels_per_meter = pixels_per_meter,
+        )
+        
+        width, height = bev.shape[1], bev.shape[0]
+
+        # sample points for each vector in a map box
+        # (num_box, num_points, 2)
+        if map_format == 'fixed_num_pts':
+            assert vectors.ndim == 3, 'vectors should be a 3D numpy array'
+            assert vectors.shape[-1] == 2, 'vectors should be a 3D numpy array with last dimension of 2'
+            assert len(vectors) == len(map_labels), 'vectors and map_labels should have the same length'
+            
+            for pts, label in zip(vectors, map_labels):
+                # draw points
+                pts = pts.reshape(-1, 2)
+                pts_x, pts_y = pts[:, 0], pts[:, 1]
+                
+                # local map is in lidar coord, plot them in depth coord
+                pts_x, pts_y = -pts_y, pts_x 
+                
+                # scale the points to pixels
+                pts_x *= pixels_per_meter
+                pts_y *= pixels_per_meter
+                pts_x += width // 2
+                pts_y += height // 2
+                
+                self.draw_points(np.stack([pts_x, pts_y], axis=1),
+                                colors=[map_colors[label]],
+                                sizes=4)
+                
+                self.draw_lines(np.stack([pts_x[:-1], pts_x[1:]], axis=1),
+                                np.stack([pts_y[:-1], pts_y[1:]], axis=1),
+                                colors=[map_colors[label]],
+                                line_widths=1)
+                
+        return self.get_image()
+    
+    def _draw_map_bev(
+        self,
+        data_sample,
+        pcd_range: List[float] = [-50, -50, -1.5, 50, 50, 1.5],
+        pixels_per_meter: float = 10,
+        map_format: str = 'fixed_num_pts',
+        map_classes: List[str] = ['divider', 'ped_crossing', 'boundary'],
+        map_palette: List[Tuple[int]] = ['cornflowerblue', 'royalblue', 'slategrey'],
+        bboxes_palette: List[Tuple[int]] = None,
+        to_mmdet3d_lidar = None,
+        ) -> np.ndarray:
+        
+        # draw vector map
+        if map_format == 'fixed_num_pts':
+            vectors = data_sample.gt_map_vectors.pt.fixed_num_sampled_points
+            vectors = vectors.numpy()
+            labels = data_sample.gt_map_vectors.label.numpy()
+            
+            self.draw_vector_map(
+                vectors = vectors,
+                map_labels = labels,
+                pcd_range = pcd_range,
+                pixels_per_meter = pixels_per_meter,
+                map_classes = map_classes,
+                map_colors = map_palette,
+                map_format = map_format
+            )
+            
+        elif map_format == 'polyline':
+            pass 
+        else:
+            self.draw_bev(
+                pcd_range = pcd_range,
+                pixels_per_meter = pixels_per_meter,
+                )
+
+        # draw boxes on map bev
+        ego_box = self._get_ego_box(
+            ego_size = data_sample.metainfo['ego_size'],
+            to_mmdet3d_lidar = to_mmdet3d_lidar,
+        )
+        num_instances = len(data_sample.gt_instances_3d)
+        bboxes_label = data_sample.gt_instances_3d.label
+        if num_instances > 0:
+            max_label = int(
+                max(bboxes_label) if len(bboxes_label) > 0 else 0)
+            bbox_color = bboxes_palette if self.bbox_color is None \
+                else self.bbox_color
+            bbox_palette = get_palette(bbox_color, max_label + 1)
+            colors = [bbox_palette[label] for label in bboxes_label]
+            bboxes_3d = data_sample.gt_instances_3d.bbox
+        
+
+        self.draw_bboxes_on_bev(
+            bbox_3d_ego = ego_box,
+            bboxes_3d_instances = bboxes_3d,
+            scale = pixels_per_meter,
+            edge_colors_instances = colors,
+        )
+
+        bev = self.get_image()
+        return bev
+
     @master_only
     def add_datasample(self,
                        name: str,
@@ -1275,6 +1412,11 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                        step: int = 0,
                        show_pcd_rgb: bool = False,
                        multi_view_names: Optional[List[str]] = None,
+                       pcd_range: Optional[List[float]] = None,
+                       map_format: str = 'fixed_num_pts',
+                       map_colors: Optional[List[Tuple[int]]] = None,
+                       pixels_per_meter: float = 10,
+                       to_mmdet3d_lidar = None,
         ) -> None:
         """Draw datasample and save to all backends.
             - draw ego trajectory planning on given camera, e.g., front camera
@@ -1316,9 +1458,14 @@ class PlanningVisualizer(MMENGINE_Visualizer):
         assert vis_task in (
             'mono_det', 'multi-view_det', 'lidar_det', 'lidar_seg',
             'multi-modality_det', 'multi-modality_planning'), f'got unexpected vis_task {vis_task}.'
+        assert map_format in ('fixed_num_pts', 'polyline', 'bbox'), f'got unexpected map_format {map_format}.'
+        
         classes = self.dataset_meta.get('classes', None)
+        map_classes = self.dataset_meta.get('map_classes', None)
         # For object detection datasets, no palette is saved
         palette = self.dataset_meta.get('palette', None)
+        map_palette = self.dataset_meta.get('map_palette', None)
+        
         ignore_index = self.dataset_meta.get('ignore_index', None)
         if vis_task == 'lidar_seg' and ignore_index is not None and 'seg_mask' in data_sample.gt_pts:  # noqa: E501
             keep_index = data_sample.gt_pts.seg_mask != ignore_index  # noqa: E501
@@ -1389,7 +1536,25 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                                        data_sample.gt_pts.seg, palette,
                                        keep_index)
 
-            
+            # draw vector map and bbox
+            if data_sample.gt_map_vectors is not None:
+                bev = self._draw_map_bev(
+                    data_sample,
+                    pcd_range = pcd_range,
+                    pixels_per_meter = pixels_per_meter,
+                    map_format = map_format,
+                    map_classes = map_classes,
+                    map_palette = map_palette,
+                    bboxes_palette = palette,
+                    to_mmdet3d_lidar = to_mmdet3d_lidar
+                )
+                
+                if gt_data_3d is not None:
+                    gt_data_3d['bev'] = bev
+                else:
+                    gt_data_3d = dict()
+                    gt_data_3d['bev'] = bev
+                
         if draw_pred and data_sample is not None:
             # draw gt ego trajectory on front camera
             if data_sample.pred_ego is not None and vis_task == 'multi-modality_planning':
@@ -1440,7 +1605,16 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 drawn_img_3d = np.concatenate(
                     (gt_data_3d['img'], pred_data_3d['img']), axis=1)
             elif gt_data_3d is not None:
-                drawn_img_3d = gt_data_3d['img']
+                if 'img' in gt_data_3d and 'bev' in gt_data_3d:
+                    img = gt_data_3d['img']
+                    bev = gt_data_3d['bev']
+                    # resize bev to img 
+                    bev = cv2.resize(bev, (img.shape[1]//self.multi_imgs_col, img.shape[0]))
+                    drawn_img_3d = np.concatenate((img, bev), axis=1)
+                elif 'img' in gt_data_3d: 
+                    drawn_img_3d = gt_data_3d['img']
+                elif 'bev' in gt_data_3d:
+                    drawn_img_3d = gt_data_3d['bev']
             elif pred_data_3d is not None:
                 drawn_img_3d = pred_data_3d['img']
             else:  # both instances of gt and pred are empty
@@ -1451,6 +1625,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
 
         if show:
             backend = 'matplotlib'#'matplotlib' # cv2
+            drawn_img = drawn_img_3d
             if backend == 'matplotlib' and self.image_mode.lower() == 'bgr':
                 drawn_img = cv2.cvtColor(drawn_img_3d, cv2.COLOR_BGR2RGB)
             elif backend == 'cv2' and self.image_mode.lower() == 'rgb':
@@ -1463,7 +1638,7 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 win_name=name,
                 wait_time=wait_time,
                 backend=backend)
-
+            
         if out_file is not None:
             # check the suffix of the name of image file
             if not (out_file.endswith('.png') or out_file.endswith('.jpg')):
@@ -1472,3 +1647,28 @@ class PlanningVisualizer(MMENGINE_Visualizer):
                 mmcv.imwrite(drawn_img[..., ::-1], out_file)
         else:
             self.add_image(name, drawn_img, step)
+
+    def _get_ego_box(
+        self, 
+        ego_size,
+        to_mmdet3d_lidar=None
+        ):
+        """Get ego box in depth coordinate.
+        """
+        # ego_size: (l, w, h)
+        l, w, h = ego_size
+        
+        # ego box in nuscenes lidar coord 
+        box = np.array([[0, 0, 0, l, w, h, np.pi/2, 0, 0]])
+        
+        # bev box need to be drawn in mmdet3d depth coordinate
+        # if dataset has been converted to mmdet3d lidar coord, 
+        # ego_box should be in mmdet3d depth coord for plotting on bev
+        if to_mmdet3d_lidar is not None:
+            box = DepthInstance3DBoxes(box, box_dim=9)
+        # else the dataset is in original coord, assuming nuscenes lidar coord as default
+        # then to be consistent with all other boxes, use mmdet3d lidar coord
+        else:
+            box = LiDARInstance3DBoxes(box, box_dim=9)
+
+        return box

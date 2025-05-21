@@ -1,11 +1,14 @@
 # If point cloud range is changed, the models should also change their point
 # cloud range accordingly
 # (x1, y1, z1, x2, y2, z2) in LiDAR coordinate system
-point_cloud_range = [-15.0, -30.0, -2.0, 15.0, 30.0, 2.0]
+point_cloud_range = [-50.0, -50.0, -2.0, 50.0, 50.0, 2.0]
 voxel_size = [0.15, 0.15, 4]
 
+to_rgb = False
+#img_norm_cfg = dict(
+#    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=to_rgb)
 img_norm_cfg = dict(
-    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
+    mean=[0, 0, 0], std=[1, 1, 1], to_rgb=to_rgb)
 # For nuScenes we usually do 10-class detection
 class_names = [
     'car', 'truck', 'construction_vehicle', 'bus', 'trailer', 'barrier',
@@ -34,19 +37,19 @@ metainfo = dict(
 
 # camera
 input_modality = dict(
-    use_lidar=False,
+    use_lidar=True,
     use_camera=True,
     use_radar=False,
     use_map=False,
     use_external=True)
 
-cameras = [
-    'CAM_BACK',
-    'CAM_BACK_LEFT',
-    'CAM_BACK_RIGHT',
-    'CAM_FRONT', 
+view_names = [
     'CAM_FRONT_LEFT', 
-    'CAM_FRONT_RIGHT'
+    'CAM_FRONT', 
+    'CAM_FRONT_RIGHT',
+    'CAM_BACK_LEFT',
+    'CAM_BACK',
+    'CAM_BACK_RIGHT',
 ]
 
 bev_h_ = 200
@@ -70,7 +73,10 @@ data_prefix = dict(
     CAM_FRONT_RIGHT='samples/CAM_FRONT_RIGHT')
 
 train_pipeline = [
-    dict(type='LoadMultiViewImageFromFiles', _scope_='mmdet3d', to_float32=True, num_views=len(cameras)),
+    dict(type='LoadMultiViewImageFromFiles', 
+         _scope_='mmdet3d', 
+         to_float32=True, 
+         num_views=len(view_names)),
     dict(type='PhotoMetricDistortionMultiViewImage'),
     dict(
         type='LoadAnnotationsPlan3D', 
@@ -122,12 +128,12 @@ train_dataloader = dict(
 )
 
 test_pipeline = [
-    dict(type='LoadMultiViewImageFromFiles', _scope_='mmdet3d', to_float32=True, num_views=len(cameras)),
-#    dict(type='LoadPointsFromFile',
-#         _scope_='mmdet3d',
-#         coord_type='LIDAR',
-#         load_dim=5,
-#         use_dim=5),
+    dict(type='LoadMultiViewImageFromFiles', _scope_='mmdet3d', to_float32=True, num_views=len(view_names)),
+    dict(type='LoadPointsFromFile',
+         _scope_='mmdet3d',
+         coord_type='DEPTH',
+         load_dim=5,
+         use_dim=[0 ,1, 2]),
     dict(type='LoadAnnotationsPlan3D', 
         with_bbox_3d=True, 
         with_label_3d=True, 
@@ -135,13 +141,13 @@ test_pipeline = [
         with_instances_traj=True,
         with_instances_ids=True,
         with_vector_map=True),
-    dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
-    dict(type='ObjectNameFilter', classes=class_names),
-    #dict(type='NormalizeMultiviewImage', **img_norm_cfg, divider=1.0),
+    #dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
+    #dict(type='ObjectNameFilter', classes=class_names),
+    dict(type='NormalizeMultiviewImage', **img_norm_cfg, divider=1.0),
     dict(type='RandomScaleImageMultiViewImage', scales=[1.0]), # no scale at all but with lidar2img
     #dict(type='PadMultiViewImage', size_divisor=32),
     dict(type='Pack3DPlanInputs',
-        keys=['img', 'gt_bboxes_3d', 'gt_labels_3d', 'gt_bboxes_traj', 'gt_bboxes_traj_mask', 'bboxes_context', 
+        keys=['img', 'points', 'gt_bboxes_3d', 'gt_labels_3d', 'gt_bboxes_traj', 'gt_bboxes_traj_mask', 'bboxes_context', 
             'gt_ego_traj', 'gt_ego_traj_mask', 'ego_command', 'ego_context', 'ego_history_traj', 'ego_history_mask', 
             'gt_map_vectors_pt', 'gt_map_vectors_label'])
 ]
@@ -160,7 +166,7 @@ val_dataloader = dict(
         metainfo=metainfo,
         pipeline=test_pipeline,
         modality=input_modality,
-        box_type_3d_original='LiDAR', # original box in nuscenes are acatually Depth box in mmdet3d. 
+        box_type_3d_original='Depth', # original box in nuscenes are acatually Depth box in mmdet3d. 
         box_type_3d='LiDAR',
         past_steps=past_steps, # past trajectory length
         prediction_steps=agent_fut_steps, # motion prediction length if any
