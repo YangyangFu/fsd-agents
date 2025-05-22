@@ -11,8 +11,8 @@ Full self-driving agents benchmark on closed-loop simulation
 
 ## Visualization
 
-![planning](./assets/video_cam.mp4)
-![planning](./assets/video_lidar.mp4)
+![planning](./assets/video_cam.gif)
+![planning](./assets/video_lidar.gif)
 
 
 ## TODOS
