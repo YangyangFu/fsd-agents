@@ -93,72 +93,70 @@ model = dict(
         sync_cls_avg_factor=True,
         with_box_refine=True,
         as_two_stage=False,
-        transformer=dict(
-            type='PerceptionTransformer',
-            rotate_prev_bev=True,
-            use_shift=True,
-            use_can_bus=True,
-            embed_dims=_dim_,
-            encoder=dict(
-                type='BEVFormerEncoder',
-                num_layers=3,
-                pc_range=point_cloud_range,
-                num_points_in_pillar=4,
-                return_intermediate=False,
-                transformerlayers=dict(
-                    type='BEVFormerLayer',
-                    attn_cfgs=[
-                        dict(
-                            type='TemporalSelfAttention',
-                            embed_dims=_dim_,
-                            num_levels=1),
-                        dict(
-                            type='SpatialCrossAttention',
-                            pc_range=point_cloud_range,
-                            deformable_attention=dict(
-                                type='MultiScaleDeformableAttention3D',
-                                embed_dims=_dim_,
-                                num_points=8,
-                                num_levels=_num_levels_),
-                            embed_dims=_dim_,
-                        )
-                    ],
-                    feedforward_channels=_ffn_dim_,
-                    ffn_dropout=0.1,
-                    operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
-                                     'ffn', 'norm'))),
-            decoder=dict(
-                type='DetectionTransformerDecoder',
-                num_layers=6,
-                return_intermediate=True,
-                transformerlayers=dict(
-                    type='BaseTransformerLayer',
-                    _scope_='mmdet',
-                    attn_cfgs=[
-                        dict(
-                            type='MultiheadAttention',
-                            _scope_='mmdet',
-                            embed_dims=_dim_,
-                            num_heads=8,
-                            dropout=0.1),
-                         dict(
-                            type='BEVMultiScaleDeformableAttention',
-                            _scope_='fsd',
-                            embed_dims=_dim_,
-                            num_levels=1),
-                    ],
-                    ffn_cfgs=dict(
-                        type='FFN',
+        rotate_prev_bev=True,
+        use_shift=True,
+        use_can_bus=True,
+        embed_dims=_dim_,
+        encoder=dict(
+            type='BEVFormerEncoder',
+            num_layers=3,
+            pc_range=point_cloud_range,
+            num_points_in_pillar=4,
+            return_intermediate=False,
+            transformerlayers=dict(
+                type='BEVFormerLayer',
+                attn_cfgs=[
+                    dict(
+                        type='TemporalSelfAttention',
                         embed_dims=_dim_,
-                        feedforward_channels=_ffn_dim_,
-                        num_fcs=2,
-                        ffn_drop=0.1,
-                        act_cfg=dict(type='ReLU',
-                                     inplace=True)),
-                    norm_cfg=dict(type='LN'),
-                    batch_first=False,
-                    operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
-                                     'ffn', 'norm')))),
+                        num_levels=1),
+                    dict(
+                        type='SpatialCrossAttention',
+                        pc_range=point_cloud_range,
+                        deformable_attention=dict(
+                            type='MultiScaleDeformableAttention3D',
+                            embed_dims=_dim_,
+                            num_points=8,
+                            num_levels=_num_levels_),
+                        embed_dims=_dim_,
+                    )
+                ],
+                feedforward_channels=_ffn_dim_,
+                ffn_dropout=0.1,
+                operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
+                                    'ffn', 'norm'))),
+        decoder=dict(
+            type='BEVFormerDecoder',
+            num_layers=6,
+            return_intermediate=True,
+            transformerlayers=dict(
+                type='BaseTransformerLayer',
+                _scope_='mmdet',
+                attn_cfgs=[
+                    dict(
+                        type='MultiheadAttention',
+                        _scope_='mmdet',
+                        embed_dims=_dim_,
+                        num_heads=8,
+                        dropout=0.1),
+                        dict(
+                        type='BEVMultiScaleDeformableAttention',
+                        _scope_='fsd',
+                        embed_dims=_dim_,
+                        num_levels=1),
+                ],
+                ffn_cfgs=dict(
+                    type='FFN',
+                    embed_dims=_dim_,
+                    feedforward_channels=_ffn_dim_,
+                    num_fcs=2,
+                    ffn_drop=0.1,
+                    act_cfg=dict(type='ReLU',
+                                    inplace=True)),
+                norm_cfg=dict(type='LN'),
+                batch_first=False,
+                operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
+                                    'ffn', 'norm'))),
         bbox_coder=dict(
             type='NMSFreeCoder',
             post_center_range=[-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],
@@ -184,7 +182,7 @@ model = dict(
         train_cfg=dict(
             assigner=dict(
                 type='HungarianAssigner3D',
-                cls_cost=dict(type='FocalLossCost3D',weight=2.0),
+                cls_cost=dict(type='FocalLossCost', _scope_='mmdet', weight=2.0),
                 reg_cost=dict(type='BBox3DL1Cost', weight=0.25),
                 iou_cost=dict(type='IoUCost', _scope_='mmdet', weight=0.0), # Fake cost. This is just to make it compatible with DETR head.
                 pc_range=point_cloud_range))
@@ -215,30 +213,34 @@ data_prefix = dict(
     CAM_FRONT_RIGHT='samples/CAM_FRONT_RIGHT')
 
 train_pipeline = [
-    dict(type='LoadMultiViewImageFromFiles', to_float32=True),
+    dict(type='LoadMultiViewImageFromFiles', _scope_='mmdet3d', to_float32=True, num_views=len(cameras)),
     dict(type='PhotoMetricDistortionMultiViewImage'),
-    dict(type='LoadAnnotations3D', _scope_='mmdet3d', with_bbox_3d=True, with_label_3d=True, with_attr_label=False),
+    dict(type='LoadAnnotationsPlan3D', 
+        with_bbox_3d=True, 
+        with_label_3d=True, 
+        with_instances_traj=False,
+        with_instances_ids=False,
+        with_vector_map=False),
     dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
     dict(type='ObjectNameFilter', classes=class_names),
     dict(type='NormalizeMultiviewImage', **img_norm_cfg, divider=1.0),
-    dict(type='RandomScaleImageMultiViewImage', scales=[0.5]),
+    dict(type='RandomScaleImageMultiViewImage', scales=[0.8]),
     dict(type='PadMultiViewImage', size_divisor=32),
-    dict(type='Pack3DDetInputs', _scope_='mmdet3d', keys=['gt_bboxes_3d', 'gt_labels_3d', 'img'])
+    dict(type='Pack3DPlanInputs', keys=['gt_bboxes_3d', 'gt_labels_3d', 'img'])
 ]
 
 test_pipeline = [
-    dict(type='LoadMultiViewImageFromFiles', to_float32=True),
+    dict(type='LoadMultiViewImageFromFiles', _scope_='mmdet3d', to_float32=True, num_views=len(cameras)),
+    dict(type='LoadAnnotationsPlan3D', 
+        with_bbox_3d=True, 
+        with_label_3d=True, 
+        with_instances_traj=False,
+        with_instances_ids=False,
+        with_vector_map=False),
     dict(type='NormalizeMultiviewImage', **img_norm_cfg, divider=1.0),
-    dict(
-        type='MultiScaleFlipAug3D',
-        img_scale=(1600, 900),
-        pts_scale_ratio=1,
-        flip=False,
-        transforms=[
-            dict(type='RandomScaleImageMultiViewImage', scales=[0.5]),
-            dict(type='PadMultiViewImage', size_divisor=32),
-        ]),
-    dict(type='Pack3DDetInputs', _scope_='mmdet3d', keys=['img'])
+    dict(type='RandomScaleImageMultiViewImage', scales=[0.8]),
+    dict(type='PadMultiViewImage', size_divisor=32),
+    dict(type='Pack3DPlanInputs', keys=['img'])
 ]
 
 train_dataloader = dict(
@@ -341,17 +343,20 @@ optim_wrapper = dict(
     )
 )
 
-# learning policy
-lr_config = dict(
-    policy='CosineAnnealing',
-    warmup='linear',
-    warmup_iters=500,
-    warmup_ratio=1.0 / 3,
-    min_lr_ratio=1e-3)
+# learning rate scheduler
+param_scheduler = [
+    dict(type='LinearLR', start_factor=1.0 / 3, by_epoch=False, begin=0, end=500), # warmup
+    dict(type='CosineAnnealingLR',
+        T_max=total_epochs,
+        begin=0,
+        end=total_epochs,
+        by_epoch=True,
+        eta_min=1e-3)
+    ]
 
 evaluation = dict(interval=1, pipeline=test_pipeline)
 
-load_from = 'ckpts/bevformer_tiny_epoch_24.pth'
+load_from = 'ckpts/bevformer_tiny.pth'
 log_config = dict(
     interval=50,
     hooks=[
@@ -359,4 +364,10 @@ log_config = dict(
         dict(type='TensorboardLoggerHook')
     ])
 
-checkpoint_config = dict(interval=1)
+checkpoint_config = dict(interval=1, max_keep_ckpts=3)
+
+# Default setting for scaling LR automatically
+#   - `enable` means enable scaling LR automatically
+#       or not by default.
+#   - `base_batch_size` = (8 GPUs) x (2 samples per GPU).
+auto_scale_lr = dict(enable=False, base_batch_size=16)

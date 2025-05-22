@@ -68,9 +68,47 @@ class PlanningVisualizationHook(Hook):
                  show_pcd_rgb: bool = False,
                  backend_args: Optional[dict] = None,
                  view_first_only: Optional[bool] = True,
-                 index_front_camera: Optional[int] = 0):
+                 image_mode: Optional[str] = 'bgr',
+                 multi_view_names: Optional[Sequence[str]] = None,
+                 point_cloud_range: Optional[Sequence[float]] = None,
+                 pixels_per_meter: Optional[float] = 10,
+                 map_format: Optional[str] = 'fixed_num_pts',
+                 ) -> None:
+        """Initialize the visualization hook.
+        Args:
+            draw (bool): Whether to draw prediction results. If it is False,
+                it means that no drawing will be done. Defaults to False.
+            interval (int): The interval of visualization. Defaults to 50.
+            score_thr (float): The threshold to visualize the bboxes
+                and masks. Defaults to 0.3.
+            show (bool): Whether to display the drawn image. Default to False.
+            vis_task (str): Visualization task. Defaults to 'mono_det'.
+            wait_time (float): The interval of show (s). Defaults to 0.
+            draw_gt (bool): Whether to draw ground truth. Defaults to True.
+            draw_pred (bool): Whether to draw prediction. Defaults to True.
+            show_pcd_rgb (bool): Whether to show RGB point cloud. Defaults to
+                False.
+            test_out_dir (str, optional): directory where painted images
+                will be saved in testing process.
+            backend_args (dict, optional): Arguments to instantiate the
+                corresponding backend. Defaults to None.
+            view_first_only (bool): Whether to only visualize the first
+                sample in the batch. Defaults to True.
+            image_mode (str): The image mode. Defaults to 'bgr'. Options are
+                'bgr' and 'rgb'.
+            multi_view_names (Sequence[str]): The names of the multi-view
+                images. Defaults to None. 
+            pixels_per_meter (float): The pixels per meter for the map.
+                Defaults to 10.
+            map_format (str): The format of the map. Defaults to 'fixed_num_pts'.
+                Options are 'fixed_num_pts' and 'polyline'.
+            
+        """
+
         vis = PlanningVisualizer.get_instance(name='vis')
-        self._visualizer: PlanningVisualizer = PlanningVisualizer.get_current_instance()
+        self._visualizer: PlanningVisualizer = PlanningVisualizer(
+            image_mode=image_mode,
+            ).get_current_instance()
         self.interval = interval
         self.score_thr = score_thr
         self.show = show
@@ -100,10 +138,13 @@ class PlanningVisualizationHook(Hook):
         self.show_pcd_rgb = show_pcd_rgb
         # only view first data in the batch
         self.view_first_only = view_first_only 
+        # the arrangment order of the multi-view images
+        self.multi_view_names = multi_view_names
         
-        # index of front camera in the multi-view data
-        # draw traj on this image
-        self.index_front_camera = index_front_camera
+        # map visualization
+        self.point_cloud_range = point_cloud_range
+        self.pixels_per_meter = pixels_per_meter
+        self.map_format = map_format
         
     def after_val_iter(self, runner: Runner, batch_idx: int, data_batch: dict,
                        outputs: Sequence[PlanningDataSample]) -> None:
@@ -117,7 +158,7 @@ class PlanningVisualizationHook(Hook):
             outputs (Sequence[:obj:`DetDataSample`]]): A batch of data samples
                 that contain annotations and predictions.
         """
-        self.after_test_iter(runner, batch_idx, data_batch, outputs)
+        pass
 
     def after_test_iter(self, runner: Runner, batch_idx: int, data_batch: dict,
                         outputs: Sequence[PlanningDataSample]) -> None:
@@ -136,6 +177,9 @@ class PlanningVisualizationHook(Hook):
         # get dataset meta
         dataset_meta = runner.test_dataloader.dataset.metainfo
         self._visualizer.dataset_meta = dataset_meta
+        
+        # BGR or RGB after the pipeline
+        image_mode = self._visualizer.image_mode
         
         # There is no guarantee that the same batch of images
         # is visualized for each evaluation.
@@ -157,10 +201,10 @@ class PlanningVisualizationHook(Hook):
             if self.vis_task in [
                     'mono_det', 'multi-view_det', 'multi-modality_det', 'multi-modality_planning'
             ]:
-                assert hasattr(data_sample, 'img_metas') and 'img_filename' in data_sample.img_metas, \
-                    "image path is not in data_sample.img_metas"
+                assert hasattr(data_sample, 'metainfo') and 'img_path' in data_sample.metainfo, \
+                    "image path is not in data_sample.metainfo"
                     
-                img_path = [img for img in data_sample.img_metas['img_filename']]
+                img_path = [img for img in data_sample.metainfo['img_path']]
                 
                 if isinstance(img_path, list):
                     img = []
@@ -168,11 +212,11 @@ class PlanningVisualizationHook(Hook):
                         img_bytes = get(
                             single_img_path, backend_args=self.backend_args)
                         single_img = mmcv.imfrombytes(
-                            img_bytes, channel_order='rgb')
+                            img_bytes, channel_order=image_mode.lower())
                         img.append(torch.from_numpy(single_img).permute(2, 0, 1))
                 else:
                     img_bytes = get(img_path, backend_args=self.backend_args)
-                    img = mmcv.imfrombytes(img_bytes, channel_order='rgb')
+                    img = mmcv.imfrombytes(img_bytes, channel_order=image_mode.lower())
                     img = torch.from_numpy(img).permute(2, 0, 1)
                     
                 data_input['img'] = img
@@ -183,12 +227,11 @@ class PlanningVisualizationHook(Hook):
                     out_file = osp.basename(img_path)
                     out_file = osp.join(self.test_out_dir, out_file)
                 
-                
             # load pts in Lidar coord
             if self.vis_task in ['lidar_det', 'multi-modality_det', 'multi-modality_planning', 'lidar_seg']:
-                assert hasattr(data_sample, 'pts_metas') and 'pts_filename' in data_sample.pts_metas, \
-                    'lidar_path is not in data_sample.pts_metas'
-                lidar_path = data_sample.pts_metas['pts_filename']
+                assert hasattr(data_sample, 'metainfo') and 'lidar_path' in data_sample.metainfo, \
+                    'lidar_path is not in data_sample.metainfo'
+                lidar_path = data_sample.metainfo['lidar_path']
                 
                 # CARLA dataset lidar points
                 if dataset_meta['name'] == 'carla':
@@ -204,10 +247,17 @@ class PlanningVisualizationHook(Hook):
                         num_features = 3, 
                         to_float32 = True
                     )
+                elif 'nuscenes' in dataset_meta['name']:
+                    # use data from pipeline
+                    points = data_batch['inputs']['points'][b]
+                    points = points.cpu()
+                    # load from file
+                    
+                    
                 else:
                     raise NotImplementedError('Only support CARLA dataset for now')
                 
-                data_input['pts'] = points
+                data_input['points'] = points
                 
                 # save folder
                 if self.test_out_dir is not None:
@@ -218,19 +268,21 @@ class PlanningVisualizationHook(Hook):
 
             if total_curr_iter % self.interval == 0:
                 # get lidar2img transform
-                cams2world = data_sample.img_metas['cam2world']
-                cams_intrinsics = data_sample.img_metas['cam_intrinsics']
-                cams_intrinsics = [np.pad(cam, (0, 1), constant_values=0) for cam in cams_intrinsics]
-                lidar2world = data_sample.pts_metas['lidar2world']
-                lidar2imgs = [cam_intrinsic @ np.linalg.inv(cam2world) @ lidar2world for cam_intrinsic, cam2world in zip(cams_intrinsics, cams2world)]
-                data_sample.set_metainfo(dict(lidar2img=lidar2imgs))
+                assert hasattr(data_sample, 'lidar2img'), \
+                    'lidar2img is not in data_sample'
                 
                 # to cpu
                 data_sample = data_sample.to('cpu')
                 
+                # some customized data in nuscenes_vad dataset
+                # nuscenes vad dataset follows kitti box convention
+                # change it back to mmdet3d box convention before visualization
+                if 'nuscenes-vad' in dataset_meta['name']:
+                    data_sample = self._change_kitti_box_to_mmdet3d(data_sample)
+                
                 # visualizer
                 self._visualizer.add_datasample(
-                    'test sample',
+                    'test',
                     data_input,
                     data_sample=data_sample,
                     draw_gt=self.draw_gt,
@@ -243,8 +295,33 @@ class PlanningVisualizationHook(Hook):
                     o3d_save_path=o3d_save_path,
                     step=self._test_index,
                     show_pcd_rgb=self.show_pcd_rgb,
-                    traj_img_idx=self.index_front_camera)
+                    multi_view_names=self.multi_view_names,
+                    pcd_range = self.point_cloud_range,
+                    map_format = self.map_format,
+                    pixels_per_meter = self.pixels_per_meter,
+                    to_mmdet3d_lidar = runner.test_dataloader.dataset.to_mmdet3d_lidar,
+                )
 
             # first only
             if self.view_first_only:
                 break
+    
+    def _change_kitti_box_to_mmdet3d(self, data_sample: PlanningDataSample):
+        """Change the box format from kitti to mmdet3d."""
+        # change the box format from kitti to mmdet3d
+        # kitti: [x, y, z, w, l, h, yaw]
+        # mmdet3d: [x, y, z, l, w, h, -yaww-pi/2]
+        
+        if data_sample.gt_instances_3d is None or data_sample.gt_instances_3d.bbox is None:
+            return
+        
+        bbox = data_sample.gt_instances_3d.bbox
+        data = bbox.tensor.clone()
+        data[:, 3:6] = data[:, [4, 3, 5]]
+        data[:, 6] = -data[:, 6] - np.pi / 2
+
+        bbox_new = bbox.new_box(data = data)
+        
+        data_sample.gt_instances_3d.bbox = bbox_new
+        
+        return data_sample

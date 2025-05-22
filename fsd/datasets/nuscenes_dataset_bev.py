@@ -1,3 +1,6 @@
+"""Nuscenes Dataset for 3D object detection used by BEVFormer.
+"""
+
 import copy
 import logging
 import random
@@ -12,17 +15,18 @@ from nuscenes.eval.common.utils import quaternion_yaw, Quaternion
 import mmcv
 
 from mmengine.logging import print_log
-from mmdet3d.datasets import NuScenesDataset
 from mmdet3d.structures import Det3DDataSample
 from fsd.registry import DATASETS
+from .nuscenes_dataset import NuScenesDatasetPlan3D
 from .eval_utils.nuscenes_eval_bev import NuScenesEvalBEVFormer
 
 @DATASETS.register_module()
-class NuScenesDatasetBEVFormer(NuScenesDataset):
+class NuScenesDatasetBEVFormer(NuScenesDatasetPlan3D):
     r"""NuScenes Dataset.
 
     This datset only add camera intrinsics and extrinsics to the results.
     """
+    TO_MMDET3D_LIDAR = None
 
     def __init__(self, 
                 queue_length=4, 
@@ -49,60 +53,29 @@ class NuScenesDatasetBEVFormer(NuScenesDataset):
         self.bev_size = bev_size
         self.use_can_bus = use_can_bus
         
-        # Nuscenes for can bus info as a wrapper
-        self.nusc = NuScenes(version=self.metainfo['version'], dataroot=self.data_root, verbose=True)
-        if self.use_can_bus:
-            self.can_bus = NuScenesCanBus(dataroot=self.data_root)
-
-    def _get_can_bus_info(self, input_dict):
-        """Get can_bus information given the sample token in the input_dict.
+    def _update_can_bus_info(self, input_dict: dict) -> dict:
+        """Update can bus info for the current sample to follow VAD paper.
+        
+        - remove (steer, throttle, brake) from original can bus
+        - add yaw in radians and yaw in degrees
+        
+        Args:
+            input_dict (dict): Raw info dict.
         """
-        sample_token = input_dict['sample_token']
-        sample = self.nusc.get('sample', sample_token)
-        scene_token = sample['scene_token']
-        scene_name = self.nusc.get('scene', scene_token)['name']
-        sample_timestamp = sample['timestamp']
+        # get can bus info
+        can_bus = copy.deepcopy(input_dict['ego_can_bus'])[:-3]
         
-        # get can bus information
-        try:
-            pose_list = self.can_bus.get_messages(scene_name, 'pose')
-        except:
-            return np.zeros(18)  # server scenes do not have can bus information.
-        can_bus = []
-        # during each scene, the first timestamp of can_bus may be large than the first sample's timestamp
-        last_pose = pose_list[0]
-        for i, pose in enumerate(pose_list):
-            if pose['utime'] > sample_timestamp:
-                break
-            last_pose = pose
-        # first 16 elements
-        pos = last_pose['pos']
-        orientation = last_pose['orientation']
-        can_bus.extend(pos)
-        can_bus.extend(orientation)
-        for key in ['accel', 'rotation_rate', 'vel']:
-            can_bus.extend(pose[key])  
-        # the last two numbers are reserved for later calculation of rotation angle.
-        can_bus.extend([0., 0.])
+        # add yaw in radians and yaw in degrees
+        yaw = quaternion_yaw(Quaternion(can_bus[3:7]))
+        # the original paper did this, so ...
+        if yaw < 0:
+            yaw += 2 * np.pi
+        yaw_degree = yaw / np.pi * 180
+        can_bus = np.concatenate([can_bus, [yaw, yaw_degree]])
         
-        
-        # update pose from calibrated sensor data
-        rotation = Quaternion(matrix=input_dict['ego2global_rotation'], atol=1e-6)
-        translation = input_dict['ego2global_translation']
-        can_bus[:3] = translation
-        can_bus[3:7] = rotation
-        patch_angle = quaternion_yaw(rotation) / np.pi * 180
-        if patch_angle < 0:
-            patch_angle += 360
-        can_bus[-2] = patch_angle / 180 * np.pi
-        can_bus[-1] = patch_angle
-        
-        # save to input_dict
-        input_dict.update(
-            can_bus=np.array(can_bus),
-            scene_token=scene_token,
-        )
-
+        input_dict['ego_can_bus'] = can_bus
+        return input_dict 
+    
     def pre_pipeline(self, results):
         """Initialization before data preparation.
 
@@ -129,228 +102,152 @@ class NuScenesDatasetBEVFormer(NuScenesDataset):
         results['box_type_3d'] = self.box_type_3d
         results['box_mode_3d'] = self.box_mode_3d
             
-    def prepare_train_data(self, index):
+    def parse_ann_info(self, info: dict) -> dict:
+        """Process the raw annotation info.
+
+        convert the box convention from MMDET3D to kitti/SECOND box convention
         """
-        Training data preparation.
+        ann_info = super().parse_ann_info(info)
+        
+        ## BEVFormer original code uses SECOND box convention
+        gt_bboxes_3d_data = ann_info['gt_bboxes_3d'].tensor.clone()
+        # lwh to wlh 
+        gt_bboxes_3d_data[:, 3:6] = gt_bboxes_3d_data[:, [4, 3, 5]]
+        # MMDET3D yaw definition to KITTI/SECOND box yaw definition
+        gt_bboxes_3d_data[:, 6] = -gt_bboxes_3d_data[:, 6] - np.pi/2
+        gt_bboxes_3d_KITTI = ann_info['gt_bboxes_3d'].new_box(
+            data = gt_bboxes_3d_data,
+        )
+        ann_info['gt_bboxes_3d'] = gt_bboxes_3d_KITTI
+        return ann_info
+    
+    def _prepare_data(self, index) -> dict:
+        """Prepare data given sample index.
+        """
+        # get data info
+        input_dict = self.get_data_info(index)
+        if not input_dict:
+            return None
+                            
+        # update can bus for bev use
+        if self.with_can_bus:
+            input_dict = self._update_can_bus_info(input_dict)
+        
+        return input_dict
+    
+    def prepare_train_data(self, index):
+        """Training data preparation.
+
         Args:
             index (int): Index for accessing the target data.
+
         Returns:
             dict: Training data dict of the corresponding index.
         """
-        # random sample historical data for current frame
         queue = []
-        index_list = list(range(index-self.queue_length, index))
-        random.shuffle(index_list)
+        index_list = [i for i in range(index - self.queue_length, index)]
+        index_list = np.random.choice(index_list, size=self.queue_length, replace=False)
         index_list = sorted(index_list[1:])
         index_list.append(index)
-        for i in index_list:
-            i = max(0, i)
-            input_dict = self.get_data_info(i)
+        
+        for idx in index_list:
+            # in case out of range 
+            idx = max(0, idx)
+            
+            # prepare data
+            input_dict = self._prepare_data(idx)
             if input_dict is None:
                 return None
-            if self.use_can_bus:
-                self._get_can_bus_info(input_dict)
-                
+            
+            # assemble for data pipeline
             self.pre_pipeline(input_dict)
             example = self.pipeline(input_dict)
-            
-            # add scene token to metainfo if not exists
-            if 'scene_token' not in example['data_samples'].metainfo:
-                example['data_samples'].set_field(name='scene_token', value=input_dict['scene_token'], field_type='metainfo', dtype=None)
-            # add can bus information to metainfo
-            if self.use_can_bus:
-                example['data_samples'].set_field(name='can_bus', value=input_dict['can_bus'], field_type='metainfo', dtype=None)
-            if self.filter_empty_gt:
-                # after pipeline drop the example with empty annotations
-                # return None to random another in `__getitem__`
-                if example is None or len(
-                        example['data_samples'].gt_instances_3d.labels_3d) == 0:
-                    return None
+            if self.filter_empty_gt and \
+                    (example is None or
+                        ~(example['data_samples'].gt_instances_3d.label != -1).any()):
+                return None
+
             queue.append(example)
-            
-        return self.union2one(queue)
 
-
-    def union2one(self, queue):
-        imgs_list = [each['inputs']['img'] for each in queue]
-        metas_map = {}
+        return self._combine_history_for_bev(queue)
+    
+    def _combine_history_for_bev(self, queue):
+        """Combine historical frames for BEV
+        """
+        imgs_list = [data['inputs']['img'] for data in queue]
+        
         prev_scene_token = None
         prev_pos = None
-        prev_angle = None
+        prev_yaw = None
+        bev_metas = [{} for _ in range(len(queue))]
         
-        # compute the delta orientation and position of adjacent frames
-        for i, each in enumerate(queue):
-            metas_map[i] = each['data_samples'].metainfo
-            if metas_map[i]['scene_token'] != prev_scene_token:
-                metas_map[i]['prev_bev_exists'] = False
-                prev_scene_token = metas_map[i]['scene_token']
-                if self.use_can_bus:
-                    prev_pos = copy.deepcopy(metas_map[i]['can_bus'][:3])
-                    prev_angle = copy.deepcopy(metas_map[i]['can_bus'][-1])
-                    metas_map[i]['can_bus'][:3] = 0
-                    metas_map[i]['can_bus'][-1] = 0
+        # calculate the delta orientation and position for adjacent frames for BEV
+        for idx, data in enumerate(queue):
+            bev_metas[idx] = data['data_samples'].metainfo
+            if bev_metas[idx]['scene_token'] != prev_scene_token:
+                # new scene
+                prev_scene_token = bev_metas[idx]['scene_token']
+                bev_metas[idx]['prev_bev_exists'] = False
+                bev_attr = None
+                if self.with_can_bus:
+                    bev_attr = copy.deepcopy(bev_metas[idx]['ego_can_bus'])
+                    prev_pos = copy.deepcopy(bev_attr[0:3]) # in world frame
+                    prev_yaw = float(bev_attr[-2]/np.pi * 180) # radians to degree
+                    bev_attr[0:3] = 0
+                    bev_attr[-1] = 0 # BEVFormer uses yaw in radians and yaw degree in can_bus
             else:
-                metas_map[i]['prev_bev_exists'] = True
-                if self.use_can_bus:
-                    tmp_pos = copy.deepcopy(metas_map[i]['can_bus'][:3]) 
-                    tmp_angle = copy.deepcopy(metas_map[i]['can_bus'][-1])
-                    metas_map[i]['can_bus'][:3] -= prev_pos
-                    metas_map[i]['can_bus'][-1] -= prev_angle
-                    prev_pos = copy.deepcopy(tmp_pos)
-                    prev_angle = copy.deepcopy(tmp_angle)
-        queue[-1]["inputs"]['img'] = torch.stack(imgs_list) # (L, N, C, H, W)
-        queue[-1]["img_metas"] = metas_map
-
-        queue = queue[-1]
+                bev_metas[idx]['prev_bev_exists'] = True
+                if self.with_can_bus:
+                    # get the previous can_bus
+                    bev_attr = copy.deepcopy(bev_metas[idx]['ego_can_bus'])
+                    temp_pos = copy.deepcopy(bev_attr[0:3])
+                    temp_yaw = float(bev_attr[-2]/np.pi * 180)
+                    bev_attr[0:3] -= prev_pos
+                    bev_attr[-1] = temp_yaw - prev_yaw
+                    prev_pos = temp_pos
+                    prev_yaw = temp_yaw
+                    
+            bev_metas[idx]['bev_attr'] = bev_attr
+            
+        # assemble
+        new_data = {}
+        new_data['inputs'] = {}
+        new_data['inputs']['img'] = torch.stack(imgs_list, dim=0) # [seq_len,N, 3, H, W] 
         
-        return queue
-
+        data_samples = queue[-1]['data_samples'].clone()
+        data_samples.set_metainfo({'bev_metas': bev_metas})
+        new_data['data_samples'] = data_samples
+        
+        return new_data
     
     def prepare_test_data(self, index):
-        """Prepare testing data."""
-        input_dict = self.get_data_info(index)
-        if self.use_can_bus:
-            self._get_can_bus_info(input_dict)
-        self.pre_pipeline(input_dict)
-        example = self.pipeline(input_dict)
-
-        # add scene token to metainfo if not exists
-        example['data_samples'].set_field(
-            name='scene_token', 
-            value=input_dict['scene_token'], 
-            field_type='metainfo', 
-            dtype=None)
-        # add can bus information to metainfo
-        if self.use_can_bus:
-            example['data_samples'].set_field(
-                name='can_bus', 
-                value=input_dict['can_bus'], 
-                field_type='metainfo', 
-                dtype=None)
-        
-        # be consistent with the training data format, adding img_metas
-        example["img_metas"] = copy.deepcopy(example["data_samples"].metainfo)
-        
-        return example
-    
-    # overwrite the get_data_info method
-    def get_data_info(self, index):
-        """Get data info according to the given index.
+        """Prepare data for testing.
 
         Args:
-            index (int): Index of the sample data to get.
+            index (int): Index for accessing the target data.
 
         Returns:
-            dict: Data information that will be passed to the data \
-                preprocessing pipelines. It includes the following keys:
-
-                - sample_token (str): Sample index.
-                - pts_filename (str): Filename of point clouds.
-                - sweeps (list[dict]): Infos of sweeps.
-                - timestamp (float): Sample timestamp.
-                - img_filename (str, optional): Image filename.
-                - lidar2img (list[np.ndarray], optional): Transformations \
-                    from lidar to different cameras.
-                - ann_info (dict): Annotation info.
+            dict: Testing data dict of the corresponding index.
         """
-        if self.serialize_data:
-            start_addr = 0 if index == 0 else self.data_address[index - 1].item()
-            end_addr = self.data_address[index].item()
-            bytes = memoryview(
-                self.data_bytes[start_addr:end_addr])  # type: ignore
-            info = pickle.loads(bytes)  # type: ignore
-        else:
-            info = copy.deepcopy(self.data_list[index])
-
-        # standard protocal
-        input_dict = dict(
-            sample_token=info['token'],
-            pts_filename=info['lidar_points']['lidar_path'],
-            sweeps=info.get('lidar_sweeps', []),
-            ego2global_translation=np.array(info['ego2global'])[:3, -1], # 3
-            ego2global_rotation=np.array(info['ego2global'])[:3, :3], # 3x3
-            #prev_idx=info['prev'],
-            #next_idx=info['next'],
-            #scene_token=info['scene_token'],
-            #can_bus=info['can_bus'],
-            #frame_idx=info['frame_idx'],
-            sample_idx=info['sample_idx'],
-            timestamp=info['timestamp'],
-        )
-
-        if self.modality['use_camera']:
-            image_paths = []
-            lidar2img_rts = []
-            lidar2cam_rts = []
-            cam_intrinsics = []
-            for cam_type, cam_info in info['images'].items():
-                image_paths.append(cam_info['img_path'])
-                # obtain lidar to image transformation matrix
-                #lidar2cam_r = np.linalg.inv(cam_info['sensor2lidar_rotation'])
-                #lidar2cam_t = cam_info[
-                #    'sensor2lidar_translation'] @ lidar2cam_r.T
-                #lidar2cam_rt = np.eye(4)
-                #lidar2cam_rt[:3, :3] = lidar2cam_r.T
-                #lidar2cam_rt[3, :3] = -lidar2cam_t
-                
-                lidar2cam = np.array(cam_info['lidar2cam'])
-                intrinsic = np.array(cam_info['cam2img'])
-    
-                viewpad = np.eye(4)
-                viewpad[:3, :3] = intrinsic
-                
-                # lidar to image
-                lidar2img = viewpad @ lidar2cam 
-                #lidar2img_rt = (viewpad @ lidar2cam_rt.T)
-                lidar2img_rts.append(lidar2img)
-
-                cam_intrinsics.append(viewpad)
-                lidar2cam_rts.append(lidar2cam)
-
-            input_dict.update(
-                dict(
-                    img_filename=image_paths,
-                    lidar2img=lidar2img_rts,
-                    cam_intrinsic=cam_intrinsics,
-                    lidar2cam=lidar2cam_rts,
-                ))
-
-        if not self.test_mode:
-            #annos = self.get_ann_info(index)
-            input_dict['ann_info'] = info['ann_info']
-
-        return input_dict
-
-    def __getitem__(self, idx):
-        """Get item from infos according to the given index.
-        Returns:
-            dict: Data dictionary of the corresponding index.
-        """
-        # Performing full initialization by calling `__getitem__` will consume
-        # extra memory. If a dataset is not fully initialized by setting
-        # `lazy_init=True` and then fed into the dataloader. Different workers
-        # will simultaneously read and parse the annotation. It will cost more
-        # time and memory, although this may work. Therefore, it is recommended
-        # to manually call `full_init` before dataset fed into dataloader to
-        # ensure all workers use shared RAM from master process.
-        if not self._fully_initialized:
-            print_log(
-                'Please call `full_init()` method manually to accelerate '
-                'the speed.',
-                logger='current',
-                level=logging.WARNING)
-            self.full_init()
+        # prepare data
+        input_dict = self._prepare_data(index)
+        if input_dict is None:
+            return None
+        
+        # pipeline
+        self.pre_pipeline(input_dict)
+        example = self.pipeline(input_dict)
+        
+        # add bev_attr for test
+        bev_metas = [{}]
+        if self.with_can_bus:
+            bev_metas[0] = example['data_samples'].metainfo
+            bev_attr = copy.deepcopy(example['data_samples'].metainfo['ego_can_bus'])
+            bev_metas[0]['bev_attr'] = bev_attr
+            example['data_samples'].set_metainfo({'bev_metas': bev_metas})
             
-        if self.test_mode:
-            return self.prepare_test_data(idx)
-        while True:
-            
-            data = self.prepare_train_data(idx)
-            if data is None:
-                idx = self._rand_another(idx)
-                continue
-            return data
-
+        return example
+ 
     def _evaluate_single(self,
                          result_path,
                          logger=None,

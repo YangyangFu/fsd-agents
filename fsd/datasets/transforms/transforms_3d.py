@@ -1608,116 +1608,6 @@ class PhotoMetricDistortionMultiViewImage:
         repr_str += f'hue_delta={self.hue_delta})'
         return repr_str
 
-
-
-@PIPELINES.register_module()
-class Collect3D(object):
-    """Collect data from the loader relevant to the specific task.
-    This is usually the last stage of the data loader pipeline. Typically keys
-    is set to some subset of "img", "proposals", "gt_bboxes",
-    "gt_bboxes_ignore", "gt_labels", and/or "gt_masks".
-    The "img_meta" item is always populated.  The contents of the "img_meta"
-    dictionary depends on "meta_keys". By default this includes:
-        - 'img_shape': shape of the image input to the network as a tuple \
-            (h, w, c).  Note that images may be zero padded on the \
-            bottom/right if the batch tensor is larger than this shape.
-        - 'scale_factor': a float indicating the preprocessing scale
-        - 'flip': a boolean indicating if image flip transform was used
-        - 'filename': path to the image file
-        - 'ori_shape': original shape of the image as a tuple (h, w, c)
-        - 'pad_shape': image shape after padding
-        - 'lidar2img': transform from lidar to image
-        - 'depth2img': transform from depth to image
-        - 'cam2img': transform from camera to image
-        - 'pcd_horizontal_flip': a boolean indicating if point cloud is \
-            flipped horizontally
-        - 'pcd_vertical_flip': a boolean indicating if point cloud is \
-            flipped vertically
-        - 'box_mode_3d': 3D box mode
-        - 'box_type_3d': 3D box type
-        - 'img_norm_cfg': a dict of normalization information:
-            - mean: per channel mean subtraction
-            - std: per channel std divisor
-            - to_rgb: bool indicating if bgr was converted to rgb
-        - 'pcd_trans': point cloud transformations
-        - 'sample_idx': sample index
-        - 'pcd_scale_factor': point cloud scale factor
-        - 'pcd_rotation': rotation applied to point cloud
-        - 'pts_filename': path to point cloud file.
-    Args:
-        keys (Sequence[str]): Keys of results to be collected in ``data``.
-        meta_keys (Sequence[str], optional): Meta keys to be converted to
-            ``mmcv.DataContainer`` and collected in ``data[img_metas]``.
-            Default: ('filename', 'ori_shape', 'img_shape', 'lidar2img',
-            'depth2img', 'cam2img', 'pad_shape', 'scale_factor', 'flip',
-            'pcd_horizontal_flip', 'pcd_vertical_flip', 'box_mode_3d',
-            'box_type_3d', 'img_norm_cfg', 'pcd_trans',
-            'sample_idx', 'pcd_scale_factor', 'pcd_rotation', 'pts_filename')
-    """
-
-    def __init__(self,
-                 keys,
-                 meta_keys=('img_filename', 'ori_shape', 'img_shape', 'pad_shape', 'scale_factor',
-                            'img_sensor_name', 'cam_intrinsics', 'cam2world',
-                            'box_mode_3d', 'box_type_3d',
-                            'img_norm_cfg', 'sample_idx', 'prev_idx', 'next_idx',
-                            'scene_token', 'folder','frame_idx'
-                            )):
-        # TODO(yzj) bevformer meta_keys has lidar2cam
-        self.keys = keys
-        self.meta_keys = meta_keys
-        self.pts_meta_keys = ('pts_filename', 'pts_sensor_name', 'lidar2world', 'pts_num_features')
-        
-    def __call__(self, results):
-        """Call function to collect keys in results. The keys in ``meta_keys``
-        will be converted to :obj:`mmcv.DataContainer`.
-        Args:
-            results (dict): Result dict contains the data to collect.
-        Returns:
-            dict: The result dict contains the following keys
-                - keys in ``self.keys``
-                - ``img_metas``
-        """
-       
-        data = {}
-        # collect metas
-        img_metas = {}
-        for key in self.meta_keys:
-            if key in results:
-                img_metas[key] = results[key]
-        data['img_metas'] = img_metas
-        
-        pts_metas = {}
-        for key in self.pts_meta_keys:
-            if key in results:
-                pts_metas[key] = results[key]
-        data['pts_metas'] = pts_metas
-        
-        # collect fields
-        for key in ['img_fields', 'pts_fields', 'ego_fields', 'bbox3d_fields', 'grid_fields',
-                    'pts_seg_fields', 'bbox_fields', 'simg_seg_fields', 
-                    'box_type_3d', 'box_mode_3d']:
-            if key in results:
-                data[key] = results[key]
-
-        # collect default keys: in xx_fields
-        data_fields = ['img_fields', 'pts_fields', 'ego_fields', 'bbox3d_fields', 'grid_fields']
-        for field in data_fields:
-            for key in data[field]:
-                data[key] = results[key]
-                
-        # collect additional data        
-        for key in self.keys:
-            data[key] = results[key]
-        
-        return data
-
-    def __repr__(self):
-        """str: Return a string that describes the module."""
-        return self.__class__.__name__ + \
-            f'(keys={self.keys}, meta_keys={self.meta_keys})'
-
-
 @PIPELINES.register_module()
 class RandomScaleImageMultiViewImage(object):
     """Random scale the image
@@ -1746,8 +1636,18 @@ class RandomScaleImageMultiViewImage(object):
         scale_factor[1, 1] *= rand_scale
         results['img'] = [imresize(img, (x_size[idx], y_size[idx]), return_scale=False) for idx, img in
                           enumerate(results['img'])]
-        lidar2img = [scale_factor @ l2i for l2i in results['lidar2img']]
+        lidar2img = []
+        ori_lidar2img = []
+        for idx in range(results['num_views']):
+            cam2img = np.eye(4)
+            cam2img[:3, :3] = np.array(results['cam2img'][idx])
+            ori_l2i = cam2img @ np.array(results['lidar2cam'][idx])
+            l2i = scale_factor @ ori_l2i
+            lidar2img.append(l2i.tolist())
+            ori_lidar2img.append(ori_l2i.tolist())
+            
         results['lidar2img'] = lidar2img
+        results['ori_lidar2img'] = ori_lidar2img
         results['img_shape'] = [img.shape for img in results['img']]
         results['ori_shape'] = [img.shape for img in results['img']]
 
@@ -1769,6 +1669,12 @@ class ObjectRangeFilter(object):
     def __init__(self, point_cloud_range):
         self.pcd_range = np.array(point_cloud_range, dtype=np.float32)
 
+        self.keys = [
+            'gt_bboxes_3d', 'gt_labels_3d', 'gt_bboxes_mask',
+            'gt_bboxes_id', 'gt_bboxes_anno_token', 'gt_bboxes_traj', 
+            'gt_bboxes_traj_mask', 'gt_bboxes_goal', 'bboxes_context'
+            ]
+        
     def __call__(self, input_dict):
         """Call function to filter objects by the range.
         Args:
@@ -1786,11 +1692,6 @@ class ObjectRangeFilter(object):
 
 
         gt_bboxes_3d = input_dict['gt_bboxes_3d']
-        gt_labels_3d = input_dict['gt_labels_3d']
-        if 'gt_instances_ids' in input_dict:
-            gt_instances_ids = input_dict['gt_instances_ids']
-        if 'gt_instances_traj' in input_dict:
-            gt_instances_traj = input_dict['gt_instances_traj']
 
         # Filter by range
         mask = gt_bboxes_3d.in_range_bev(bev_range)
@@ -1799,23 +1700,22 @@ class ObjectRangeFilter(object):
         # using mask to index gt_labels_3d will cause bug when
         # len(gt_labels_3d) == 1, where mask=1 will be interpreted
         # as gt_labels_3d[1] and cause out of index error
-        mask = mask.numpy().astype(np.bool_)
-        gt_labels_3d = gt_labels_3d[mask]
-        if 'gt_instances_ids' in input_dict:
-            gt_instances_ids = gt_instances_ids[mask]
-        if 'gt_instances_traj' in input_dict:
-            gt_instances_traj =[traj for traj, m in zip(gt_instances_traj, mask) if m]
-            #gt_instances_traj = gt_instances_traj[mask]
-        
-        
+        mask = mask.numpy().astype(np.bool_)        
+        for key in self.keys:
+            if key in input_dict:
+                # instances in a list
+                if isinstance(input_dict[key], (list, tuple)):
+                    res_ = []
+                    for i in range(len(input_dict[key])):
+                        if mask[i]:
+                            res_.append(input_dict[key][i])
+                    input_dict[key] = res_  
+                else:
+                    input_dict[key] = input_dict[key][mask]
+                    
         # limit rad to [-pi, pi]
         gt_bboxes_3d.limit_yaw(offset=0.5, period=2 * np.pi)
         input_dict['gt_bboxes_3d'] = gt_bboxes_3d
-        input_dict['gt_labels_3d'] = gt_labels_3d
-        if 'gt_instances_ids' in input_dict:
-            input_dict['gt_instances_ids'] = gt_instances_ids
-        if 'gt_instances_traj' in input_dict:
-            input_dict['gt_instances_traj'] = gt_instances_traj
 
         return input_dict
 
@@ -1835,7 +1735,12 @@ class ObjectNameFilter(object):
     def __init__(self, classes):
         self.classes = classes
         self.labels = list(range(len(self.classes)))
-
+        self.keys = [
+            'gt_bboxes_3d', 'gt_labels_3d', 'gt_bboxes_mask',
+            'gt_bboxes_id', 'gt_bboxes_anno_token', 'gt_bboxes_traj',
+            'gt_bboxes_traj_mask', 'gt_bboxes_goal', 'bboxes_context'
+            ]
+        
     def __call__(self, input_dict):
         """Call function to filter objects by their names.
         Args:
@@ -1845,18 +1750,21 @@ class ObjectNameFilter(object):
                 keys are updated in the result dict.
         """
         gt_labels_3d = input_dict['gt_labels_3d']
-        gt_bboxes_mask = np.array([n in self.labels for n in gt_labels_3d],
+        mask = np.array([n in self.labels for n in gt_labels_3d],
                                   dtype=np.bool_)
-        input_dict['gt_bboxes_3d'] = input_dict['gt_bboxes_3d'][gt_bboxes_mask]
-        input_dict['gt_labels_3d'] = input_dict['gt_labels_3d'][gt_bboxes_mask]
-        if 'gt_instances_ids' in input_dict:
-            input_dict['gt_instances_ids'] = input_dict['gt_instances_ids'][gt_bboxes_mask]
-        if 'gt_instances_traj' in input_dict:
-            gt_instances_traj = input_dict['gt_instances_traj']
-            gt_instances_traj = [traj for traj, m in zip(gt_instances_traj, gt_bboxes_mask) if m]
-            input_dict['gt_instances_traj'] = gt_instances_traj
-            #input_dict['gt_instances_traj'] = input_dict['gt_instances_traj'][gt_bboxes_mask]
 
+        for key in self.keys:
+            if key in input_dict:
+                # instances in a list
+                if isinstance(input_dict[key], (list, tuple)):
+                    res_ = []
+                    for i in range(len(input_dict[key])):
+                        if mask[i]:
+                            res_.append(input_dict[key][i])
+                    input_dict[key] = res_  
+                else:
+                    input_dict[key] = input_dict[key][mask]
+                                    
         return input_dict
 
     def __repr__(self):

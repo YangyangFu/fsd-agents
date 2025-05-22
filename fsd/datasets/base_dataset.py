@@ -1,9 +1,11 @@
 # Copyright (c) OpenMMLab. All rights reserved. 
+from abc import abstractmethod
 import copy
 import logging
 import numpy as np
 import tempfile
 import warnings
+import os
 from os import path as osp
 from torch.utils.data import Dataset
 from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
@@ -14,88 +16,79 @@ from terminaltables import AsciiTable
 from mmengine.config import Config
 from mmengine.fileio import load, dump, list_from_file
 from mmengine.logging import print_log
-from mmengine.dataset import Compose
-from mmdet3d.structures import get_box_type, LiDARInstance3DBoxes, DepthInstance3DBoxes, CameraInstance3DBoxes
-from fsd.structures import TrajectoryData
-from fsd.datasets.utils import extract_result_dict, get_loading_pipeline
+from mmengine.dataset import Compose, BaseDataset
+from mmdet3d.structures import (get_box_type, LiDARInstance3DBoxes, 
+                                DepthInstance3DBoxes, CameraInstance3DBoxes, 
+                                BaseInstance3DBoxes)
+from fsd.structures import Trajectory
 from fsd.registry import DATASETS
 
+
 @DATASETS.register_module()
-class Planning3DDataset(Dataset):
-    """Customized 3D dataset.
-
-    This is the base dataset of SUNRGB-D, ScanNet, nuScenes, and KITTI
-    dataset.
-    
-    dataset pipelines:
-    - prepare anno info to a standard strucuture
-    - get data info: input data path and anno info
-        - _get_pts_info
-        - _get_imgs_info
-        - _get_ann_info
-    - pre_pipeline: prepare data before data processing
-    - run_pipeline: run the pipeline for data transformation
-    - prepare_train_data: prepare data for training
-    
-    Args:
-        data_root (str): Path of dataset root.
-        ann_file (str): Path of annotation file.
-        pipeline (list[dict], optional): Pipeline used for data processing.
-            Defaults to None.
-        classes (tuple[str], optional): Classes used in the dataset.
-            Defaults to None.
-        modality (dict, optional): Modality to specify the sensor data used
-            as input. Defaults to None.
-        box_type_3d_original (str, optional): Type of 3D box of the original annotation file.
-            Defaults to 'Depth'. Available options includes
-            - 'LiDAR': Box in LiDAR coordinates, e.g., x-front, y-left, z-up.
-            - 'Depth': Box in depth coordinates, e.g., x-right, y-front, z-up as in NuScenes.
-            - 'Camera': Box in camera coordinates, e.g., x-right, y-down, z-front.
-        box_type_3d (str, optional): Type of 3D box of the dataset.
-            Based on the `box_type_3d`, the dataset will encapsulate the box
-            to its original format then converted them to `box_type_3d`.
-            Defaults to 'LiDAR'. Available options includes
-            - 'LiDAR': Box in LiDAR coordinates, e.g., x-front, y-left, z-up.
-            - 'Depth': Box in depth coordinates, e.g., x-right, y-front, z-up.
-            - 'Camera': Box in camera coordinates, e.g., x-right, y-down, z-front.
-        filter_empty_gt (bool, optional): Whether to filter empty GT.
-            Defaults to True.
-        test_mode (bool, optional): Whether the dataset is in test mode.
-            Defaults to False.
+class BasePlanDataset(BaseDataset):
+    """Base Class for 3D planning dataset.
     """
-    # transformation matrix from dataset lidar coordinate to mmdet3d lidar
-    # default is identity matrix
-    TO_MMDET3D_LIDAR = np.eye(4)
-
+    # dataset metainfo
     METAINFO = {}
     
     def __init__(self,
-                 data_root,
-                 ann_file,
-                 metainfo = None,
-                 pipeline = None,
-                 modality = None,
-                 camera_sensors = ['CAM_FRONT'],
-                 lidar_sensors = None,
-                 box_type_3d_original = 'Depth', # box cooridnate in the original annotation file
-                 box_type_3d = 'LiDAR', # targeted box coordinate for the dataset
-                 filter_empty_gt = True,
-                 past_steps = 4, # past trajectory length
-                 prediction_steps = 6, # motion prediction length if any
-                 planning_steps = 6, # planning length
-                 sample_interval = 5, # sample interval # frames skiped per step
-                 FPS = 10, # frame per second
-                 test_mode = False,
-                 show_ins_var = False,
+                 data_root: Optional[str] = None,
+                 ann_file: str = '',
+                 metainfo: Optional[dict] = None,
+                 data_prefix: dict = dict(pts='velodyne', img=''),
+                 pipeline: List[Union[dict, Callable]] = [],
+                 modality: dict = dict(use_lidar=False, use_camera=True),
+                 box_type_3d_original: str = 'Depth', # box cooridnate in the original annotation file
+                 box_type_3d: str = 'LiDAR', # targeted box coordinate for the dataset
+                 filter_empty_gt: bool = True,
+                 past_steps: int = 4, # past trajectory length
+                 prediction_steps: int = 6, # motion prediction length if any
+                 planning_steps: int = 6, # planning length
+                 sample_interval: int = 1, # sample interval # frames skiped per step
+                 FPS: int = 2, # frame per second
+                 test_mode: bool = False,
+                 load_eval_anns: bool = True,
+                 show_ins_var: bool = False,
+                 with_goal_points: bool = True,
                  **kwargs) -> None:
-        super().__init__()
-        self.data_root = data_root
-        self.ann_file = ann_file
-        self.test_mode = test_mode
-        self.modality = modality
-        self.camera_sensors = [sensor.upper() for sensor in camera_sensors] if camera_sensors is not None else None
-        self.lidar_sensors = [sensor.upper() for sensor in lidar_sensors] if lidar_sensors is not None else None
+        
+        """Initialize the dataset.
+        
+        Args:
+            data_root (str): Root directory path of the dataset.
+            ann_file (str): Path to the annotation file.
+            metainfo (dict): Metainfo of the dataset.
+            data_prefix (dict): Prefix of the dataset.
+                - pts (str): Prefix of point cloud data.
+                - img (str): Prefix of image data.
+            pipeline (list[dict | callable]): Processing pipeline.
+            modality (dict): Modality of the dataset.
+                - use_lidar (bool): Whether to use lidar data.
+                - use_camera (bool): Whether to use camera data.
+            camera_sensors (list[str]): List of camera sensors.
+            lidar_sensors (list[str]): List of lidar sensors.
+            box_type_3d_original (str): Box type of MMDet3D boxes in the original annotation file.
+                - Depth: depth coordinate
+                - Lidar: lidar coordinate
+                - Camera: camera coordinate
+            box_type_3d (str): targeted box type of MMDet3D for the dataset.
+                - Depth: depth coordinate
+                - Lidar: lidar coordinate
+                - Camera: camera coordinate
+            filter_empty_gt (bool): Whether to filter empty ground truth. Usually used after pipeline.
+            past_steps (int): Number of past steps for trajectory generation.
+            prediction_steps (int): Number of prediction steps for agent trajectory generation.
+            planning_steps (int): Number of planning steps for ego trajectory generation.
+            sample_interval (int): Sample interval for trajectory generation.
+            FPS (int): Frame per second in original data
+            test_mode (bool): Whether the dataset is in test mode.
+            load_eval_anns (bool): Whether to load evaluation annotations.
+            show_ins_var (bool): Whether to show instance variation.
+            with_goal_points (bool): Whether to add goal points to trajectory.
+        
+        """ 
         self.filter_empty_gt = filter_empty_gt
+        self.load_eval_anns = load_eval_anns
         
         # past and future frames
         self.past_steps = past_steps
@@ -104,10 +97,30 @@ class Planning3DDataset(Dataset):
         self.sample_interval = sample_interval
         self.FPS = FPS
         
-        self.box_type_3d_original = box_type_3d_original
+        # add goal points to trajectory
+        self.with_goal_points = with_goal_points
+        
+        # modality
+        _default_modality_keys = ('use_lidar', 'use_camera')
+        if modality is None:
+            modality = dict()
+        for key in _default_modality_keys:
+            if key not in modality:
+                modality[key] = False
+        self.modality = modality
+        assert self.modality['use_lidar'] or self.modality['use_camera'], (
+            'Please specify the `modality` (`use_lidar` '
+            f', `use_camera`) for {self.__class__.__name__}')        
+        
+        # boxes
+        self.box_type_3d_source = box_type_3d_original
+        self.box_type_3d_target = box_type_3d
         self.box_type_3d, self.box_mode_3d = get_box_type(box_type_3d)
         
-        # class names
+
+        # initialize the dataset
+        # class names override by providing a new class list in metainfo
+        # label_mapping {original_label: new_label}
         if metainfo is not None and 'classes' in metainfo:
             # map unselected classes to -1
             self.label_mapping = {
@@ -129,27 +142,25 @@ class Planning3DDataset(Dataset):
             self.label_mapping[-1] = -1
             self.num_ins_per_cat = [0] * len(self.METAINFO['classes'])
             
+        super(BasePlanDataset, self).__init__(
+            ann_file=ann_file,
+            metainfo=metainfo,
+            data_root=data_root,
+            data_prefix=data_prefix,
+            pipeline=pipeline,
+            test_mode=test_mode,
+            **kwargs)
+        
         # can be accessed by other components in the runner
-        self._metainfo = self._load_metainfo(metainfo)
         self.metainfo['label_mapping'] = self.label_mapping
         self.metainfo['box_type_3d'] = self.box_type_3d
         
-        # load annotations
-        self.data_infos = self.load_anno_files(self.ann_file)
-        self.num_samples = len(self.data_infos)
-        
-        if pipeline is not None:
-            self.pipeline = Compose(pipeline)
-
-        # set group flag for the sampler
-        if not self.test_mode:
-            self._set_group_flag()
-
+        # full initialization        
         if not kwargs.get('lazy_init', False):
             # used for showing variation of the number of instances before and
             # after through the pipeline
             self.show_ins_var = show_ins_var
-
+                        
             # show statistics of this dataset
             print_log('-' * 30, 'current')
             print_log(
@@ -163,179 +174,65 @@ class Planning3DDataset(Dataset):
             print_log(
                 f'The number of instances per category in the dataset:\n{table.table}',  # noqa: E501
                 'current')
-        
-    @property
-    def metainfo(self):
-        """Get meta information of dataset.
-
-        Returns:
-            dict: meta information collected from ``BaseDataset.METAINFO``,
-            annotation file and metainfo argument during instantiation.
-        """
-        return copy.deepcopy(self._metainfo)
-
-
-    def _load_metainfo(self,
-                       metainfo: Union[Mapping, Config, None] = None) -> dict:
-        """Collect meta information from the dictionary of meta.
-
-        Args:
-            metainfo (Mapping or Config, optional): Meta information dict.
-                If ``metainfo`` contains existed filename, it will be
-                parsed by ``list_from_file``.
-
-        Returns:
-            dict: Parsed meta information.
-        """
-        # avoid `cls.METAINFO` being overwritten by `metainfo`
-        cls_metainfo = copy.deepcopy(self.METAINFO)
-        if metainfo is None:
-            return cls_metainfo
-        if not isinstance(metainfo, (Mapping, Config)):
-            raise TypeError('metainfo should be a Mapping or Config, '
-                            f'but got {type(metainfo)}')
-
-        for k, v in metainfo.items():
-            if isinstance(v, str):
-                # If type of value is string, and can be loaded from
-                # corresponding backend. it means the file name of meta file.
-                try:
-                    cls_metainfo[k] = list_from_file(v)
-                except (TypeError, FileNotFoundError):
-                    print_log(
-                        f'{v} is not a meta file, simply parsed as meta '
-                        'information',
-                        logger='current',
-                        level=logging.WARNING)
-                    cls_metainfo[k] = v
-            else:
-                cls_metainfo[k] = v
-        return cls_metainfo
-
-    def load_anno_files(self, ann_file):
-        """Load annotations from ann_file.
-
-        Args:
-            ann_file (str): Path of the annotation file.
-
-        Returns:
-            list[dict]: List of annotations.
-        """
-        return load(ann_file)
     
-    def _check_if_annotation_is_valid(self, anno_info):
-        """Check if the annotation is valid.
-        
-        Args:
-            anno_info (dict): Annotation information.
-            
-        Returns:
-            bool: Whether the annotation is valid.
-        """
-        required_keys = ['folder', 'scene_token', 'frame_idx', 'ego', 'sensors', 
-                         'gt_bboxes_3d', 'gt_instances_names', 
-                         'gt_instances_ids', 'gt_bboxes_mask', \
-                          'gt_instances_velocities']
-        for key in required_keys:
-            if key not in anno_info:
-                return False
-        
-        # check ego info
-        ego_keys = ['world2ego', 'translation', 'yaw', 
-                    'velocity', 'acceleration', 'size', 
-                    'brake', 'throttle', 'steering']
-        for key in ego_keys:
-            if key not in anno_info['ego']:
-                return False
-        
-        # check sensors info
-        for sensor in anno_info['sensors'].keys():
-            sensor_keys = ['sensor2ego', 'sensor2world', 'intrinsic', 'data_path']
-            for key in sensor_keys:
-                if key not in anno_info['sensors'][sensor]:
-                    return False
-        
-        return True
+    #def get_data_info(self, index):
+    #    return super().get_data_info(index)
+    #
+    def get_ann_info(self, index):
+        """Get annotation info according to the given index.
 
-    def prepare_planning_info(self, index):
-        """ Prepare annotation info in the raw dataset 
-            to a standard structured design for planning and control only.
-            
-            The resulting structure should be a dictionary with the following required keys:
-            - 'folder': data folder relative to data root, e.g., data_root/folder/camera_xxx/xxx.png
-            - 'scene_token': scene token
-            - 'frame_index': frame index
-            - 'ego': dict contains ego information
-                - 'size': ego size, 2 times extent of the ego vehicle in x, y, z
-                - 'ego2world': world to ego transformation
-                - 'translation': ego translation
-                - 'rotation': in quaternion
-                - 'yaw': ego yaw
-                - 'velocity': ego velocity
-                - 'acceleration': ego acceleration
-            - 'sensors': dict contains sensor information
-                - 'CAM_XX': dict contains camera information
-                    - 'sensor2ego': camera to ego transformation
-                    - 'sensor2world': camera to world transformation
-                    - 'intrinsic': camera intrinsics
-                    - 'data_path': camera image path
-                - 'LIDAR_XX': dict contains lidar information
-                    - 'sensor2ego': lidar to ego transformation
-                    - 'sensor2world': lidar to world transformation
-                    - 'data_path': lidar data path
-            - 'gt_bboxes_3d': ground truth boxes in the format of [x, y, z, w, l, h, ry]
-            - 'gt_instances_names': ground truth class names
-            - 'gt_bboxes_mask': ground truth boxes mask
-            - 'gt_instances_velocities': ground truth velocities for all instances
-            - 'gt_instances_ids': ground truth instance ids
-            - 'gt_instances2world': ground truth instance pose in world coordinates
-            - 'box_center': default center of the boxes, e.g., [0.5, 0.5, 0.5] for center in Nuscene, [0.5, 0.5, 0] for bottom center in KITTI
+        Use index to get the corresponding annotations, thus the
+        evalhook could use this api.
+
+        Args:
+            index (int): Index of the annotation data to get.
+
+        Returns:
+            dict: Annotation information.
         """
-        raw_info= self.data_infos[index]
-        if self._check_if_annotation_is_valid(raw_info):
-            return raw_info
-        
+        data_info = self.get_data_info(index)
+        # test model
+        if 'ann_info' not in data_info:
+            ann_info = self.parse_ann_info(data_info)
         else:
-            raise ValueError(f"Annotation info at index {index} is invalid. \
-                Please overwrite this function to generate annotation info that follows the standard annotation structure as illustrated in \
-                    XXXX.")
-    
-    def _get_pts_info(self, info):
-        """Get point cloud data info from the given info. 
+            ann_info = data_info['ann_info']
+
+        return ann_info
+
+    def _filter_with_mask(self, ann_info):
+        """Filter the annotation info with the mask.
+        
+        Args:
+            ann_info (dict): Annotation information.
+                - gt_bboxes_3d (np.ndarray): 3D ground truth bboxes
+                - gt_labels_3d (np.ndarray): Labels of ground truths.
+                - gt_instances_names (list[str]): Class names of ground truths.
+                - gt_instances_ids (np.ndarray): IDs of ground truths.
+                - gt_bboxes_mask (np.ndarray): Mask of ground truths.
+                - gt_bboxes_anno_token (np.ndarray): Annotation token of ground truths.
+                - gt_bboxes_velocity (np.ndarray): Velocity of ground truths.
+                - gt_bboxes_id (np.ndarray): ID of ground truths.
+        Returns:
+            dict: Filtered annotation information.
         """
-        pts_filenames = []
-        pts_sensors = []
-        lidar_poses_in_world = []
-        for sensor in self.lidar_sensors:
-            if 'LIDAR' in sensor and sensor in info['sensors']:
-                pts_datapath = info['sensors'][sensor]['data_path']
-                pts_filenames.append(osp.join(self.data_root, pts_datapath))
-                pts_sensors.append(sensor)
-                
-                # lidar to world 
-                lidar_poses_in_world.append(info['sensors'][sensor]['sensor2world'])
+        filtered_ann_info = {}
+        if 'gt_bboxes_mask' in ann_info:
+            filter_mask = ann_info['gt_bboxes_mask']
+        else:
+            filter_mask = np.ones_like(ann_info['gt_bboxes_3d'], dtype=bool)
         
-        assert len(pts_sensors) <= 1, "Only one lidar sensor is supported."
+        # filter all anno info
+        for key in ann_info.keys():
+            if isinstance(ann_info[key], np.ndarray) or isinstance(ann_info[key], BaseInstance3DBoxes):
+                filtered_ann_info[key] = ann_info[key][filter_mask]
+            elif isinstance(ann_info[key], list):
+                filtered_ann_info[key] = [item[filter_mask] for item in ann_info[key]]
+            else:
+                filtered_ann_info[key] = ann_info[key]
         
-        return pts_filenames[0], pts_sensors[0], lidar_poses_in_world[0]
-    
-    def _get_imgs_info(self, info):
-        img_filenames = []
-        img_sensors = []
-        cam_intrinsics = []
-        cam_poses_in_world = []
-        for sensor in self.camera_sensors:
-            if 'CAM' in sensor and sensor in info['sensors']:
-                img_datapath = info['sensors'][sensor]['data_path']
-                img_filenames.append(osp.join(self.data_root, img_datapath))
-                cam_intrinsics.append(info['sensors'][sensor]['intrinsic'])
-                cam_poses_in_world.append(info['sensors'][sensor]['sensor2world'])
-                
-                img_sensors.append(sensor)
-                
-        return img_filenames, img_sensors, cam_intrinsics, cam_poses_in_world
-    
-    def _get_ann_info(self, info):
+        return filtered_ann_info
+        
+    def parse_ann_info(self, info):
         """Get annotation info according to the given index.
 
         Args:
@@ -349,262 +246,223 @@ class Planning3DDataset(Dataset):
                 - gt_labels_3d (np.ndarray): Labels of ground truths.
                 - gt_instances_names (list[str]): Class names of ground truths.
         """
-        ## Construct mmdet3d Box objects
-        # -------------------------------------------------------------------
+        num_bboxes = len(info['instances'])
+        # empty gt
+        if num_bboxes == 0:
+            return None
 
-        gt_bboxes_mask = info.pop('gt_bboxes_mask')
-        gt_bboxes_3d = info.pop('gt_bboxes_3d')
-        gt_instances_names = info.pop('gt_instances_names')
-        gt_instances_ids = info.pop('gt_instances_ids')
-        gt_instances2world = info.pop('gt_instances2world')
+        gt_bboxes_3d = np.array([instance['bbox_3d'] for instance in info['instances']]).astype(np.float32)
+        gt_bboxes_mask = np.array([instance['bbox_3d_isvalid'] for instance in info['instances']]).astype(np.bool_)
+        gt_bboxes_velocity = np.array([instance['velocity'] for instance in info['instances']]).astype(np.float32)
+        gt_bboxes_id = np.array([instance['id'] for instance in info['instances']]).astype(np.str_)
+        #gt_bboxes_pose = np.array([instance['pose'] for instance in info['instances']]).astype(np.float32)
         
-        # map labels
-        gt_labels_3d = []
-        for name in gt_instances_names:
-            if name in self.METAINFO['classes']:
-                idx = self.METAINFO['classes'].index(name)
-                gt_labels_3d.append(self.label_mapping[idx])
-            else:
-                gt_labels_3d.append(-1) # if not in the class list, set as -1
-        gt_labels_3d = np.array(gt_labels_3d)
-        # count the number of instances per category
-        for label in gt_labels_3d:
-            if label != -1:
-                self.num_ins_per_cat[label] += 1
+        # labels as int might change due to user-defined mapping
+        gt_labels_3d = [instance['bbox_label_3d'] for instance in info['instances']]
+        gt_labels_3d = np.array([self.label_mapping[label] for label in gt_labels_3d]).astype(np.int64)
+
+        # sample_annotation token in nuscenes
+        if num_bboxes > 0 and 'annotation_token' in info['instances'][0]:
+            gt_bboxes_anno_token = np.array([instance['annotation_token'] for instance in info['instances']])
+        
+        # bboxes traj
+        gt_bboxes_future_trajectory = np.array([instance['future_trajectory'] for instance in info['instances']]).astype(np.float32)
+        gt_bboxes_future_yaws = np.array([instance['future_yaw'] for instance in info['instances']]).astype(np.float32)
+        gt_bboxes_future_masks = np.array([instance['future_mask'] for instance in info['instances']]).astype(np.bool_)
+        gt_bboxes_goal = np.array([instance['goal'] for instance in info['instances']]).astype(np.float32)
+        
+        # ego related 
+        gt_ego_future_trajs = np.array(info['ego']['future_trajectory']).astype(np.float32)
+        gt_ego_future_yaws = np.array(info['ego']['future_yaw']).astype(np.float32)
+        gt_ego_future_masks = np.array(info['ego']['future_mask']).astype(np.bool_)
+    
+        # box type conversion
+        if self.box_type_3d_source.lower() == 'depth':
+            BoxInstance = DepthInstance3DBoxes
+        elif self.box_type_3d_source.lower() == 'lidar':
+            BoxInstance = LiDARInstance3DBoxes
+        elif self.box_type_3d_source.lower() == 'camera':
+            BoxInstance = CameraInstance3DBoxes
+        else:
+            raise ValueError(f"Unknown box type {self.box_type_3d_source}")
+        
+        self.to_mmdet3d_lidar = self._get_to_mmdet3d_lidar(self.box_type_3d_source, self.box_type_3d_target)
+        
+        ## ==================================================
+        #TODO: this is hard-coded for nuscenes lidar to mmdet3d lidar (i.e., mmdet3d depth to mmdet3d lidar)
+        # need implement the transformation based on transformation matrix
+        if self.to_mmdet3d_lidar:
+            # convert boxes
+            # x_mmdet = y_nuscenes, y_mmdet = -x_nuscenes, z_mmdet = z_nuscenes
+            #gt_bboxes_3d[:, [0, 1]] = gt_bboxes_3d[:, [1, 0]]
+            #gt_bboxes_3d[:, 1] = -gt_bboxes_3d[:, 1]
+            # yaw: yaw_mmdet = yaw_nuscenes - pi/2
+            #gt_bboxes_3d[:, 6] -= np.pi / 2
+            #gt_bboxes_3d[:, 6] = self._limit_yaw(gt_bboxes_3d[:, 6])
+            # velocity
+            #gt_bboxes_velocity[..., [0, 1]] = gt_bboxes_velocity[..., [1, 0]]
+            #gt_bboxes_velocity[..., 1] = -gt_bboxes_velocity[..., 1]
+            
+            # convert trajectory yaw
+            gt_bboxes_future_trajectory[..., [0, 1]] = gt_bboxes_future_trajectory[..., [1, 0]]
+            gt_bboxes_future_trajectory[..., 1] = -gt_bboxes_future_trajectory[..., 1]
+            gt_bboxes_future_yaws -= np.pi / 2
+            gt_bboxes_future_yaws = self._limit_yaw(gt_bboxes_future_yaws)
+            # convert goal
+            gt_bboxes_goal[..., [0, 1]] = gt_bboxes_goal[..., [1, 0]]
+            gt_bboxes_goal[..., 1] = -gt_bboxes_goal[..., 1]
+            
+            # ego 
+            gt_ego_future_trajs[..., [0, 1]] = gt_ego_future_trajs[..., [1, 0]]
+            gt_ego_future_trajs[..., 1] = -gt_ego_future_trajs[..., 1]
+            gt_ego_future_yaws -= np.pi / 2
+            gt_ego_future_yaws = self._limit_yaw(gt_ego_future_yaws)
+            
+            # convert to mmdet3d lidar coordinate
+            # lidar2ego
+            if 'lidar2ego' in info['lidar_points']:
+                info['lidar_points']['lidar2ego'] = (np.array(info['lidar_points']['lidar2ego']) @ np.linalg.inv(self.to_mmdet3d_lidar)).tolist()
+            
+            # lidarcam
+            for cam in info['images'].keys():
+                if 'lidar2cam' in info['images'][cam]:
+                    info['images'][cam]['lidar2cam'] = (np.array(info['images'][cam]['lidar2cam']) @ np.linalg.inv(self.to_mmdet3d_lidar)).tolist()
 
         # add velocity to gt_bboxes_3d
-        # from (N, 7) to (N, 9)
-        if self.with_velocity:
-            gt_velocities = info.get('gt_instances_velocities', None)
-            if gt_velocities is None:
-                gt_velocities = np.zeros_like((gt_bboxes_3d.shape[0], 2))
-                
-            # fill nan with 0
-            nan_mask = np.isnan(gt_velocities).any(axis=1)
-            gt_velocities[nan_mask] = 0
-            gt_bboxes_3d = np.concatenate([gt_bboxes_3d, gt_velocities], axis=-1)
+        gt_bboxes_3d = np.concatenate([gt_bboxes_3d, gt_bboxes_velocity], axis=-1)
 
         # the nuscenes box center is [0.5, 0.5, 0.5], we change it to be
         # the same as KITTI (0.5, 0.5, 0)
-        if self.box_type_3d_original.lower() == 'depth':
-            BoxInstance = DepthInstance3DBoxes
-        elif self.box_type_3d_original.lower() == 'lidar':
-            BoxInstance = LiDARInstance3DBoxes
-        elif self.box_type_3d_original.lower() == 'camera':
-            BoxInstance = CameraInstance3DBoxes
-        else:
-            raise ValueError(f"Unknown box type {self.box_type_3d_original}")
-        
-        gt_bboxes_3d = BoxInstance(#LiDARInstance3DBoxes(
+        gt_bboxes_3d = BoxInstance(
             gt_bboxes_3d,
             box_dim=gt_bboxes_3d.shape[-1],
-            origin=info['box_center']).convert_to(self.box_mode_3d)
+            origin=(0.5, 0.5, 0.5)).convert_to(self.box_mode_3d)
         
-        # planning annotations
-        gt_instances_traj = info.pop('gt_instances_traj')
-        gt_ego_traj = info.pop('gt_ego_traj')
+        # planning annotations for future steps
+        # (num_boxes, fut, 4) : (x, y, z, yaw)
+        gt_bboxes_traj = np.concatenate(
+            [gt_bboxes_future_trajectory, gt_bboxes_future_yaws[:, :, None]], 
+            axis=-1)
         
-        anns_results = dict(
+        # construct anno info
+        ann_info = dict(
             gt_bboxes_3d=gt_bboxes_3d,
             gt_labels_3d=gt_labels_3d,
             gt_bboxes_mask=gt_bboxes_mask,
-            gt_instances_names=gt_instances_names,
-            gt_instances_ids=gt_instances_ids,
-            gt_instances2world=gt_instances2world,
-            gt_instances_traj=gt_instances_traj,
-            gt_ego_traj=gt_ego_traj)
+            gt_bboxes_id=gt_bboxes_id,
+            gt_bboxes_traj=gt_bboxes_traj,
+            gt_bboxes_traj_mask=gt_bboxes_future_masks,
+            gt_bboxes_goal=gt_bboxes_goal,
+            )
+        if gt_bboxes_anno_token is not None:
+            ann_info['gt_bboxes_anno_token'] = gt_bboxes_anno_token
         
-        return anns_results
+        # filter with mask
+        ann_info = self._filter_with_mask(ann_info)
+        
+        # category statistics
+        for label in ann_info['gt_labels_3d']:
+            if label != -1:
+                self.num_ins_per_cat[label] += 1
+        
+        # add ego annotation
+        gt_ego_traj = np.concatenate(
+            [gt_ego_future_trajs, gt_ego_future_yaws[:, None]], 
+            axis=-1)
+        
+        ann_info.update(
+            gt_ego_traj=gt_ego_traj,
+            gt_ego_traj_mask=gt_ego_future_masks,
+        )
+        
+        return ann_info
     
-    def _get_map_info(self, info):
+    def get_map_info(self, info):
         """Get map data info from the given info. 
         """
         pass
-    
-    def get_data_info(self, info):
-        """Get data info according to the given index.
-        - Points data
-        - Multiview image data
-        - Annotation data
-            
-        Args:
-            index (int): Index of the sample data to get.
 
-        Returns:
-            dict: Data information that will be passed to the data \
-                preprocessing pipelines. It includes the following keys:
-                
-                - pts_filename (list[str]): Filenames of point clouds if more than one lidar.
-                - imgs_filename (list[str]): Filenames of images if more than one camera.
-                - data_sample (DataSample): Annotation info.
-        """
-        input_dict = {}
-        
-        # get lidar data
-        if self.modality and self.modality.get('use_lidar', False) and self.lidar_sensors:
-            pts_filenames, pts_sensors, lidar_poses = self._get_pts_info(info)
-            input_dict['pts_filename'] = pts_filenames
-            input_dict['pts_sensor_name'] = pts_sensors
-            input_dict['lidar2world'] = lidar_poses
-            
-        # get camera data file
-        if self.modality and self.modality.get('use_camera', False) and self.camera_sensors:
-            img_filenames, img_sensors, cam_intrinsics, cam_poses_in_world = self._get_imgs_info(info)
-            input_dict['img_filename'] = img_filenames       
-            input_dict['img_sensor_name'] = img_sensors
-            input_dict['cam_intrinsics'] = cam_intrinsics
-            input_dict['cam2world'] = cam_poses_in_world
-                    
-        # get ego and sensor info
-        input_dict['ego'] = info['ego']
-        input_dict['sensors'] = info['sensors']
-        
-        # get annotation info
-        anno_info = self._get_ann_info(info)
-        
-        # save to standard info
-        input_dict['anno_info'] = anno_info
+    def parse_data_info(self, info: dict) -> dict:
+        """Process the raw data info.
 
-        return input_dict
-
-    def generate_past_future_info(self, index, curr_info):
-        """Generate past/future annotation info, such as future trajectory.
-
-            The coordinate system is in the local lidar coord at the current frame.
-        """
-        # make sure the required keys are in the info
-        #required_keys = []
-        #for key in required_keys:
-        #    if key not in info:
-        #        raise ValueError(f"Key {key} is required in the info.")
-    
-        # make sure the required attribues are set
-        
-        # generate ego past/future trajectory
-        past_future_ego_traj = self._generate_past_future_ego_trajectory(index, curr_info)
-
-        # generate instances past/future trajectory
-        past_future_instances_traj = self._generate_past_future_instances_trajectory(index, curr_info)
-
-        # add to the current info
-        curr_info['gt_ego_traj'] = past_future_ego_traj
-        curr_info['gt_instances_traj'] = past_future_instances_traj
-
-        return curr_info
-        
-    def _generate_past_future_ego_trajectory(self, index, curr_info):
-        """Generate past and future trajectories for ego vehicle, offset from the current frame.
+        Convert all relative path of needed modality data file to
+        the absolute path. And process the `instances` field to
+        `ann_info` in training stage.
 
         Args:
-            index (_type_): _description_
-            info (_type_): _description_
-        
+            info (dict): Raw info dict.
+
         Returns:
-            TrajectoryData: Trajectory data for ego vehicle, with a length of (past_steps + 1 + planning_steps)
+            dict: Has `ann_info` in training stage. And
+            all path has been converted to absolute path.
         """
+        info = copy.deepcopy(info)
+        if self.modality['use_lidar']:
+            info['lidar_points']['lidar_path'] = \
+                osp.join(
+                    self.data_prefix.get('pts', ''),
+                    info['lidar_points']['lidar_path'])
 
-        index_list = range(index - self.past_steps * self.sample_interval, index + self.planning_steps * self.sample_interval + 1, self.sample_interval)
-        world2lidar_curr = np.linalg.inv(curr_info['sensors']['LIDAR_TOP']['sensor2world'])
-        xyr = np.zeros((self.past_steps + 1 + self.planning_steps, 3)) # past + current + future
-        mask = np.zeros((self.past_steps + 1 + self.planning_steps,)) 
+            info['num_pts_feats'] = info['lidar_points']['num_pts_feats']
+            info['lidar_path'] = info['lidar_points']['lidar_path']
+            if 'lidar_sweeps' in info:
+                for sweep in info['lidar_sweeps']:
+                    file_suffix = sweep['lidar_points']['lidar_path'].split(
+                        os.sep)[-1]
+                    if 'samples' in sweep['lidar_points']['lidar_path']:
+                        sweep['lidar_points']['lidar_path'] = osp.join(
+                            self.data_prefix['pts'], file_suffix)
+                    else:
+                        sweep['lidar_points']['lidar_path'] = osp.join(
+                            self.data_prefix['sweeps'], file_suffix)
 
-        # current frame: 0 centered
+        if self.modality['use_camera']:
+            for cam_id, img_info in info['images'].items():
+                if 'img_path' in img_info:
+                    if cam_id in self.data_prefix:
+                        cam_prefix = self.data_prefix[cam_id]
+                    else:
+                        cam_prefix = self.data_prefix.get('img', '')
+                    img_info['img_path'] = osp.join(cam_prefix,
+                                                    img_info['img_path'])
+        # add camera names for visualization
+        if self.modality['use_camera']:
+            img_names = list(info['images'].keys())
+            info['img_names'] = img_names
+            
+        # parse ego information
+        # ego annotation will be parsed in parse_ann_info
+        if 'ego' in info:
+            ego_keys = ['ego_size', 'ego_velocity', 
+                        'ego_yaw_velocity', 'ego_goal', 
+                        'ego_can_bus', 'ego_command',
+                        'ego_history_trajectory', 'ego_history_yaw',
+                        'ego_history_mask'
+                        ]
+            for key in ego_keys:
+                # remove prefix ego
+                if key[4:] in info['ego']:
+                    if 'mask' in key:
+                        info[key] = np.array(info['ego'][key[4:]]).astype(np.bool_)
+                    else:
+                        info[key] = np.array(info['ego'][key[4:]]).astype(np.float32)
         
-        # past/future frames
-        for i, idx in enumerate(index_list):
-            # skip the current frame
-            if idx == index:
-                mask[i] = 1
-                continue
-            # check if index is within range
-            if idx < 0 or idx >= self.num_samples:
-                break 
-            # check if the the frames are from the same scene
-            adj_info = self.prepare_planning_info(idx)
-            if curr_info['scene_token'] != adj_info['scene_token']:
-                break
+        # parse map information
+        if 'map' in info:
+            map_keys = ['map_location']
+            for key in map_keys:
+                info[key] = info['map'][key[4:]]
             
-            world2lidar_adj = np.linalg.inv(adj_info['sensors']['LIDAR_TOP']['sensor2world'])
-            # T12 = T2^-1 * T1
-            adj2curr = world2lidar_curr @ np.linalg.inv(world2lidar_adj)
-            xyr[i, :2] = adj2curr[:2, 3]
-            xyr[i, 2] = np.arctan2(adj2curr[1, 0], adj2curr[0, 0]) # [-pi, pi]
-            mask[i] = 1
-            
-        return TrajectoryData(metainfo=dict(num_past_steps=self.past_steps, 
-                                            num_future_steps=self.planning_steps,
-                                            time_step=self.sample_interval/self.FPS), 
-                              data=xyr.astype(np.float32), 
-                              mask=mask.astype(np.uint8))
-            
-    def _generate_past_future_instances_trajectory(self, index, curr_info):
-        """Generate past and future trajectories for instances, 
-            centered at the lidar coords in the current frame.
+        # parse annoation information
+        if not self.test_mode:
+            # used in training
+            info['ann_info'] = self.parse_ann_info(info)
+        if self.test_mode and self.load_eval_anns:
+            info['ann_info'] = self.parse_ann_info(info)
+            info['eval_ann_info'] = info['ann_info']
+                                
+        return info
 
-        Args:
-            index (_type_): _description_
-            info (_type_): _description_
-        
-        Returns:
-            TrajectoryData: Trajectory data for N instances, with a length of (past_steps + 1 + planning_steps)
-        """
-        index_list = range(index - self.past_steps * self.sample_interval, 
-                           index + self.planning_steps * self.sample_interval + 1, 
-                           self.sample_interval)
-        instances_ids = curr_info['gt_instances_ids']
-        world2lidar_curr = np.linalg.inv(curr_info['sensors']['LIDAR_TOP']['sensor2world'])
-        
-        # initialize the trajectory data
-        trajs = []
-                
-        # for each instance in the current frame, find its past and future trajectory
-        for i, instance_id in enumerate(instances_ids):
-            # TODO: should use accumulative points for the trajectory. if no more data, use the last point
-            xyr = np.zeros((self.past_steps + 1 + self.planning_steps, 3)) # (T, 3)
-            mask = np.zeros((self.past_steps + 1 + self.planning_steps,)) # (T,)    
-            
-            # 
-            instance2lidar_curr = world2lidar_curr @ curr_info['gt_instances2world'][i]
-            xyr[self.past_steps, :2] = instance2lidar_curr[:2, 3]
-            xyr[self.past_steps, 2] = np.arctan2(instance2lidar_curr[1, 0], instance2lidar_curr[0, 0]) # [-pi, pi]
-            
-            for j, idx in enumerate(index_list):
-                # skip the current frame
-                if idx == index:
-                    mask[j] = 1
-                    continue
-                
-                # check if index is within range
-                if idx < 0 or idx >= self.num_samples:
-                    break
-                # check if the the frames are from the same scene
-                adj_info = self.prepare_planning_info(idx)
-                if curr_info['scene_token'] != adj_info['scene_token']:
-                    break
-                # instance not found in the adjacent frame
-                if instance_id not in adj_info['gt_instances_ids']:
-                    continue
-                # box index of the instance in the adjacent frame
-                adj_idx = np.where(adj_info['gt_instances_ids'] == instance_id)[0][0]
-                
-                # these two should be the same
-                #instance2lidar_adj = adj_info['sensors']['LIDAR_TOP']['world2sensor'] @ adj_info['gt_instance2world'][adj_idx]
-                #adj2curr = instance2lidar_curr @ np.linalg.inv(instance2lidar_adj)
-                # viewing instance in adj frame lidar coords from the current frame's lidar coord
-                adj2curr = world2lidar_curr @ adj_info['gt_instances2world'][adj_idx]
-
-                xyr[j, :2] = adj2curr[:2, 3]
-                xyr[j, 2] = np.arctan2(adj2curr[1, 0], adj2curr[0, 0]) # [-pi, pi]
-                mask[j] = 1
-        
-            trajs.append(TrajectoryData(metainfo=dict(num_past_steps=self.past_steps, 
-                                                num_future_steps=self.planning_steps,
-                                                time_step=self.sample_interval/self.FPS), 
-                                    data=xyr.astype(np.float32),
-                                    mask=mask.astype(np.uint8))
-        )
-        return trajs
-                
     def pre_pipeline(self, results):
         """Initialization before data preparation.
 
@@ -622,6 +480,7 @@ class Planning3DDataset(Dataset):
         results['img_fields'] = []
         results['pts_fields'] = []
         results['ego_fields'] = [] # ['gt_ego_traj']
+        results['map_fields'] = []
         results['bbox3d_fields'] = []
         results['pts_seg_fields'] = []
         results['grid_fields'] = [] 
@@ -639,19 +498,27 @@ class Planning3DDataset(Dataset):
         Returns:
             dict: Training data dict of the corresponding index.
         """
-        info = self.prepare_planning_info(index)
-        # add past/future annotation info, such as future trajectory
-        info = self.generate_past_future_info(index, info) 
-        # assemble for data pipeline
-        input_dict = self.get_data_info(info)
+        # get data info
+        input_dict = self.get_data_info(index)
         if not input_dict:
             return None
+        
+        # assemble for data pipeline
         self.pre_pipeline(input_dict)
         example = self.pipeline(input_dict)
         if self.filter_empty_gt and \
                 (example is None or
-                    ~(example['data_samples'].gt_instances.labels != -1).any()):
+                    ~(example['data_samples'].gt_instances_3d.label != -1).any()):
             return None
+        
+        # lidar poitns: convert to mmdet3d lidar 
+        if 'points' in example['inputs']:
+            points = example['inputs']['points']
+            if self.TO_MMDET3D_LIDAR is not None:
+                points[:, 0] = points[:, 1]
+                points[:, 1] = -points[:, 0]
+            example['inputs']['points'] = points
+        
         return example
 
     def prepare_test_data(self, index):
@@ -663,11 +530,8 @@ class Planning3DDataset(Dataset):
         Returns:
             dict: Testing data dict of the corresponding index.
         """
-        info = self.prepare_planning_info(index)
-        # add past/future annotation info, such as future trajectory
-        info = self.generate_past_future_info(index, info) 
         # assemble for data pipeline
-        input_dict = self.get_data_info(info)
+        input_dict = self.get_data_info(index)
         if not input_dict:
             return None
 
@@ -675,37 +539,18 @@ class Planning3DDataset(Dataset):
         example = self.pipeline(input_dict)
         if self.filter_empty_gt and \
                 (example is None or
-                    ~(example['data_samples'].gt_instances.labels != -1).any()):
+                    ~(example['data_samples'].gt_instances_3d.label != -1).any()):
             return None
         
+        # lidar poitns: convert to mmdet3d lidar 
+        if 'points' in example['inputs']:
+            points = example['inputs']['points']
+            if self.to_mmdet3d_lidar is not None:
+                points[:, [0, 1]] = points[:, [1, 0]]
+                points[:, 1] = -points[:, 1]
+            example['inputs']['points'] = points
+            
         return example
-
-    @classmethod
-    def get_classes(cls, classes=None):
-        """Get class names of current dataset.
-
-        Args:
-            classes (Sequence[str] | str | None): If classes is None, use
-                default CLASSES defined by builtin dataset. If classes is a
-                string, take it as a file name. The file contains the name of
-                classes where each line contains one class name. If classes is
-                a tuple or list, override the CLASSES defined by the dataset.
-
-        Return:
-            list[str]: A list of class names.
-        """
-        if classes is None:
-            return cls.CLASSES
-
-        if isinstance(classes, str):
-            # take it as a file path
-            class_names = list_from_file(classes)
-        elif isinstance(classes, (tuple, list)):
-            class_names = classes
-        else:
-            raise ValueError(f'Unsupported type {type(classes)} of classes.')
-
-        return class_names
 
     def format_results(self,
                        outputs,
@@ -780,99 +625,65 @@ class Planning3DDataset(Dataset):
 
         return ret_dict
 
-    def _build_default_pipeline(self):
-        """Build the default pipeline for this dataset."""
-        raise NotImplementedError('_build_default_pipeline is not implemented '
-                                  f'for dataset {self.__class__.__name__}')
-
-    def _get_pipeline(self, pipeline):
-        """Get data loading pipeline in self.show/evaluate function.
-
-        Args:
-            pipeline (list[dict] | None): Input pipeline. If None is given, \
-                get from self.pipeline.
-        """
-        if pipeline is None:
-            if not hasattr(self, 'pipeline') or self.pipeline is None:
-                warnings.warn(
-                    'Use default pipeline for data loading, this may cause '
-                    'errors when data is on ceph')
-                return self._build_default_pipeline()
-            loading_pipeline = get_loading_pipeline(self.pipeline.transforms)
-            return Compose(loading_pipeline)
-        return Compose(pipeline)
-
-    def _extract_data(self, index, pipeline, key, load_annos=False):
-        """Load data using input pipeline and extract data according to key.
-
-        Args:
-            index (int): Index for accessing the target data.
-            pipeline (:obj:`Compose`): Composed data loading pipeline.
-            key (str | list[str]): One single or a list of data key.
-            load_annos (bool): Whether to load data annotations.
-                If True, need to set self.test_mode as False before loading.
-
-        Returns:
-            np.ndarray | torch.Tensor | list[np.ndarray | torch.Tensor]:
-                A single or a list of loaded data.
-        """
-        assert pipeline is not None, 'data loading pipeline is not provided'
-        # when we want to load ground-truth via pipeline (e.g. bbox, seg mask)
-        # we need to set self.test_mode as False so that we have 'annos'
-        if load_annos:
-            original_test_mode = self.test_mode
-            self.test_mode = False
-        input_dict = self.get_data_info(index)
-        self.pre_pipeline(input_dict)
-        example = pipeline(input_dict)
-
-        # extract data items according to keys
-        if isinstance(key, str):
-            data = extract_result_dict(example, key)
-        else:
-            data = [extract_result_dict(example, k) for k in key]
-        if load_annos:
-            self.test_mode = original_test_mode
-
-        return data
-
-    def __len__(self):
-        """Return the length of data infos.
-
-        Returns:
-            int: Length of data infos.
-        """
-        return len(self.data_infos)
-
-    def _rand_another(self, idx):
-        """Randomly get another item with the same flag.
-
-        Returns:
-            int: Another index of item with the same flag.
-        """
-        pool = np.where(self.flag == self.flag[idx])[0]
-        return np.random.choice(pool)
-
     def __getitem__(self, idx):
         """Get item from infos according to the given index.
 
         Returns:
             dict: Data dictionary of the corresponding index.
         """
+        # Performing full initialization by calling `__getitem__` will consume
+        # extra memory. If a dataset is not fully initialized by setting
+        # `lazy_init=True` and then fed into the dataloader. Different workers
+        # will simultaneously read and parse the annotation. It will cost more
+        # time and memory, although this may work. Therefore, it is recommended
+        # to manually call `full_init` before dataset fed into dataloader to
+        # ensure all workers use shared RAM from master process.
+        if not self._fully_initialized:
+            print_log(
+                'Please call `full_init()` method manually to accelerate '
+                'the speed.',
+                logger='current',
+                level=logging.WARNING)
+            self.full_init()
+            
         if self.test_mode:
             return self.prepare_test_data(idx)
         while True:
             data = self.prepare_train_data(idx)
             if data is None:
-                idx = self._rand_another(idx)
+                idx = self._rand_another()
                 continue
             return data
 
-    def _set_group_flag(self):
-        """Set flag according to image aspect ratio.
-
-        Images with aspect ratio greater than 1 will be set as group 1,
-        otherwise group 0. In 3D datasets, they are all the same, thus are all
-        zeros.
+    def _limit_yaw(self, yaw):
+        """Limit the yaw to be in the range of [-pi, pi].
+        
+        Args:
+            yaw (float): Yaw angle.
+        
+        Returns:
+            float: Limited yaw angle.
         """
-        self.flag = np.zeros(len(self), dtype=np.uint8)
+        return (yaw + np.pi) % (2 * np.pi) - np.pi
+
+    @classmethod
+    def _get_to_mmdet3d_lidar(cls, box_source: str, box_target: str):
+        """Get the transformation matrix from box_source to box_target.
+        
+        Args:
+            box_source (str): Source box type.
+            box_target (str): Target box type.
+        
+        Returns:
+            np.ndarray: Transformation matrix from source to target.
+        """
+        assert box_target.upper() ==  'LIDAR', \
+            f'box_target should be LIDAR, but got {box_target}'
+        if box_source.upper() == 'LIDAR' and box_target.upper() == 'LIDAR':
+            return None
+        elif box_source.upper() == 'DEPTH' and box_target.upper() == 'LIDAR':
+            return [[0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+        elif box_source.upper() == 'CAMERA' and box_target.upper() == 'LIDAR':
+            return [[0, 0, 1, 0], [-1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]]
+        else:
+            raise ValueError(f"Unknown box type {box_source} to {box_target}")

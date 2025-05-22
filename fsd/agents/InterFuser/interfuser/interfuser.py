@@ -7,7 +7,7 @@ import torch.nn as nn
 from mmdet3d.models import Base3DDetector
 from mmdet.models import (SinePositionalEncoding, \
                             LearnedPositionalEncoding)
-from fsd.structures import TrajectoryData, Instances, Ego, Grids
+from fsd.structures import Trajectory, Instances, Ego, Grids
 from fsd.utils import ConfigType, OptConfigType, DataSampleType, OptDataSampleType
 from fsd.registry import NECKS as FSD_NECKS
 from fsd.registry import AGENTS as FSD_AGENTS
