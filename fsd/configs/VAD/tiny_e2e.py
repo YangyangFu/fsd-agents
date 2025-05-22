@@ -12,7 +12,7 @@ point_cloud_range = [-15.0, -30.0, -2.0, 15.0, 30.0, 2.0]
 voxel_size = [0.15, 0.15, 4]
 
 # default loading of image in mmengine is BGR
-to_rgb = False
+to_rgb = True
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=to_rgb)
 # For nuScenes we usually do 10-class detection
@@ -35,7 +35,7 @@ past_steps = 2 # past trajectory length
 agent_fut_steps = 6 # motion prediction length if any
 ego_fut_steps = 6 # planning length
 
-version = 'v1.0-mini'#'v1.0-trainval'
+version = 'v1.0-trainval' # 'v1.0-mini' or 'v1.0-trainval'
 metainfo = dict(
     classes=class_names,
     map_classes=map_classes,
@@ -61,11 +61,11 @@ view_names = [
 _dim_ = 256
 _pos_dim_ = _dim_//2
 _ffn_dim_ = _dim_*2
-_num_levels_ = 4
-bev_h_ = 200
-bev_w_ = 200
-queue_length = 4 # each sequence contains `queue_length` frames.
-total_epochs = 10
+_num_levels_ = 1
+bev_h_ = 100
+bev_w_ = 100
+queue_length = 3 # each sequence contains `queue_length` frames.
+total_epochs = 60
 
 model = dict(
     type='VAD',
@@ -76,7 +76,7 @@ model = dict(
         _scope_='mmdet',
         depth=50,
         num_stages=4,
-        out_indices=(1, 2, 3),
+        out_indices=(3,),
         frozen_stages=1,
         norm_cfg=dict(type='BN', requires_grad=False),
         norm_eval=True,
@@ -85,7 +85,7 @@ model = dict(
     img_neck=dict(
         type='FPN',
         _scope_='mmdet',
-        in_channels=[512, 1024, 2048],
+        in_channels=[2048],
         out_channels=_dim_,
         start_level=0,
         add_extra_convs='on_output',
@@ -191,7 +191,7 @@ model = dict(
         use_can_bus=True,
         bev_encoder=dict(
             type='BEVFormerEncoder',
-            num_layers=6,
+            num_layers=3,
             pc_range=point_cloud_range,
             num_points_in_pillar=4,
             return_intermediate=False,
@@ -219,7 +219,7 @@ model = dict(
                                     'ffn', 'norm'))),
         bev_decoder=dict(
             type='BEVFormerDecoder',
-            num_layers=6,
+            num_layers=3,
             return_intermediate=True,
             transformerlayers=dict(
                 #type='mmdet.models.DetrTransformerDecoderLayer',
@@ -251,7 +251,7 @@ model = dict(
                                     'ffn', 'norm'))),
         map_decoder=dict(
             type='VectorMapDecoder',
-            num_layers=6,
+            num_layers=3,
             return_intermediate=True,
             transformerlayers=dict(
                 #type='mmdet.models.DetrTransformerDecoderLayer',
@@ -443,8 +443,8 @@ test_pipeline = [
         with_instances_traj=True,
         with_instances_ids=True,
         with_vector_map=True),
-    #dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
-    #dict(type='ObjectNameFilter', classes=class_names),
+    dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
+    dict(type='ObjectNameFilter', classes=class_names),
     dict(type='NormalizeMultiviewImage', **img_norm_cfg, divider=1.0),
     dict(type='RandomScaleImageMultiViewImage', scales=[0.8]),
     dict(type='PadMultiViewImage', size_divisor=32),
@@ -548,7 +548,7 @@ lr_config = dict(
     min_lr_ratio=1e-3)
 
 # eval
-evaluation = dict(interval=1, pipeline=test_pipeline)
+evaluation = dict(interval=total_epochs, pipeline=test_pipeline)
 
 # training log
 vis_backends = [
@@ -561,7 +561,7 @@ visualizer = dict(
     name='visualizer',
 )
 
-load_from = './ckpts/vad_base.pth'
+load_from = './ckpts/vad_tiny.pth'
 #resume = True
 #auto_scale_lr = dict(
 #    base_batch_size=1,

@@ -5,7 +5,7 @@ from fsd.runner import Runner
 
 init_default_scope('fsd')
 
-cfg = Config.fromfile('fsd/configs/VAD/test_only.py')
+cfg = Config.fromfile('fsd/configs/VAD/tiny_e2e.py')
 
 def test_model_registry():
     model = MODELS.build(cfg.model)
