@@ -5,7 +5,7 @@ from fsd.runner import Runner
 
 init_default_scope('fsd')
 
-cfg = Config.fromfile('fsd/configs/VAD/tiny_e2e.py')
+cfg = Config.fromfile('fsd/configs/VAD/base_e2e.py')
 
 def test_model_registry():
     model = MODELS.build(cfg.model)
@@ -18,7 +18,7 @@ def test_dataloader_registry():
 
 
 def test_dataloader():
-    dataloader = Runner.build_dataloader(cfg.test_dataloader)
+    dataloader = Runner.build_dataloader(cfg.train_dataloader)
     for i, data in enumerate(dataloader):
         if i > 10:
             break
@@ -27,8 +27,8 @@ def test_dataloader():
 
 def test_train():
     runner = RUNNERS.build(cfg)
-    #runner.train()
-    runner.test()
+    runner.train()
+    #runner.test()
     
 #test_model_registry()
 #test_dataloader_registry()

@@ -207,6 +207,11 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         fut_traj = []
         fut_traj_mask = []
         goal = []
+        
+        # ann might be none when no agents in the scene
+        if input_dict['ann_info'] is None:
+            return
+        
         # (num_boxes, num_steps, 4) - (x, y, z, yaw)
         fut_traj = input_dict['ann_info']['gt_bboxes_traj']
         fut_traj_xy = fut_traj[:, :, :2]
@@ -306,9 +311,11 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         """
         ann_info = super().parse_ann_info(info)
         
+        if ann_info is None:
+            return None
+        
         # add local map info
         ann_map = self.parse_map_ann_info(info)
-        
         # add to ann_info
         ann_info['gt_map_vectors_pt'] = ann_map['gt_vecs_pts_loc']
         ann_info['gt_map_vectors_label'] = ann_map['gt_vecs_label']
@@ -330,7 +337,14 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
         """
         # get data info
         input_dict = self.get_data_info(index)
-        if not input_dict:
+        # no annotation info
+        # TODO: this needs attention: the sample will be skipped if no agent boxes 
+        # in the scene. This might be good for box detection, but for planning tasks,
+        # we still have ego and map annotation, which can be used for planning.
+        if input_dict['ann_info'] is None:
+            print(f'No annotation info for index {index}, skip this sample.')
+            
+        if not input_dict or input_dict['ann_info'] is None:
             return None
                             
         # add agent attributes as in original VAD paper
@@ -376,9 +390,12 @@ class NuScenesDatasetVAD(NuScenesDatasetPlan3D):
             # assemble for data pipeline
             self.pre_pipeline(input_dict)
             example = self.pipeline(input_dict)
+            
+            # if empty or no agent boxes or no map boxes
             if self.filter_empty_gt and \
                     (example is None or
-                        ~(example['data_samples'].gt_instances_3d.label != -1).any()):
+                        ~(example['data_samples'].gt_instances_3d.label != -1).any() or 
+                            len(example['data_samples'].gt_map_vectors.pt.instance_list) == 0):
                 return None
 
             queue.append(example)
