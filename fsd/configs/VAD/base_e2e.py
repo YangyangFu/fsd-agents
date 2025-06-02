@@ -401,7 +401,7 @@ train_pipeline = [
 
 train_dataloader = dict(
     batch_size=1,
-    num_workers=4,
+    num_workers=8,
     persistent_workers=True,
     sampler=dict(type="DefaultSampler", _scope_="mmengine", shuffle=False),
     pin_memory=True,
@@ -539,13 +539,16 @@ optim_wrapper = dict(
     )
 )
 
-# learning policy
-lr_config = dict(
-    policy='CosineAnnealing',
-    warmup='linear',
-    warmup_iters=500,
-    warmup_ratio=1.0 / 3,
-    min_lr_ratio=1e-3)
+# learning rate scheduler
+param_scheduler = [
+    dict(type='LinearLR', start_factor=1.0 / 3, by_epoch=False, begin=0, end=5000), # warmup
+    dict(type='CosineAnnealingLR',
+        T_max=total_epochs,
+        begin=0,
+        end=total_epochs,
+        by_epoch=True,
+        eta_min=1e-3)
+    ]
 
 # eval
 evaluation = dict(interval=1, pipeline=test_pipeline)
@@ -563,10 +566,10 @@ visualizer = dict(
 
 load_from = './ckpts/vad_base.pth'
 #resume = True
-#auto_scale_lr = dict(
-#    base_batch_size=1,
-#    enable=True,
-#)
+auto_scale_lr = dict(
+    base_batch_size=1,
+    enable=True,
+)
 
 
 # default hooks
@@ -574,8 +577,8 @@ default_hooks = dict(
     checkpoint=dict(
         type='CheckpointHook', 
         save_begin=0,
-        interval=1, 
-        by_epoch=True,
+        interval=5000, 
+        by_epoch=False,
         save_best='auto',
         rule='less',
         max_keep_ckpts=3,
